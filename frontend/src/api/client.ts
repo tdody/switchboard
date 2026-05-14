@@ -69,6 +69,47 @@ export async function renameWindow(
   return r.ok;
 }
 
+/** kill-window for `session:index`. Resolves false on any non-2xx. */
+export async function killWindow(session: string, index: number): Promise<boolean> {
+  const r = await fetch(
+    `${BASE}/window?session=${encodeURIComponent(session)}&index=${index}`,
+    { method: "DELETE", headers: { ...csrfHeaders() } },
+  );
+  return r.ok;
+}
+
+/** kill-session for `session`. Resolves false on any non-2xx. */
+export async function killSession(session: string): Promise<boolean> {
+  const r = await fetch(
+    `${BASE}/session?session=${encodeURIComponent(session)}`,
+    { method: "DELETE", headers: { ...csrfHeaders() } },
+  );
+  return r.ok;
+}
+
+/** new-window in `session`; resolves the new window's id, or null on failure. */
+export async function createWindow(
+  session: string,
+  name: string,
+): Promise<{ index: number; id: string } | null> {
+  const r = await fetch(
+    `${BASE}/window?session=${encodeURIComponent(session)}&name=${encodeURIComponent(name)}`,
+    { method: "POST", headers: { ...csrfHeaders() } },
+  );
+  if (!r.ok) return null;
+  const data = (await r.json()) as { index: number; id: string };
+  return { index: data.index, id: data.id };
+}
+
+/** detach-client for a specific client tty. Resolves false on any non-2xx. */
+export async function detachClient(tty: string): Promise<boolean> {
+  const r = await fetch(`${BASE}/detach?tty=${encodeURIComponent(tty)}`, {
+    method: "POST",
+    headers: { ...csrfHeaders() },
+  });
+  return r.ok;
+}
+
 /** One-shot pane snapshot — used by the terminal modal when live streaming
  *  is disabled in settings. */
 export async function fetchPane(

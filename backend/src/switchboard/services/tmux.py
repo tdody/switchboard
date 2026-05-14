@@ -278,3 +278,66 @@ def focus(session: str, index: int) -> bool | None:
         except Exception:  # noqa: BLE001
             continue
     return True
+
+
+def _cmd_ok(srv: libtmux.Server, *args: str) -> bool:
+    """Run a tmux command; True when it produced no stderr."""
+    try:
+        # No type-ignore needed here (unlike the literal-arg srv.cmd sites):
+        # ty can't analyze the `*args` unpack, so it raises no false positive.
+        result = srv.cmd(*args)
+        return not (result.stderr and any(result.stderr))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def kill_window(session: str, index: int) -> bool:
+    """kill-window for `session:index`. False when the window doesn't exist.
+
+    Note: killing the last window of a session destroys the session too — and
+    the last session stops the tmux server. The next /api/state poll reflects
+    that; nothing here needs to special-case it.
+    """
+    srv = get_server()
+    if srv is None:
+        return False
+    return _cmd_ok(srv, "kill-window", "-t", f"{session}:{index}")
+
+
+def kill_session(session: str) -> bool:
+    """kill-session for `session`. False when the session doesn't exist."""
+    srv = get_server()
+    if srv is None:
+        return False
+    return _cmd_ok(srv, "kill-session", "-t", session)
+
+
+def new_window(session: str, name: str) -> int | None:
+    """new-window in `session`; return the new window index, or None on failure.
+
+    `-P -F #{window_index}` makes tmux print the created window's index so the
+    caller can build its `session:index` id without a follow-up state query.
+    """
+    srv = get_server()
+    if srv is None:
+        return None
+    try:
+        result = srv.cmd("new-window", "-t", session, "-n", name, "-P", "-F", "#{window_index}")  # ty: ignore
+        if result.stderr and any(result.stderr):
+            return None
+        out = [line for line in (result.stdout or []) if line.strip()]
+        return int(out[0]) if out else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def detach_client(tty: str) -> bool:
+    """detach-client for a specific client tty. False when no such client.
+
+    ttys are unique across the tmux server, so the target is the tty alone —
+    the ticket's `session` param is redundant and the route omits it.
+    """
+    srv = get_server()
+    if srv is None:
+        return False
+    return _cmd_ok(srv, "detach-client", "-t", tty)
