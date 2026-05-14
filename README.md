@@ -11,14 +11,21 @@ cd backend && uv sync && cd ..
 # 2. Install frontend deps
 cd frontend && npm install && cd ..
 
-# 3. Run both servers (backend :8765, frontend :5173)
+# 3. (one-time, per clone) Enable the pre-push hook
+git config core.hooksPath scripts/hooks
+
+# 4. Run both servers (backend :8765, frontend :5173)
 ./scripts/dev.sh
 
-# 4. (optional) Seed a multi-session/multi-window tmux server for local testing
+# 5. (optional) Seed a multi-session/multi-window tmux server for local testing
 ./scripts/seed-tmux.sh
 ```
 
 Open <http://localhost:5173>.
+
+The pre-push hook runs the same checks as CI (ruff format/check, ty, pytest,
+tsc, vite build) before any `git push`. Skip with `git push --no-verify` for
+emergencies.
 
 ## Layout
 

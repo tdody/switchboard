@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Pre-push hook: runs the same checks as CI before allowing `git push`.
+# Skip with `git push --no-verify` for emergencies.
+#
+# Enable for this clone: `git config core.hooksPath scripts/hooks`
+set -uo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+DIM='\033[2m'
+RST='\033[0m'
+
+failed=0
+log_dir="$(mktemp -d)"
+trap 'rm -rf "$log_dir"' EXIT
+
+run_step() {
+  local name="$1"
+  local log="$log_dir/$(echo "$name" | tr -c '[:alnum:]' '_').log"
+  shift
+  printf "  %-32s " "$name"
+  if "$@" >"$log" 2>&1; then
+    printf "${GREEN}✓${RST}\n"
+  else
+    printf "${RED}✗${RST}\n"
+    echo "${DIM}--- ${name} output ---${RST}"
+    tail -40 "$log"
+    echo "${DIM}--- end ---${RST}"
+    failed=1
+  fi
+}
+
+echo "pre-push: running CI checks (skip with --no-verify)"
+
+if [[ -d backend ]]; then
+  echo "backend:"
+  (cd backend && run_step "ruff format --check" uv run ruff format --check .)
+  (cd backend && run_step "ruff check"          uv run ruff check .)
+  (cd backend && run_step "ty check"            uvx ty check)
+  (cd backend && run_step "pytest"              uv run pytest -q)
+fi
+
+if [[ -d frontend ]]; then
+  echo "frontend:"
+  (cd frontend && run_step "tsc --noEmit" npx tsc --noEmit)
+  (cd frontend && run_step "vite build"   npx vite build)
+fi
+
+if [[ $failed -ne 0 ]]; then
+  echo
+  printf "${RED}pre-push: blocked.${RST} Fix the failures above, or push with ${DIM}--no-verify${RST} to bypass.\n"
+  exit 1
+fi
+
+echo
+printf "${GREEN}pre-push: all checks passed.${RST}\n"
+exit 0
