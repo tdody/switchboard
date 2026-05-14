@@ -15,7 +15,7 @@ import subprocess
 import time
 from typing import Final
 
-from switchboard.schemas import Agent, CIState, Status
+from switchboard.schemas import Agent, CIState, Prompt, PromptChoice, Status
 
 # Spinner: any non-trivial line beginning with brail glyphs OR the ✻ glyph.
 _BRAIL_GLYPHS: Final = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⡿⣟⣯⣷⣾⣽⣻⢿"
@@ -46,6 +46,12 @@ _RECAP_RE = re.compile(r"^\s*[●✓✗][\s ]+(.+?)\s*$")
 
 _BORDER_RE = re.compile(r"^[\s─━═]+$")
 _PROMPT_BOX_RE = re.compile(r"^\s*>")
+
+# A menu choice line: optional box-drawing/whitespace prefix, optional ❯/>
+# cursor, a 1-2 digit number, a dot, then the label. The trailing box-drawing
+# char (if any) is trimmed from the label by the strip in _scan_menu.
+_MENU_CHOICE_RE = re.compile(r"^[\s│|┃▏╎]*([❯>])?\s*(\d{1,2})\.\s+(.+?)\s*$")
+_BOX_CHARS = " │|┃▏╎─━═\t"
 
 _RECAP_CLIP = 240
 _ACTION_CLIP = 160
@@ -114,6 +120,62 @@ def _scan_pending(lines: list[str]) -> tuple[bool, str | None]:
         if pending:
             break
     return pending, action
+
+
+def _scan_menu(lines: list[str]) -> Prompt | None:
+    """Detect Claude Code's modern numbered arrow-key menu in the recent tail.
+
+    Walks up from the bottom, skipping trailing blank/border lines, and collects
+    the contiguous run of numbered choice lines. The run is only accepted as a
+    menu when the numbers are sequential starting at 1 — this rejects captures
+    caught mid-redraw and stray numbered prose.
+    """
+    tail = [_strip_ansi(r) for r in lines[-40:]]
+    rev: list[tuple[int, str, bool]] = []  # (number, label, selected) bottom-up
+    started = False
+    first_choice_idx: int | None = None
+    for i in range(len(tail) - 1, -1, -1):
+        m = _MENU_CHOICE_RE.match(tail[i])
+        if m:
+            started = True
+            cursor, num, label = m.group(1), int(m.group(2)), m.group(3)
+            rev.append((num, label.strip(_BOX_CHARS), cursor is not None))
+            first_choice_idx = i
+        elif started:
+            break  # end of the choice run
+    if not rev:
+        return None
+    rev.reverse()
+    nums = [n for n, _, _ in rev]
+    if nums != list(range(1, len(nums) + 1)):
+        return None
+    choices = [PromptChoice(index=n, label=lbl, selected=sel) for n, lbl, sel in rev]
+    # At most one selected; if a redraw left two cursors, keep only the last.
+    selected_positions = [j for j, c in enumerate(choices) if c.selected]
+    for j in selected_positions[:-1]:
+        choices[j].selected = False
+    # Question: nearest non-empty, non-border line above the first choice.
+    question: str | None = None
+    if first_choice_idx is not None:
+        for j in range(first_choice_idx - 1, -1, -1):
+            stripped = tail[j].strip(_BOX_CHARS)
+            if not stripped or _BORDER_RE.match(tail[j].strip()):
+                continue
+            question = stripped[:_ACTION_CLIP]
+            break
+    return Prompt(kind="menu", question=question, choices=choices)
+
+
+def parse_prompt(lines: list[str]) -> Prompt | None:
+    """Detect an interactive Claude Code prompt in the recent pane tail.
+
+    Menus take priority over the legacy (y/n)/press-enter patterns because a
+    menu can legitimately contain the word "continue" etc. in a choice label.
+    """
+    menu = _scan_menu(lines)
+    if menu is not None:
+        return menu
+    return None
 
 
 _BRANCH_CACHE: dict[str, tuple[float, str | None]] = {}

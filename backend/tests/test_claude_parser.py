@@ -65,3 +65,33 @@ def test_duration_parsing(duration_str: str, expected: str) -> None:
     _, _, agent = claude_parser.parse_pane([line], cwd=None)
     assert agent is not None
     assert agent.duration == expected
+
+
+def test_parse_prompt_menu_cursor_on_first() -> None:
+    prompt = claude_parser.parse_prompt(_load("claude_menu.txt"))
+    assert prompt is not None
+    assert prompt.kind == "menu"
+    assert prompt.question == "Do you want to proceed?"
+    assert [c.index for c in prompt.choices] == [1, 2, 3]
+    assert [c.label for c in prompt.choices] == [
+        "Yes",
+        "Yes, and don't ask again for rm commands in this project",
+        "No, and tell Claude what to do differently (esc)",
+    ]
+    assert [c.selected for c in prompt.choices] == [True, False, False]
+
+
+def test_parse_prompt_menu_cursor_on_second() -> None:
+    prompt = claude_parser.parse_prompt(_load("claude_menu_cursor2.txt"))
+    assert prompt is not None
+    assert prompt.kind == "menu"
+    assert [c.selected for c in prompt.choices] == [False, True, False]
+
+
+def test_parse_prompt_menu_redraw_rejected() -> None:
+    # Non-sequential numbering (1. not yet drawn) must not be treated as a menu.
+    assert claude_parser.parse_prompt(_load("claude_menu_redraw.txt")) is None
+
+
+def test_parse_prompt_no_prompt_returns_none() -> None:
+    assert claude_parser.parse_prompt(_load("claude_idle.txt")) is None
