@@ -69,6 +69,21 @@ export async function renameWindow(
   return r.ok;
 }
 
+/** One-shot pane snapshot — used by the terminal modal when live streaming
+ *  is disabled in settings. */
+export async function fetchPane(
+  session: string,
+  index: number,
+  lines = 500,
+): Promise<string[]> {
+  const r = await fetch(
+    `${BASE}/pane?session=${encodeURIComponent(session)}&index=${index}&lines=${lines}`,
+  );
+  if (!r.ok) return [];
+  const data = (await r.json()) as { lines: string[] };
+  return data.lines;
+}
+
 export function openPaneWS(session: string, index: number): WebSocket {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
   return new WebSocket(

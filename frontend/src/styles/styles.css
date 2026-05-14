@@ -1150,6 +1150,10 @@ input, textarea, select { font: inherit; color: inherit; }
   font-size: 12px;
   min-width: 240px;
 }
+.settings-row input[type="range"] {
+  accent-color: var(--accent);
+  min-width: 160px;
+}
 
 .connect-pill {
   display: inline-flex; align-items: center; gap: 8px;

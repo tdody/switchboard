@@ -7,21 +7,27 @@ import { Header, type HeaderCounts } from "./components/Header";
 import { Kanban } from "./components/Kanban";
 import { NeedsStrip } from "./components/NeedsStrip";
 import { RenameOverlay } from "./components/RenameOverlay";
+import { SettingsModal } from "./components/SettingsModal";
 import { Subhead } from "./components/Subhead";
 import { TerminalModal } from "./components/TerminalModal";
 import { ToastStack } from "./components/ToastStack";
 import type { ToastData } from "./components/Toast";
 import { applyFilter, parseQuery, type StatusFilter } from "./lib/filter";
 import { columnsForNav, navigateCard, type NavDirection } from "./lib/cardNav";
+import { useSettings } from "./lib/settings";
 import { useURLParam } from "./lib/urlState";
 import type { Window } from "./types";
 
-const POLL_MS = 3000;
 const FAIL_THRESHOLD = 3;
+const SERVER_ADDR = "127.0.0.1:8765";
 const STATUS_FILTERS: StatusFilter[] = ["all", "waiting", "running", "idle"];
 
 export function App() {
-  const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, POLL_MS);
+  const settings = useSettings();
+  const { data: state, consecutiveErrors, refresh } = usePolling(
+    fetchState,
+    settings.pollIntervalMs,
+  );
 
   // URL-synced state — survives reload + supports back/forward.
   const [filterParam, setFilterParam] = useURLParam("filter", "all");
@@ -37,6 +43,7 @@ export function App() {
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const [showNeedsStrip, setShowNeedsStrip] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
   const [paletteTargetId, setPaletteTargetId] = useState<string | null>(null);
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
 
@@ -132,13 +139,21 @@ export function App() {
   const handleRename = useCallback((w: Window) => setRenameTargetId(w.paneId), []);
   const handleSend = useCallback((w: Window) => setPaletteTargetId(w.paneId), []);
 
-  // Apply theme + density to <html>
+  // Apply persisted appearance settings to <html>. Theme/density/reduced-motion
+  // CSS already ships; THI-62/64/70 add the controls that change these.
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", "dark");
-    document.documentElement.setAttribute("data-density", "comfy");
-    document.documentElement.setAttribute("data-show-previews", "false");
-    document.documentElement.setAttribute("data-reduced-motion", "false");
-  }, []);
+    const el = document.documentElement;
+    el.setAttribute("data-theme", settings.theme);
+    el.setAttribute("data-density", settings.density);
+    el.setAttribute("data-show-previews", String(settings.showPreviews));
+    el.setAttribute("data-reduced-motion", String(settings.reducedMotion));
+  }, [settings.theme, settings.density, settings.showPreviews, settings.reducedMotion]);
+
+  // Pending-input badge in the browser tab title.
+  useEffect(() => {
+    const n = pendingWindows.length;
+    document.title = settings.notifyBadge && n > 0 ? `(${n}) Switchboard` : "Switchboard";
+  }, [settings.notifyBadge, pendingWindows.length]);
 
   // Global hotkeys: ⌘K palette, arrows + j/k/h/l for card nav, / for search,
   // Esc closes modal, Enter opens highlighted card.
@@ -146,7 +161,7 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const tag = ((e.target as HTMLElement)?.tagName || "").toLowerCase();
       const inField = tag === "input" || tag === "textarea";
-      const anyOverlay = openId || paletteTargetId || renameTargetId;
+      const anyOverlay = openId || paletteTargetId || renameTargetId || showSettings;
 
       // ⌘K / Ctrl+K — open palette pre-targeted to first pending, then highlighted,
       // then first window. Always available, even from inside inputs.
@@ -208,22 +223,41 @@ export function App() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [openId, paletteTargetId, renameTargetId, navCols, highlightedId, windows, openCard]);
+  }, [
+    openId,
+    paletteTargetId,
+    renameTargetId,
+    showSettings,
+    navCols,
+    highlightedId,
+    windows,
+    openCard,
+  ]);
+
+  const settingsModal = showSettings ? (
+    <SettingsModal
+      serverAddr={SERVER_ADDR}
+      sessionCount={sessions.length}
+      windowCount={windows.length}
+      onClose={() => setShowSettings(false)}
+    />
+  ) : null;
 
   if (inEmpty) {
     return (
       <div className="app">
         <Header
           counts={counts}
-          serverAddr="127.0.0.1:8765"
+          serverAddr={SERVER_ADDR}
           inEmpty
           onHelp={() => {}}
-          onSettings={() => {}}
+          onSettings={() => setShowSettings(true)}
           onRetry={refresh}
         />
         <main className="main">
           <EmptyState onRetry={refresh} />
         </main>
+        {settingsModal}
       </div>
     );
   }
@@ -232,10 +266,10 @@ export function App() {
     <div className="app">
       <Header
         counts={counts}
-        serverAddr="127.0.0.1:8765"
+        serverAddr={SERVER_ADDR}
         inEmpty={false}
         onHelp={() => {}}
-        onSettings={() => {}}
+        onSettings={() => setShowSettings(true)}
       />
       {pendingWindows.length > 0 && showNeedsStrip && (
         <NeedsStrip
@@ -277,6 +311,7 @@ export function App() {
           onApplied={refresh}
         />
       )}
+      {settingsModal}
       <ToastStack toasts={toasts} />
     </div>
   );

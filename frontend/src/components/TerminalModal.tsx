@@ -3,7 +3,8 @@ import { FitAddon } from "xterm-addon-fit";
 import { Terminal } from "xterm";
 import "xterm/css/xterm.css";
 
-import { openPaneWS } from "../api/client";
+import { fetchPane, openPaneWS } from "../api/client";
+import { useSettings } from "../lib/settings";
 import type { Window } from "../types";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
@@ -13,17 +14,24 @@ interface Props {
   onClose: () => void;
 }
 
-type Connection = "connecting" | "live" | "closed";
+type Connection = "connecting" | "live" | "closed" | "snapshot";
+
+const CONN_LABEL: Record<Connection, string> = {
+  connecting: "connecting",
+  live: "WS · live",
+  closed: "closed",
+  snapshot: "snapshot",
+};
 
 export function TerminalModal({ window: win, onClose }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
   const [conn, setConn] = useState<Connection>("connecting");
+  const wsEnabled = useSettings().wsStreamEnabled;
 
   useEffect(() => {
     if (!hostRef.current) return;
     const term = new Terminal({
-      fontFamily: 'JetBrains Mono, ui-monospace, Menlo, monospace',
+      fontFamily: "JetBrains Mono, ui-monospace, Menlo, monospace",
       fontSize: 13,
       lineHeight: 1.2,
       convertEol: true,
@@ -53,32 +61,46 @@ export function TerminalModal({ window: win, onClose }: Props) {
     };
     globalThis.addEventListener("resize", onResize);
 
-    const ws = openPaneWS(win.session, win.index);
-    wsRef.current = ws;
-    ws.onopen = () => setConn("live");
-    ws.onmessage = (ev) => {
-      const data = ev.data;
-      if (typeof data === "string") term.write(data);
-      else if (data instanceof ArrayBuffer) term.write(new Uint8Array(data));
-    };
-    ws.onclose = () => setConn("closed");
-    ws.onerror = () => setConn("closed");
+    let ws: WebSocket | null = null;
+    let dataSub: { dispose: () => void } | null = null;
+    let cancelled = false;
 
-    const dataSub = term.onData((d) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(d);
-    });
+    if (wsEnabled) {
+      ws = openPaneWS(win.session, win.index);
+      ws.onopen = () => setConn("live");
+      ws.onmessage = (ev) => {
+        const data = ev.data;
+        if (typeof data === "string") term.write(data);
+        else if (data instanceof ArrayBuffer) term.write(new Uint8Array(data));
+      };
+      ws.onclose = () => setConn("closed");
+      ws.onerror = () => setConn("closed");
+      const sock = ws;
+      dataSub = term.onData((d) => {
+        if (sock.readyState === WebSocket.OPEN) sock.send(d);
+      });
+    } else {
+      // Live streaming disabled in settings — show a one-shot snapshot (read-only).
+      setConn("snapshot");
+      void fetchPane(win.session, win.index).then((lines) => {
+        if (!cancelled) term.write(lines.join("\r\n") + (lines.length ? "\r\n" : ""));
+      });
+    }
 
     return () => {
+      cancelled = true;
       globalThis.removeEventListener("resize", onResize);
-      dataSub.dispose();
-      try {
-        ws.close();
-      } catch {
-        /* already closed */
+      dataSub?.dispose();
+      if (ws) {
+        try {
+          ws.close();
+        } catch {
+          /* already closed */
+        }
       }
       term.dispose();
     };
-  }, [win.paneId, win.session, win.index]);
+  }, [win.paneId, win.session, win.index, wsEnabled]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -118,7 +140,7 @@ export function TerminalModal({ window: win, onClose }: Props) {
         <div className="term-body" ref={hostRef} style={{ padding: 6 }} />
         <div className="term-foot">
           <span className={`connect-pill ${conn}`}>
-            <span className="dot" /> {conn === "live" ? "WS · live" : conn}
+            <span className="dot" /> {CONN_LABEL[conn]}
           </span>
           <span className="term-cwd">{win.cwd || "—"}</span>
           <span className="term-spacer" style={{ flex: 1 }} />
