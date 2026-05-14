@@ -79,3 +79,11 @@ def test_deliver_text_false_when_paste_buffer_fails(monkeypatch) -> None:
 
     monkeypatch.setattr(tmux.subprocess, "run", fake_run)
     assert tmux.deliver_text("dev", 1, "x", bracketed=False) is False
+
+
+def test_deliver_text_false_on_oserror(monkeypatch) -> None:
+    def fake_run(*args, **kwargs):
+        raise OSError("tmux not found")
+
+    monkeypatch.setattr(tmux.subprocess, "run", fake_run)
+    assert tmux.deliver_text("dev", 1, "x", bracketed=False) is False

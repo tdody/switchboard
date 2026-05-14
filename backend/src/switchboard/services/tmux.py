@@ -232,7 +232,7 @@ def deliver_text(session: str, index: int, text: str, *, bracketed: bool) -> boo
         )
         if load.returncode != 0:
             return False
-        paste = subprocess.run(paste_args, capture_output=True, timeout=5)
+        paste = subprocess.run(paste_args, capture_output=True, text=True, timeout=5)
         return paste.returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
