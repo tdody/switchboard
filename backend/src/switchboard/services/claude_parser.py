@@ -2,8 +2,9 @@
 
 Reads the last N captured lines and produces an (status, pending_input, Agent).
 - Spinner detection looks for the ✻ / brail-spinner glyph + "...ing…" pattern.
-- Pending input is gated on a `(y/n)`, `[y/n]`, or `press enter`-style prompt
-  appearing recently AND no spinner running. The two are mutually exclusive.
+- Pending input is gated on an arrow-key menu, a `(y/n)` / `[y/n]`, or a
+  `press enter`-style prompt appearing recently AND no spinner running. Pending
+  input and an active spinner are mutually exclusive.
 - Recap is the last assistant message (line starting with ●, ✻, ✓, ✗ glyphs).
 - Branch / PR are best-effort `git` / `gh` shells; results are cached for 30s.
 """

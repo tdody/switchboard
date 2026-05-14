@@ -122,3 +122,14 @@ def test_parse_prompt_enter() -> None:
     assert prompt is not None
     assert prompt.kind == "enter"
     assert prompt.choices == []
+    assert prompt.question is not None
+    assert "press enter" in prompt.question.lower()
+
+
+def test_menu_prompt_makes_parse_pane_waiting() -> None:
+    # A menu pane flows through parse_pane → parse_prompt and reports "waiting".
+    status, pending, agent = claude_parser.parse_pane(_load("claude_menu.txt"), cwd=None)
+    assert status == "waiting"
+    assert pending is True
+    assert agent is not None
+    assert agent.action == "Do you want to proceed?"
