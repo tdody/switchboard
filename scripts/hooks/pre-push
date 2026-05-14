@@ -45,6 +45,7 @@ fi
 if [[ -d frontend ]]; then
   echo "frontend:"
   (cd frontend && run_step "tsc --noEmit" npx tsc --noEmit)
+  (cd frontend && run_step "vitest"       npx vitest run)
   (cd frontend && run_step "vite build"   npx vite build)
 fi
 

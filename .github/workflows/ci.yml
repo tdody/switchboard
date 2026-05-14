@@ -45,7 +45,7 @@ jobs:
         run: uv run pytest
 
   frontend:
-    name: Frontend (tsc + build)
+    name: Frontend (tsc + test + build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -64,6 +64,9 @@ jobs:
 
       - name: TypeScript check
         run: npm run typecheck
+
+      - name: Test
+        run: npm run test
 
       - name: Build
         run: npm run build
