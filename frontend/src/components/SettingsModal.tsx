@@ -1,8 +1,20 @@
 import { useEffect } from "react";
-import { POLL_MAX_S, POLL_MIN_S, updateSettings, useSettings } from "../lib/settings";
+import {
+  ACCENT_TOKENS,
+  accentColor,
+  type Accent,
+  type Density,
+  POLL_MAX_S,
+  POLL_MIN_S,
+  type Theme,
+  updateSettings,
+  useSettings,
+} from "../lib/settings";
 import { Icon } from "./Icon";
 import { SwitchboardMark } from "./SwitchboardMark";
 import { Toggle } from "./Toggle";
+
+const ACCENTS = Object.keys(ACCENT_TOKENS) as Accent[];
 
 interface Props {
   serverAddr: string;
@@ -95,6 +107,74 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
                 on={settings.wsStreamEnabled}
                 label="Live terminal stream"
                 onChange={(v) => updateSettings({ wsStreamEnabled: v })}
+              />
+            </div>
+          </div>
+
+          <div className="settings-group">
+            <h4>Appearance</h4>
+            <div className="settings-row">
+              <span>
+                <div className="name">Theme</div>
+                <div className="desc">Color scheme for the dashboard.</div>
+              </span>
+              <select
+                value={settings.theme}
+                onChange={(e) => updateSettings({ theme: e.target.value as Theme })}
+              >
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+                <option value="contrast">High contrast</option>
+                <option value="phosphor">Phosphor</option>
+              </select>
+              <span />
+            </div>
+            <div className="settings-row">
+              <span>
+                <div className="name">Accent</div>
+                <div className="desc">Highlight color for active elements.</div>
+              </span>
+              <span className="accent-swatches">
+                {ACCENTS.map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    className={`swatch ${settings.accent === a ? "is-active" : ""}`}
+                    style={{ background: accentColor(a) }}
+                    title={a}
+                    aria-label={`Accent: ${a}`}
+                    aria-pressed={settings.accent === a}
+                    onClick={() => updateSettings({ accent: a })}
+                  />
+                ))}
+              </span>
+              <span />
+            </div>
+            <div className="settings-row">
+              <span>
+                <div className="name">Card density</div>
+                <div className="desc">Preview shows the last lines of pane output on each card.</div>
+              </span>
+              <select
+                value={settings.density}
+                onChange={(e) => updateSettings({ density: e.target.value as Density })}
+              >
+                <option value="compact">Compact</option>
+                <option value="comfy">Comfy</option>
+                <option value="preview">Preview</option>
+              </select>
+              <span />
+            </div>
+            <div className="settings-row">
+              <span>
+                <div className="name">Reduced motion</div>
+                <div className="desc">Disable pulses, spinners, and transitions.</div>
+              </span>
+              <span className="val">{settings.reducedMotion ? "on" : "off"}</span>
+              <Toggle
+                on={settings.reducedMotion}
+                label="Reduced motion"
+                onChange={(v) => updateSettings({ reducedMotion: v })}
               />
             </div>
           </div>

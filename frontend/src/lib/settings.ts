@@ -6,9 +6,8 @@ import { useSyncExternalStore } from "react";
  * Backed by a tiny external store so every `useSettings()` consumer stays in
  * sync when any of them calls `updateSettings()` — no context provider needed.
  *
- * Most keys (theme/accent/density/layout/reducedMotion) have no UI control
- * yet; THI-62/63/64/70 add those rows to the Settings modal. The store + the
- * apply-on-init wiring already exist, so those tickets are control-only.
+ * App.tsx applies theme / accent / density / reduced-motion to <html> on every
+ * change; the Settings modal's Appearance section is the UI for them.
  */
 
 export type Theme = "dark" | "light" | "contrast" | "phosphor";
@@ -22,11 +21,40 @@ export interface Settings {
   density: Density;
   layout: Layout;
   reducedMotion: boolean;
-  showPreviews: boolean;
   pollIntervalMs: number;
   wsStreamEnabled: boolean;
   notifyBadge: boolean;
   notifyBrowser: boolean;
+}
+
+// OKLCH lightness/chroma/hue for each accent preset.
+export const ACCENT_TOKENS: Record<Accent, { l: number; c: number; h: number }> = {
+  aurora: { l: 0.78, c: 0.13, h: 145 },
+  amber: { l: 0.8, c: 0.14, h: 80 },
+  sky: { l: 0.74, c: 0.13, h: 240 },
+  magenta: { l: 0.72, c: 0.16, h: 330 },
+  lilac: { l: 0.74, c: 0.12, h: 295 },
+};
+
+/** The accent's base OKLCH color — handy for rendering swatches. */
+export function accentColor(accent: Accent): string {
+  const t = ACCENT_TOKENS[accent] ?? ACCENT_TOKENS.aurora;
+  return `oklch(${t.l} ${t.c} ${t.h})`;
+}
+
+/** Write the chosen accent to the --accent* CSS vars on <html>. */
+export function applyAccent(accent: Accent): void {
+  const t = ACCENT_TOKENS[accent] ?? ACCENT_TOKENS.aurora;
+  const root = document.documentElement;
+  root.style.setProperty("--accent", `oklch(${t.l} ${t.c} ${t.h})`);
+  root.style.setProperty("--accent-soft", `oklch(${t.l} ${t.c} ${t.h} / 0.16)`);
+  root.style.setProperty("--accent-edge", `oklch(${t.l} ${t.c} ${t.h} / 0.55)`);
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -34,8 +62,8 @@ export const DEFAULT_SETTINGS: Settings = {
   accent: "aurora",
   density: "comfy",
   layout: "kanban",
-  reducedMotion: false,
-  showPreviews: false,
+  // Honor the OS preference out of the box; the user can still override it.
+  reducedMotion: prefersReducedMotion(),
   pollIntervalMs: 3000,
   wsStreamEnabled: true,
   notifyBadge: true,

@@ -14,7 +14,7 @@ import { ToastStack } from "./components/ToastStack";
 import type { ToastData } from "./components/Toast";
 import { applyFilter, parseQuery, type StatusFilter } from "./lib/filter";
 import { columnsForNav, navigateCard, type NavDirection } from "./lib/cardNav";
-import { useSettings } from "./lib/settings";
+import { applyAccent, useSettings } from "./lib/settings";
 import { useURLParam } from "./lib/urlState";
 import type { Window } from "./types";
 
@@ -139,15 +139,17 @@ export function App() {
   const handleRename = useCallback((w: Window) => setRenameTargetId(w.paneId), []);
   const handleSend = useCallback((w: Window) => setPaletteTargetId(w.paneId), []);
 
-  // Apply persisted appearance settings to <html>. Theme/density/reduced-motion
-  // CSS already ships; THI-62/64/70 add the controls that change these.
+  // Apply persisted appearance settings to <html>. The theme/density/
+  // reduced-motion CSS ships in styles.css; accent is written as CSS vars.
+  // Previews show only at `preview` density.
   useEffect(() => {
     const el = document.documentElement;
     el.setAttribute("data-theme", settings.theme);
     el.setAttribute("data-density", settings.density);
-    el.setAttribute("data-show-previews", String(settings.showPreviews));
+    el.setAttribute("data-show-previews", String(settings.density === "preview"));
     el.setAttribute("data-reduced-motion", String(settings.reducedMotion));
-  }, [settings.theme, settings.density, settings.showPreviews, settings.reducedMotion]);
+    applyAccent(settings.accent);
+  }, [settings.theme, settings.density, settings.reducedMotion, settings.accent]);
 
   // Pending-input badge in the browser tab title.
   useEffect(() => {
