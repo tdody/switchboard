@@ -6,6 +6,14 @@ const BASE = "/api";
 let lastEtag: string | null = null;
 let lastState: StateResponse | null = null;
 
+// The backend issues a readable `sb_csrf` cookie on the first GET. Mutating
+// requests must echo it back in the X-CSRF-Token header (double-submit). A
+// cross-origin attacker can't read the cookie, so can't forge the header.
+function csrfHeaders(): Record<string, string> {
+  const m = document.cookie.match(/(?:^|;\s*)sb_csrf=([^;]+)/);
+  return m ? { "x-csrf-token": decodeURIComponent(m[1]) } : {};
+}
+
 export async function fetchState(signal?: AbortSignal): Promise<StateResponse> {
   const headers: HeadersInit = {};
   if (lastEtag) headers["if-none-match"] = lastEtag;
@@ -22,7 +30,7 @@ export async function fetchState(signal?: AbortSignal): Promise<StateResponse> {
 export async function focusWindow(session: string, index: number): Promise<boolean> {
   const r = await fetch(
     `${BASE}/focus?session=${encodeURIComponent(session)}&index=${index}`,
-    { method: "POST" },
+    { method: "POST", headers: { ...csrfHeaders() } },
   );
   if (!r.ok) return false;
   const data = (await r.json()) as { focused: boolean };
@@ -38,7 +46,7 @@ export async function sendKeys(
     `${BASE}/send?session=${encodeURIComponent(session)}&index=${index}`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...csrfHeaders() },
       body: JSON.stringify(body),
     },
   );
@@ -54,7 +62,7 @@ export async function renameWindow(
     `${BASE}/rename?session=${encodeURIComponent(session)}&index=${index}`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...csrfHeaders() },
       body: JSON.stringify({ name }),
     },
   );

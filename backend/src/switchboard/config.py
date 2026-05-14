@@ -1,4 +1,18 @@
+import ipaddress
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def is_loopback_host(host: str) -> bool:
+    """True if `host` resolves to a loopback address (or is literally localhost)."""
+    h = (host or "").strip().lower()
+    if h in ("", "localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
 
 
 class Settings(BaseSettings):
@@ -7,7 +21,33 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]
     pane_capture_lines: int = 200
 
+    # Auth is auto-enabled when bound to a non-loopback host. Set explicitly
+    # (SWITCHBOARD_AUTH_REQUIRED=true/false) to override.
+    auth_required: bool | None = None
+    token_file: Path = Path.home() / ".switchboard" / "token"
+
     model_config = SettingsConfigDict(env_prefix="SWITCHBOARD_", env_file=".env")
+
+    @property
+    def loopback_mode(self) -> bool:
+        return is_loopback_host(self.host)
+
+    @property
+    def auth_enabled(self) -> bool:
+        if self.auth_required is not None:
+            return self.auth_required
+        return not self.loopback_mode
+
+    @property
+    def allowed_hosts(self) -> set[str]:
+        """Host header values accepted in loopback mode (anti DNS-rebinding)."""
+        hosts: set[str] = set()
+        for name in ("127.0.0.1", "localhost", "[::1]"):
+            hosts.add(name)
+            hosts.add(f"{name}:{self.port}")
+        hosts.add(self.host)
+        hosts.add(f"{self.host}:{self.port}")
+        return hosts
 
 
 settings = Settings()
