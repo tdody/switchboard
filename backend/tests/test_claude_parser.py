@@ -106,3 +106,19 @@ def test_parse_prompt_menu_no_question() -> None:
     assert prompt.question is None
     assert [c.index for c in prompt.choices] == [1, 2]
     assert [c.selected for c in prompt.choices] == [True, False]
+
+
+def test_parse_prompt_yn() -> None:
+    prompt = claude_parser.parse_prompt(_load("claude_waiting.txt"))
+    assert prompt is not None
+    assert prompt.kind == "yn"
+    assert prompt.choices == []
+    assert prompt.question is not None
+    assert "(y/n)" in prompt.question.lower()
+
+
+def test_parse_prompt_enter() -> None:
+    prompt = claude_parser.parse_prompt(_load("claude_pressenter.txt"))
+    assert prompt is not None
+    assert prompt.kind == "enter"
+    assert prompt.choices == []

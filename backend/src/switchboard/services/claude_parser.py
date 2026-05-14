@@ -33,10 +33,12 @@ _ACTIVE_VERB_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Pending-input patterns. Must match a recent line (last ~12 lines).
-_PENDING_PATTERNS: Final = [
+# Pending-input patterns. Must match a recent line (last ~25 lines).
+_YN_PATTERNS: Final = [
     re.compile(r"\(\s*y\s*/\s*n[a-z/?]*\)", re.IGNORECASE),
     re.compile(r"\[\s*y\s*/\s*n[a-z/?]*\]", re.IGNORECASE),
+]
+_ENTER_PATTERNS: Final = [
     re.compile(r"\bpress\s+enter\b", re.IGNORECASE),
     re.compile(r"\bcontinue\?\s*$", re.IGNORECASE),
 ]
@@ -102,24 +104,24 @@ def _scan_recap(lines: list[str]) -> str | None:
     return None
 
 
-def _scan_pending(lines: list[str]) -> tuple[bool, str | None]:
-    """Detect a (y/n) / Press Enter prompt in the recent tail."""
-    tail = lines[-25:]
-    action: str | None = None
-    pending = False
-    for raw in reversed(tail):
+def _scan_yn_enter(lines: list[str]) -> Prompt | None:
+    """Detect a legacy (y/n) or press-enter prompt in the recent tail.
+
+    Scans bottom-up and returns on the first matching line. yn is checked
+    before enter within a line so a "(y/n)" wins over a stray "continue?".
+    """
+    for raw in reversed(lines[-25:]):
         line = _strip_ansi(raw).rstrip()
         if not line:
             continue
-        for pat in _PENDING_PATTERNS:
+        action = line.strip(" >")[:_ACTION_CLIP]
+        for pat in _YN_PATTERNS:
             if pat.search(line):
-                pending = True
-                if action is None:
-                    action = line.strip(" >")[:_ACTION_CLIP]
-                break
-        if pending:
-            break
-    return pending, action
+                return Prompt(kind="yn", question=action, choices=[])
+        for pat in _ENTER_PATTERNS:
+            if pat.search(line):
+                return Prompt(kind="enter", question=action, choices=[])
+    return None
 
 
 def _scan_menu(lines: list[str]) -> Prompt | None:
@@ -176,7 +178,7 @@ def parse_prompt(lines: list[str]) -> Prompt | None:
     menu = _scan_menu(lines)
     if menu is not None:
         return menu
-    return None
+    return _scan_yn_enter(lines)
 
 
 _BRANCH_CACHE: dict[str, tuple[float, str | None]] = {}
@@ -249,7 +251,9 @@ def _gh_pr(cwd: str | None, branch: str | None) -> tuple[int | None, CIState | N
 def parse_pane(lines: list[str], cwd: str | None) -> tuple[Status, bool, Agent | None]:
     spinner, duration = _scan_spinner(lines)
     recap = _scan_recap(lines)
-    pending, action = _scan_pending(lines)
+    prompt = parse_prompt(lines)
+    pending = prompt is not None
+    action = prompt.question if prompt is not None else None
     # Active spinner overrides pending — Claude is still working.
     if spinner:
         pending = False
