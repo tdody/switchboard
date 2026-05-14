@@ -10,6 +10,9 @@ at most 2 positional args, despite its `*args: Any`.
 
 from __future__ import annotations
 
+import subprocess
+import uuid
+
 import libtmux
 
 from switchboard.schemas import Client, Kind, Session, StateResponse, Status, Window
@@ -199,6 +202,40 @@ def capture_pane(session: str, index: int, lines: int = 200) -> list[str] | None
         return list(out.stdout or [])
     except Exception:  # noqa: BLE001
         return None
+
+
+def deliver_text(session: str, index: int, text: str, *, bracketed: bool) -> bool:
+    """Deliver literal text to a pane via tmux load-buffer + paste-buffer.
+
+    The text enters tmux on stdin (`load-buffer ... -`), so tmux's command
+    parser never sees it as an argv element. This is what fixes `send-keys -l`
+    silently dropping a standalone `;` (tmux treats a bare `;` arg as a command
+    separator) and stripping embedded newlines.
+
+    `bracketed` adds `-p`, wrapping the paste in bracketed-paste markers so a
+    multi-line block's newlines don't each submit — the caller sends an explicit
+    Enter afterward.
+    """
+    target = f"{session}:{index}"
+    buf = f"sb-in-{uuid.uuid4().hex[:8]}"
+    paste_args = ["tmux", "paste-buffer", "-d"]
+    if bracketed:
+        paste_args.append("-p")
+    paste_args += ["-b", buf, "-t", target]
+    try:
+        load = subprocess.run(
+            ["tmux", "load-buffer", "-b", buf, "-"],
+            input=text,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+        if load.returncode != 0:
+            return False
+        paste = subprocess.run(paste_args, capture_output=True, timeout=5)
+        return paste.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def send_keys(
