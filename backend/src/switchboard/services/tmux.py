@@ -2,6 +2,10 @@
 
 Each request to /api/state calls collect_state(), which freshly queries libtmux.
 No caching in MVP. For agent panes, capture-pane is fed to claude_parser.
+
+`# ty: ignore` on the srv.cmd(...) / server.cmd(...) calls suppresses a false
+positive: libtmux's Server.cmd stub has a union signature ty reads as accepting
+at most 2 positional args, despite its `*args: Any`.
 """
 
 from __future__ import annotations
@@ -73,7 +77,7 @@ def _list_clients(server: libtmux.Server, session_name: str) -> list[Client]:
     out = server.cmd(
         "list-clients",
         "-t",
-        session_name,
+        session_name,  # ty: ignore
         "-F",
         "#{client_tty}|#{client_termname}|#{client_activity}",
     )
@@ -208,10 +212,10 @@ def send_keys(
     try:
         if paste is not None:
             # Send raw bytes — `-l` (literal) keeps escape sequences from being interpreted.
-            srv.cmd("send-keys", "-t", target, "-l", paste)
+            srv.cmd("send-keys", "-t", target, "-l", paste)  # ty: ignore
         if keys:
             for key in keys:
-                srv.cmd("send-keys", "-t", target, key)
+                srv.cmd("send-keys", "-t", target, key)  # ty: ignore
         return True
     except Exception:  # noqa: BLE001
         return False
@@ -223,7 +227,7 @@ def send_signal(session: str, index: int, signal: str) -> bool:
     if srv is None:
         return False
     try:
-        srv.cmd("send-keys", "-t", f"{session}:{index}", signal)
+        srv.cmd("send-keys", "-t", f"{session}:{index}", signal)  # ty: ignore
         return True
     except Exception:  # noqa: BLE001
         return False
@@ -235,7 +239,7 @@ def rename_window(session: str, index: int, name: str) -> bool:
         return False
     target = f"{session}:{index}"
     try:
-        result = srv.cmd("rename-window", "-t", target, name)
+        result = srv.cmd("rename-window", "-t", target, name)  # ty: ignore
         return not (result.stderr and any(result.stderr))
     except Exception:  # noqa: BLE001
         return False
@@ -254,17 +258,17 @@ def focus(session: str, index: int) -> bool | None:
     if sess is None:
         return None
     try:
-        srv.cmd("select-window", "-t", target)
+        srv.cmd("select-window", "-t", target)  # ty: ignore
     except Exception:  # noqa: BLE001
         return False
 
-    out = srv.cmd("list-clients", "-t", session, "-F", "#{client_tty}")
+    out = srv.cmd("list-clients", "-t", session, "-F", "#{client_tty}")  # ty: ignore
     ttys = [t for t in (out.stdout or []) if t]
     if not ttys:
         return False
     for tty in ttys:
         try:
-            srv.cmd("switch-client", "-c", tty, "-t", session)
+            srv.cmd("switch-client", "-c", tty, "-t", session)  # ty: ignore
         except Exception:  # noqa: BLE001
             continue
     return True

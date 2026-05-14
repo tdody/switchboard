@@ -65,8 +65,11 @@ class PaneStreamer:
 
             # Start tmux writing into the FIFO. The shell command runs detached
             # from us; tmux manages its lifecycle.
+            # The ty-suppression on each srv.cmd(...) below works around a false
+            # positive: libtmux's Server.cmd stub has a union signature ty reads
+            # as accepting at most 2 positional args, despite its `*args: Any`.
             shell_cmd = f"cat > {fifo_path}"
-            srv.cmd("pipe-pane", "-O", "-t", target, shell_cmd)
+            srv.cmd("pipe-pane", "-O", "-t", target, shell_cmd)  # ty: ignore
             pipe_active = True
 
             loop = asyncio.get_event_loop()
@@ -92,7 +95,7 @@ class PaneStreamer:
             # Stop tmux writing.
             if pipe_active:
                 with contextlib.suppress(Exception):
-                    srv.cmd("pipe-pane", "-t", target)
+                    srv.cmd("pipe-pane", "-t", target)  # ty: ignore
             # Close fd if we still own it.
             if fd >= 0:
                 with contextlib.suppress(OSError):
