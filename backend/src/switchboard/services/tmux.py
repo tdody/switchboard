@@ -182,6 +182,27 @@ def get_pane(session: str, index: int):
     return win.active_pane if win is not None else None
 
 
+def pane_kind(session: str, index: int) -> Kind | None:
+    """Infer the Kind of a window's active pane. None when it can't be found.
+
+    Mirrors get_pane's lookup; used by pane_stream to gate prompt parsing to
+    agent panes only (a plain shell can echo "[Y/n]" etc.).
+    """
+    srv = get_server()
+    if srv is None:
+        return None
+    try:
+        sess = srv.sessions.get(session_name=session)
+    except Exception:  # noqa: BLE001
+        return None
+    if sess is None:
+        return None
+    win = next((w for w in sess.windows if _to_int(w.window_index) == index), None)
+    if win is None or win.active_pane is None:
+        return None
+    return _infer_kind(win.active_pane.pane_current_command or "", win.window_name or "")
+
+
 def capture_pane(session: str, index: int, lines: int = 200) -> list[str] | None:
     """Capture recent scrollback *with* ANSI escapes (`-e`).
 
