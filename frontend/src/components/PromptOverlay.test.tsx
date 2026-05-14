@@ -56,6 +56,17 @@ describe("PromptOverlay — yn / enter", () => {
     expect(send).toHaveBeenCalledWith("n");
   });
 
+  it("y/n keys send literal characters for yn prompts", () => {
+    const send = vi.fn();
+    const yn: Prompt = { kind: "yn", question: "Investigate? (y/n)", choices: [] };
+    render(<PromptOverlay prompt={yn} send={send} />);
+    fireEvent.keyDown(screen.getByRole("group"), { key: "y" });
+    expect(send).toHaveBeenCalledWith("y");
+    send.mockClear();
+    fireEvent.keyDown(screen.getByRole("group"), { key: "n" });
+    expect(send).toHaveBeenCalledWith("n");
+  });
+
   it("enter sends an Enter signal frame", () => {
     const send = vi.fn();
     const enter: Prompt = { kind: "enter", question: "Press Enter", choices: [] };
