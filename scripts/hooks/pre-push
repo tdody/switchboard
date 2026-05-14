@@ -3,6 +3,10 @@
 # Skip with `git push --no-verify` for emergencies.
 #
 # Enable for this clone: `git config core.hooksPath scripts/hooks`
+#
+# Fast path: only the side(s) (backend/ frontend/) with changes in the push
+# range are checked. Changes to scripts/ or .github/ — or an undeterminable
+# range — fall back to running everything.
 set -uo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -16,12 +20,16 @@ failed=0
 log_dir="$(mktemp -d)"
 trap 'rm -rf "$log_dir"' EXIT
 
+# run_step <dir> <name> <cmd...> — runs <cmd> in <dir>, records pass/fail.
+# The subshell scopes only the `cd`; `failed` is set in the parent shell.
 run_step() {
-  local name="$1"
-  local log="$log_dir/$(echo "$name" | tr -c '[:alnum:]' '_').log"
-  shift
+  local dir="$1" name="$2"
+  shift 2
+  local slug log
+  slug=$(echo "$name" | tr -c '[:alnum:]' '_')
+  log="$log_dir/$slug.log"
   printf "  %-32s " "$name"
-  if "$@" >"$log" 2>&1; then
+  if (cd "$dir" && "$@") >"$log" 2>&1; then
     printf "${GREEN}✓${RST}\n"
   else
     printf "${RED}✗${RST}\n"
@@ -32,21 +40,42 @@ run_step() {
   fi
 }
 
-echo "pre-push: running CI checks (skip with --no-verify)"
-
-if [[ -d backend ]]; then
-  echo "backend:"
-  (cd backend && run_step "ruff format --check" uv run ruff format --check .)
-  (cd backend && run_step "ruff check"          uv run ruff check .)
-  (cd backend && run_step "ty check"            uvx ty check)
-  (cd backend && run_step "pytest"              uv run pytest -q)
+# Decide which sides to check. Default: everything (safe). Narrow only when
+# the push range is determinable and touches just one side.
+run_backend=1
+run_frontend=1
+if base=$(git rev-parse --verify --quiet '@{push}' 2>/dev/null); then
+  changed="$(git diff --name-only "$base" HEAD 2>/dev/null || true)"
+  if [[ -n "$changed" ]]; then
+    grep -qE '^backend/' <<<"$changed" && run_backend=1 || run_backend=0
+    grep -qE '^frontend/' <<<"$changed" && run_frontend=1 || run_frontend=0
+    # A change to the hook / CI config itself → re-check everything.
+    if grep -qE '^(scripts/|\.github/)' <<<"$changed"; then
+      run_backend=1
+      run_frontend=1
+    fi
+  fi
 fi
 
-if [[ -d frontend ]]; then
+echo "pre-push: running CI checks (skip with --no-verify)"
+
+if [[ -d backend && $run_backend -eq 1 ]]; then
+  echo "backend:"
+  run_step backend "ruff format --check" uv run ruff format --check .
+  run_step backend "ruff check" uv run ruff check .
+  run_step backend "ty check" uvx ty check
+  run_step backend "pytest" uv run pytest -q
+elif [[ -d backend ]]; then
+  printf "backend:  ${DIM}skipped — no backend/ changes${RST}\n"
+fi
+
+if [[ -d frontend && $run_frontend -eq 1 ]]; then
   echo "frontend:"
-  (cd frontend && run_step "tsc --noEmit" npx tsc --noEmit)
-  (cd frontend && run_step "vitest"       npx vitest run)
-  (cd frontend && run_step "vite build"   npx vite build)
+  run_step frontend "tsc --noEmit" npx tsc --noEmit
+  run_step frontend "vitest" npx vitest run
+  run_step frontend "vite build" npx vite build
+elif [[ -d frontend ]]; then
+  printf "frontend: ${DIM}skipped — no frontend/ changes${RST}\n"
 fi
 
 if [[ $failed -ne 0 ]]; then
