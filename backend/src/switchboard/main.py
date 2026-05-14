@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from switchboard.auth import auth_state
 from switchboard.config import settings
+from switchboard.logconfig import RequestContextMiddleware, setup_logging
 from switchboard.routers import actions, auth, pane, state, ws
 from switchboard.security import SecurityMiddleware
 
@@ -15,6 +16,7 @@ log = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    setup_logging()
     auth_state.init()
     if settings.auth_enabled:
         log.warning(
@@ -34,15 +36,18 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Switchboard", version="0.1.0", lifespan=lifespan)
-    # Added inner-first: SecurityMiddleware runs inside CORS so that rejected
-    # requests still get CORS headers on the way back out.
+    # Added inner-first. SecurityMiddleware runs inside RequestContextMiddleware
+    # so security rejections are logged with a correlation id; both run inside
+    # CORS so even rejected responses still carry CORS headers.
     app.add_middleware(SecurityMiddleware)
+    app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["x-request-id", "etag"],
     )
 
     @app.get("/healthz")
