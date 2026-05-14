@@ -183,16 +183,22 @@ def get_pane(session: str, index: int):
 
 
 def capture_pane(session: str, index: int, lines: int = 200) -> list[str] | None:
+    """Capture recent scrollback *with* ANSI escapes (`-e`).
+
+    Used by `GET /api/pane` and by pane_stream for the WebSocket's initial
+    paint — both need color so the terminal modal isn't monochrome until new
+    output streams in. `collect_state` keeps a plain (escape-free) capture for
+    the parser + card preview.
+    """
     pane = get_pane(session, index)
     if pane is None:
         return None
     try:
-        captured = pane.capture_pane(start=-lines)
+        # libtmux's Pane.capture_pane() can't pass -e; call tmux directly.
+        out = pane.cmd("capture-pane", "-p", "-e", "-S", f"-{lines}")  # ty: ignore
+        return list(out.stdout or [])
     except Exception:  # noqa: BLE001
         return None
-    if isinstance(captured, str):
-        captured = captured.splitlines()
-    return captured
 
 
 def send_keys(

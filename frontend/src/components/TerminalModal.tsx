@@ -31,6 +31,7 @@ export function TerminalModal({ window: win, onClose }: Props) {
   useEffect(() => {
     if (!hostRef.current) return;
     const term = new Terminal({
+      // Ghostty's default font is JetBrains Mono — matches the user's terminal.
       fontFamily: "JetBrains Mono, ui-monospace, Menlo, monospace",
       fontSize: 13,
       lineHeight: 1.2,
@@ -38,10 +39,33 @@ export function TerminalModal({ window: win, onClose }: Props) {
       cursorBlink: true,
       allowProposedApi: true,
       scrollback: 5000,
+      // Nudge low-contrast source colors to stay readable against the bg
+      // (Ghostty does the same minimum-contrast adjustment).
+      minimumContrastRatio: 4.5,
+      // Ghostty's default palette (Tomorrow Night) — a pane rendered here
+      // looks the same as in the user's Ghostty window.
       theme: {
-        background: "#050608",
-        foreground: "#d6d9e0",
-        cursor: "#9aff9a",
+        background: "#282c34",
+        foreground: "#ffffff",
+        cursor: "#ffffff",
+        cursorAccent: "#282c34",
+        selectionBackground: "#373b41",
+        black: "#1d1f21",
+        red: "#cc6666",
+        green: "#b5bd68",
+        yellow: "#f0c674",
+        blue: "#81a2be",
+        magenta: "#b294bb",
+        cyan: "#8abeb7",
+        white: "#c5c8c6",
+        brightBlack: "#666666",
+        brightRed: "#d54e53",
+        brightGreen: "#b9ca4a",
+        brightYellow: "#e7c547",
+        brightBlue: "#7aa6da",
+        brightMagenta: "#c397d8",
+        brightCyan: "#70c0b1",
+        brightWhite: "#eaeaea",
       },
     });
     const fit = new FitAddon();
@@ -137,7 +161,11 @@ export function TerminalModal({ window: win, onClose }: Props) {
             <Icon name="x" />
           </button>
         </div>
-        <div className="term-body" ref={hostRef} style={{ padding: 6 }} />
+        <div
+          className="term-body"
+          ref={hostRef}
+          style={{ padding: 6, background: "#282c34" }}
+        />
         <div className="term-foot">
           <span className={`connect-pill ${conn}`}>
             <span className="dot" /> {CONN_LABEL[conn]}
