@@ -5,6 +5,7 @@ export type IconName =
   | "x"
   | "plus"
   | "minus"
+  | "trash"
   | "settings"
   | "sparkle"
   | "focus"
@@ -82,6 +83,12 @@ export function Icon({ name, size = 14, style, className }: IconProps) {
       return (
         <svg {...props}>
           <path d="M3.5 8h9" />
+        </svg>
+      );
+    case "trash":
+      return (
+        <svg {...props}>
+          <path d="M3 4.5h10M6.5 4.5V3a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 .5.5v1.5M4.6 4.5l.6 8a1 1 0 0 0 1 .95h3.6a1 1 0 0 0 1-.95l.6-8M7 7v3.4M9 7v3.4" />
         </svg>
       );
     case "settings":
