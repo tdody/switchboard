@@ -37,3 +37,35 @@ def post_rename(session: str, index: int, body: RenameBody) -> dict[str, object]
     if not ok:
         raise HTTPException(status_code=404, detail="window not found")
     return {"ok": True, "name": body.name}
+
+
+@router.delete("/window")
+def delete_window(session: str, index: int) -> dict[str, bool]:
+    ok = tmux.kill_window(session, index)
+    if not ok:
+        raise HTTPException(status_code=404, detail="window not found")
+    return {"ok": True}
+
+
+@router.delete("/session")
+def delete_session(session: str) -> dict[str, bool]:
+    ok = tmux.kill_session(session)
+    if not ok:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"ok": True}
+
+
+@router.post("/window")
+def post_window(session: str, name: str) -> dict[str, object]:
+    index = tmux.new_window(session, name)
+    if index is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"ok": True, "index": index, "id": f"{session}:{index}"}
+
+
+@router.post("/detach")
+def post_detach(tty: str) -> dict[str, bool]:
+    ok = tmux.detach_client(tty)
+    if not ok:
+        raise HTTPException(status_code=404, detail="client not found")
+    return {"ok": True}
