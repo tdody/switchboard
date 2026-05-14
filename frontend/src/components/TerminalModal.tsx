@@ -14,6 +14,9 @@ import {
 import type { Window } from "../types";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
+import { PromptOverlay } from "./PromptOverlay";
+import { parsePromptMessage } from "../lib/prompt";
+import type { Prompt } from "../lib/prompt";
 
 interface Props {
   window: Window;
@@ -41,6 +44,8 @@ export function TerminalModal({ window: win, onClose }: Props) {
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [conn, setConn] = useState<Connection>("connecting");
+  const [prompt, setPrompt] = useState<Prompt | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const { wsStreamEnabled: wsEnabled, terminalFontSize } = useSettings();
 
   // The construction effect below seeds the terminal's initial fontSize from
@@ -129,11 +134,20 @@ export function TerminalModal({ window: win, onClose }: Props) {
 
     if (wsEnabled) {
       ws = openPaneWS(win.session, win.index);
+      wsRef.current = ws;
       ws.onopen = () => setConn("live");
       ws.onmessage = (ev) => {
         const data = ev.data;
-        if (typeof data === "string") term.write(data);
-        else if (data instanceof ArrayBuffer) term.write(new Uint8Array(data));
+        if (typeof data === "string") {
+          const parsed = parsePromptMessage(data);
+          if (parsed !== undefined) {
+            setPrompt(parsed);
+            return;
+          }
+          term.write(data);
+        } else if (data instanceof ArrayBuffer) {
+          term.write(new Uint8Array(data));
+        }
       };
       ws.onclose = () => setConn("closed");
       ws.onerror = () => setConn("closed");
@@ -162,6 +176,8 @@ export function TerminalModal({ window: win, onClose }: Props) {
           /* already closed */
         }
       }
+      wsRef.current = null;
+      setPrompt(null);
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
@@ -207,6 +223,17 @@ export function TerminalModal({ window: win, onClose }: Props) {
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // Return focus to the terminal when a prompt clears; the overlay grabs focus
+  // itself while it is mounted.
+  useEffect(() => {
+    if (prompt === null) termRef.current?.focus();
+  }, [prompt]);
+
+  const sendToPane = (data: string) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
+  };
+
   const zoomBy = (delta: number) =>
     updateSettings({ terminalFontSize: clampFont(terminalFontSize + delta) });
   const zoomReset = () => updateSettings({ terminalFontSize: TERM_FONT_DEFAULT });
@@ -244,6 +271,7 @@ export function TerminalModal({ window: win, onClose }: Props) {
           ref={hostRef}
           style={{ padding: 6, background: "#282c34" }}
         />
+        {prompt && <PromptOverlay prompt={prompt} send={sendToPane} />}
         <div className="term-foot">
           <span className={`connect-pill ${conn}`}>
             <span className="dot" /> {CONN_LABEL[conn]}
