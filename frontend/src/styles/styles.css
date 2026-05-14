@@ -945,7 +945,7 @@ input, textarea, select { font: inherit; color: inherit; }
   /* xterm.js owns scrolling via its own .xterm-viewport — the host element
      must not also be a scroll container, or fit()'s sub-pixel rounding spawns
      a spurious second scrollbar. (Most of this rule is dead styling from the
-     pre-xterm line renderer; full cleanup tracked in THI-55.) */
+     pre-xterm line renderer; full cleanup tracked in THI-103.) */
   overflow: hidden;
   position: relative;
 }
