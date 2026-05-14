@@ -25,7 +25,8 @@ _SPINNER_RE = re.compile(
 # Within a spinner line, peel out the "(X · …)" parenthesized payload
 _SPINNER_PAYLOAD_RE = re.compile(r"\(([^)]+)\)")
 _DURATION_RE = re.compile(r"\b(\d+\s*[smhd])\b", re.IGNORECASE)
-# Verbs that indicate active work — distinguishes "● Reviewing…" (done) from "✻ Synthesizing…" (active).
+# Verbs that indicate active work — distinguishes "● Reviewing…" (done)
+# from "✻ Synthesizing…" (active).
 _ACTIVE_VERB_RE = re.compile(
     r"^\s*(synthesizing|thinking|working|running|analyzing|reviewing"
     r"|generating|composing|writing|reading|searching|loading)\b",
@@ -176,7 +177,7 @@ def _gh_pr(cwd: str | None, branch: str | None) -> tuple[int | None, CIState | N
         elif states and states <= {"SUCCESS", "NEUTRAL", "SKIPPED"}:
             ci = "passing"
         result = (pr_num, ci)
-    except Exception:
+    except Exception:  # noqa: BLE001
         result = (None, None)
     _PR_CACHE[key] = (now, result)
     return result

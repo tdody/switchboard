@@ -44,9 +44,7 @@ class PaneStreamer:
                 return
 
         # 2. Set up FIFO + pipe-pane.
-        fifo_path = os.path.join(
-            tempfile.gettempdir(), f"sb-pane-{uuid.uuid4().hex}.fifo"
-        )
+        fifo_path = os.path.join(tempfile.gettempdir(), f"sb-pane-{uuid.uuid4().hex}.fifo")
         target = f"{self.session}:{self.index}"
         srv = tmux.get_server()
         if srv is None:
@@ -76,9 +74,7 @@ class PaneStreamer:
             # connect_read_pipe takes ownership of the fd via the file object.
             file_obj = os.fdopen(fd, "rb", buffering=0)
             fd = -1  # ownership transferred
-            await loop.connect_read_pipe(
-                lambda: asyncio.StreamReaderProtocol(reader), file_obj
-            )
+            await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), file_obj)
 
             while True:
                 chunk = await reader.read(8192)

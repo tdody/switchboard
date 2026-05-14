@@ -40,4 +40,13 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "RUF"]
+select = ["E", "F", "I", "B", "UP", "RUF", "BLE"]
+
+[tool.ty.src]
+include = ["src"]
+
+[tool.ty.rules]
+# libtmux's Server.cmd type stub uses an unfortunate union that ty reads as
+# requiring exactly 2 positional args, even though `*args: Any` accepts more.
+# Every call site is a false positive; libtmux works fine at runtime.
+too-many-positional-arguments = "ignore"

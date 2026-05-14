@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import libtmux
 
-from switchboard.schemas import Agent, Client, Kind, Session, StateResponse, Status, Window
+from switchboard.schemas import Client, Kind, Session, StateResponse, Status, Window
 from switchboard.services import claude_parser
 
 
@@ -36,7 +36,19 @@ def _truthy(value: str | int | None) -> bool:
 
 _AGENT_CMDS = {"claude", "claude-code"}
 _EDITOR_CMDS = {"nvim", "vim", "vi", "nano", "emacs", "hx", "helix", "code"}
-_SERVER_HINTS = ("dev", "serve", "server", "vite", "next", "uvicorn", "gunicorn", "fastapi", "django", "rails", "npm")
+_SERVER_HINTS = (
+    "dev",
+    "serve",
+    "server",
+    "vite",
+    "next",
+    "uvicorn",
+    "gunicorn",
+    "fastapi",
+    "django",
+    "rails",
+    "npm",
+)
 _LOGS_CMDS = {"tail", "less", "journalctl", "kubectl", "k9s", "htop", "btop", "top"}
 
 
@@ -108,7 +120,7 @@ def collect_state() -> StateResponse:
                 continue
             try:
                 capture = pane.capture_pane()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 capture = []
             if isinstance(capture, str):
                 capture = capture.splitlines()
@@ -154,7 +166,7 @@ def get_pane(session: str, index: int):
         return None
     try:
         sess = srv.sessions.get(session_name=session)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
     if sess is None:
         return None
@@ -168,7 +180,7 @@ def capture_pane(session: str, index: int, lines: int = 200) -> list[str] | None
         return None
     try:
         captured = pane.capture_pane(start=-lines)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
     if isinstance(captured, str):
         captured = captured.splitlines()
@@ -197,7 +209,7 @@ def send_keys(
             for key in keys:
                 srv.cmd("send-keys", "-t", target, key)
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -209,7 +221,7 @@ def send_signal(session: str, index: int, signal: str) -> bool:
     try:
         srv.cmd("send-keys", "-t", f"{session}:{index}", signal)
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -221,7 +233,7 @@ def rename_window(session: str, index: int, name: str) -> bool:
     try:
         result = srv.cmd("rename-window", "-t", target, name)
         return not (result.stderr and any(result.stderr))
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -233,13 +245,13 @@ def focus(session: str, index: int) -> bool | None:
     target = f"{session}:{index}"
     try:
         sess = srv.sessions.get(session_name=session)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
     if sess is None:
         return None
     try:
         srv.cmd("select-window", "-t", target)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
 
     out = srv.cmd("list-clients", "-t", session, "-F", "#{client_tty}")
@@ -249,6 +261,6 @@ def focus(session: str, index: int) -> bool | None:
     for tty in ttys:
         try:
             srv.cmd("switch-client", "-c", tty, "-t", session)
-        except Exception:
+        except Exception:  # noqa: BLE001
             continue
     return True

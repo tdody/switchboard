@@ -42,5 +42,5 @@ async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
         tail_task.cancel()
         try:
             await tail_task
-        except (asyncio.CancelledError, Exception):
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
             pass
