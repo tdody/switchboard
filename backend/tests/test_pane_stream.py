@@ -55,4 +55,23 @@ def test_emit_prompt_if_changed_sends_on_change_then_dedups() -> None:
         assert len(ws.sent) == 3
         assert json.loads(ws.sent[2])["prompt"] is None
 
+        # Still cleared → no duplicate clear frame.
+        last = await streamer._emit_prompt_if_changed(_load("claude_idle.txt"), last)
+        assert len(ws.sent) == 3
+
+    asyncio.run(_run())
+
+
+def test_emit_prompt_if_changed_send_failure_does_not_advance() -> None:
+    async def _run() -> None:
+        class _FailWS:
+            async def send_text(self, text: str) -> None:
+                raise ConnectionError("ws closed")
+
+        streamer = PaneStreamer(session="s", index=0, ws=_FailWS())
+        menu = _load("claude_menu.txt")
+        # Send fails (suppressed) → last_sent must stay None so the next poll retries.
+        result = await streamer._emit_prompt_if_changed(menu, None)
+        assert result is None
+
     asyncio.run(_run())

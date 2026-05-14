@@ -45,16 +45,20 @@ class PaneStreamer:
     ) -> str | None:
         """Parse `lines` for a prompt; send a control frame iff it changed.
 
-        `last_sent` is the JSON of the last prompt we sent, or None for "no
-        prompt". Returns the new last_sent value.
+        `last_sent` is a stable JSON key for the last prompt we successfully
+        sent, or None for "no prompt". Returns the new last_sent value — and
+        crucially returns the *old* value unchanged if the send failed, so the
+        next poll retries rather than silently dropping the update.
         """
         prompt = claude_parser.parse_prompt(lines)
-        current = prompt.model_dump_json(by_alias=True) if prompt is not None else None
+        payload = prompt.model_dump(by_alias=True) if prompt is not None else None
+        current = json.dumps(payload, sort_keys=True) if prompt is not None else None
         if current == last_sent:
             return last_sent
-        payload = json.loads(current) if current is not None else None
-        with contextlib.suppress(Exception):
+        try:
             await self.ws.send_text(json.dumps({"type": "prompt", "prompt": payload}))
+        except Exception:  # noqa: BLE001
+            return last_sent  # send failed — don't advance; retry next poll
         return current
 
     async def _prompt_poll_loop(self) -> None:
