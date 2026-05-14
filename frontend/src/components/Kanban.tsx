@@ -7,13 +7,23 @@ interface Props {
   sessions: Session[];
   windows: Window[];
   focusedId: string | null;
+  highlightedId: string | null;
   onOpen: (w: Window) => void;
   onSend: (w: Window) => void;
   onRename: (w: Window) => void;
   onFocus: (w: Window) => void;
 }
 
-export function Kanban({ sessions, windows, focusedId, onOpen, onSend, onRename, onFocus }: Props) {
+export function Kanban({
+  sessions,
+  windows,
+  focusedId,
+  highlightedId,
+  onOpen,
+  onSend,
+  onRename,
+  onFocus,
+}: Props) {
   return (
     <div className="kanban">
       {sessions.map((s) => {
@@ -95,10 +105,11 @@ export function Kanban({ sessions, windows, focusedId, onOpen, onSend, onRename,
                     key={w.id}
                     w={w}
                     isFocused={focusedId === w.id}
-                    onOpen={() => onOpen(w)}
-                    onSendKeys={() => onSend(w)}
-                    onRename={() => onRename(w)}
-                    onFocus={() => onFocus(w)}
+                    isHighlighted={highlightedId === w.id}
+                    onOpen={onOpen}
+                    onSendKeys={onSend}
+                    onRename={onRename}
+                    onFocus={onFocus}
                   />
                 ))
               )}

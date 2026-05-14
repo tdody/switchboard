@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { Window } from "../types";
 import { formatAgo, formatMem } from "../lib/format";
 import { cpuLevel, kindIcon, memLevel } from "../lib/status";
@@ -8,29 +9,42 @@ import { StatusPill } from "./StatusPill";
 interface Props {
   w: Window;
   isFocused: boolean;
-  onOpen: () => void;
-  onSendKeys: () => void;
-  onRename: () => void;
-  onFocus: () => void;
+  isHighlighted: boolean;
+  onOpen: (w: Window) => void;
+  onSendKeys: (w: Window) => void;
+  onRename: (w: Window) => void;
+  onFocus: (w: Window) => void;
 }
 
-export function WindowCard({ w, isFocused, onOpen, onSendKeys, onRename, onFocus }: Props) {
+function WindowCardImpl({
+  w,
+  isFocused,
+  isHighlighted,
+  onOpen,
+  onSendKeys,
+  onRename,
+  onFocus,
+}: Props) {
   const pending = !!w.pendingInput;
   const ago = formatAgo(w.lastActivity);
   const agent = w.agent;
   const cpu = cpuLevel(w.cpu);
   const mem = memLevel(w.mem);
   const showResources = !!cpu || !!mem;
+  const className =
+    `card ${pending ? "card-pending" : ""} ${isFocused ? "card-focused" : ""}` +
+    (isHighlighted ? " card-hl" : "");
   return (
     <div
-      className={`card ${pending ? "card-pending" : ""} ${isFocused ? "card-focused" : ""}`}
-      onClick={onOpen}
+      className={className}
+      data-card-id={w.id}
+      onClick={() => onOpen(w)}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onOpen();
+          onOpen(w);
         }
       }}
     >
@@ -101,15 +115,15 @@ export function WindowCard({ w, isFocused, onOpen, onSendKeys, onRename, onFocus
       <div className="card-foot" onClick={(e) => e.stopPropagation()}>
         <button
           className="act act-icon"
-          onClick={onFocus}
+          onClick={() => onFocus(w)}
           title="Jump to this window in your terminal (tmux switch-client)"
         >
           <Icon name="focus" size={12} />
         </button>
-        <button className="act act-icon" onClick={onRename} title="Rename window">
+        <button className="act act-icon" onClick={() => onRename(w)} title="Rename window">
           <Icon name="rename" size={12} />
         </button>
-        <button className="act act-icon" onClick={onSendKeys} title="Send keys">
+        <button className="act act-icon" onClick={() => onSendKeys(w)} title="Send keys">
           <Icon name="send" size={12} />
         </button>
         <span className="spacer" />
@@ -121,3 +135,34 @@ export function WindowCard({ w, isFocused, onOpen, onSendKeys, onRename, onFocus
     </div>
   );
 }
+
+export const WindowCard = memo(WindowCardImpl, (prev, next) => {
+  if (prev.isFocused !== next.isFocused) return false;
+  if (prev.isHighlighted !== next.isHighlighted) return false;
+  if (prev.onOpen !== next.onOpen) return false;
+  if (prev.onSendKeys !== next.onSendKeys) return false;
+  if (prev.onRename !== next.onRename) return false;
+  if (prev.onFocus !== next.onFocus) return false;
+  // The Window object is replaced wholesale on each poll. Shallow-compare the
+  // fields the card actually renders. (No deep-compare to keep this cheap.)
+  const a = prev.w;
+  const b = next.w;
+  return (
+    a.id === b.id &&
+    a.name === b.name &&
+    a.index === b.index &&
+    a.kind === b.kind &&
+    a.status === b.status &&
+    a.lastActivity === b.lastActivity &&
+    a.cpu === b.cpu &&
+    a.mem === b.mem &&
+    a.pendingInput === b.pendingInput &&
+    a.agent?.branch === b.agent?.branch &&
+    a.agent?.pr === b.agent?.pr &&
+    a.agent?.ci === b.agent?.ci &&
+    a.agent?.spinner === b.agent?.spinner &&
+    a.agent?.duration === b.agent?.duration &&
+    a.agent?.recap === b.agent?.recap &&
+    a.agent?.action === b.agent?.action
+  );
+});

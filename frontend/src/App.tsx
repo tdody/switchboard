@@ -1,34 +1,62 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchState, focusWindow, renameWindow, sendKeys } from "./api/client";
+import { fetchState, focusWindow } from "./api/client";
 import { usePolling } from "./api/usePolling";
+import { CommandPalette } from "./components/CommandPalette";
 import { EmptyState } from "./components/EmptyState";
 import { Header, type HeaderCounts } from "./components/Header";
 import { Kanban } from "./components/Kanban";
 import { NeedsStrip } from "./components/NeedsStrip";
+import { RenameOverlay } from "./components/RenameOverlay";
 import { Subhead } from "./components/Subhead";
 import { TerminalModal } from "./components/TerminalModal";
 import { ToastStack } from "./components/ToastStack";
 import type { ToastData } from "./components/Toast";
 import { applyFilter, parseQuery, type StatusFilter } from "./lib/filter";
+import { columnsForNav, navigateCard, type NavDirection } from "./lib/cardNav";
+import { useURLParam } from "./lib/urlState";
 import type { Window } from "./types";
 
 const POLL_MS = 3000;
 const FAIL_THRESHOLD = 3;
+const STATUS_FILTERS: StatusFilter[] = ["all", "waiting", "running", "idle"];
 
 export function App() {
   const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, POLL_MS);
 
-  const [filter, setFilter] = useState<StatusFilter>("all");
-  const [query, setQuery] = useState("");
-  const [openWindow, setOpenWindow] = useState<Window | null>(null);
+  // URL-synced state — survives reload + supports back/forward.
+  const [filterParam, setFilterParam] = useURLParam("filter", "all");
+  const filter: StatusFilter = (
+    STATUS_FILTERS.includes(filterParam as StatusFilter) ? filterParam : "all"
+  ) as StatusFilter;
+  const setFilter = (v: StatusFilter) => setFilterParam(v);
+
+  const [query, setQuery] = useURLParam("q", "");
+  const [openId, setOpenId] = useURLParam("open", "");
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const [showNeedsStrip, setShowNeedsStrip] = useState(true);
+  const [paletteTargetId, setPaletteTargetId] = useState<string | null>(null);
+  const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
 
   const sessions = state?.sessions ?? [];
   const windows = state?.windows ?? [];
   const serverRunning = state?.serverRunning ?? null;
   const inEmpty = serverRunning === false || (consecutiveErrors >= FAIL_THRESHOLD && !state);
+
+  const openWindow = useMemo(
+    () => (openId ? windows.find((w) => w.id === openId) || null : null),
+    [openId, windows],
+  );
+  const paletteTarget = useMemo(
+    () => (paletteTargetId ? windows.find((w) => w.id === paletteTargetId) || null : null),
+    [paletteTargetId, windows],
+  );
+  const renameTarget = useMemo(
+    () => (renameTargetId ? windows.find((w) => w.id === renameTargetId) || null : null),
+    [renameTargetId, windows],
+  );
 
   const counts: HeaderCounts = useMemo(
     () => ({
@@ -49,6 +77,10 @@ export function App() {
     () => windows.filter((w) => w.pendingInput),
     [windows],
   );
+  const navCols = useMemo(
+    () => columnsForNav(sessions, visible),
+    [sessions, visible],
+  );
 
   const hostTerm = useMemo(() => {
     const s = sessions.find((s) => s.attached);
@@ -62,6 +94,16 @@ export function App() {
       2100,
     );
   }, []);
+
+  const openCard = useCallback(
+    (w: Window) => {
+      setOpenId(w.id);
+      setHighlightedId(w.id);
+    },
+    [setOpenId],
+  );
+
+  const closeModal = useCallback(() => setOpenId(""), [setOpenId]);
 
   const handleFocus = useCallback(
     (w: Window) => {
@@ -79,26 +121,13 @@ export function App() {
         term: hostTerm,
       });
       void focusWindow(w.session, w.index);
-      window.setTimeout(() => setOpenWindow(w), 280);
+      window.setTimeout(() => setOpenId(w.id), 280);
     },
-    [hostTerm, pushToast],
+    [hostTerm, pushToast, setOpenId],
   );
 
-  const handleRename = useCallback(
-    async (w: Window) => {
-      const name = window.prompt(`Rename ${w.session}:${w.index}`, w.name);
-      if (!name || name === w.name) return;
-      const ok = await renameWindow(w.session, w.index, name);
-      if (ok) refresh();
-    },
-    [refresh],
-  );
-
-  const handleSend = useCallback(async (w: Window) => {
-    const text = window.prompt(`Send keys to ${w.session}:${w.index}`);
-    if (text === null || text === "") return;
-    await sendKeys(w.session, w.index, { paste: text });
-  }, []);
+  const handleRename = useCallback((w: Window) => setRenameTargetId(w.id), []);
+  const handleSend = useCallback((w: Window) => setPaletteTargetId(w.id), []);
 
   // Apply theme + density to <html>
   useEffect(() => {
@@ -108,22 +137,73 @@ export function App() {
     document.documentElement.setAttribute("data-reduced-motion", "false");
   }, []);
 
-  // Global hotkeys: `/` focuses search, Esc closes modal.
+  // Global hotkeys: ⌘K palette, arrows + j/k/h/l for card nav, / for search,
+  // Esc closes modal, Enter opens highlighted card.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = ((e.target as HTMLElement)?.tagName || "").toLowerCase();
       const inField = tag === "input" || tag === "textarea";
+      const anyOverlay = openId || paletteTargetId || renameTargetId;
+
+      // ⌘K / Ctrl+K — open palette pre-targeted to first pending, then highlighted,
+      // then first window. Always available, even from inside inputs.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        const target =
+          windows.find((w) => w.pendingInput) ||
+          (highlightedId ? windows.find((w) => w.id === highlightedId) : null) ||
+          windows[0];
+        if (target) setPaletteTargetId(target.id);
+        return;
+      }
+
+      if (anyOverlay) {
+        // Esc handling lives inside each overlay; nothing else here.
+        return;
+      }
+
       if (e.key === "/" && !e.metaKey && !e.ctrlKey && !inField) {
         e.preventDefault();
         document.getElementById("search-input")?.focus();
+        return;
       }
-      if (e.key === "Escape" && openWindow) {
-        setOpenWindow(null);
+      if (inField) return;
+
+      const dirMap: Record<string, NavDirection> = {
+        ArrowUp: "up",
+        ArrowDown: "down",
+        ArrowLeft: "left",
+        ArrowRight: "right",
+        k: "up",
+        j: "down",
+        h: "left",
+        l: "right",
+      };
+      const dir = dirMap[e.key];
+      if (dir) {
+        e.preventDefault();
+        const next = navigateCard(navCols, highlightedId, dir);
+        if (next) {
+          setHighlightedId(next.id);
+          requestAnimationFrame(() => {
+            document
+              .querySelector(`[data-card-id="${CSS.escape(next.id)}"]`)
+              ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+          });
+        }
+        return;
+      }
+      if (e.key === "Enter") {
+        const w = highlightedId ? windows.find((x) => x.id === highlightedId) : null;
+        if (w) {
+          e.preventDefault();
+          openCard(w);
+        }
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [openWindow]);
+  }, [openId, paletteTargetId, renameTargetId, navCols, highlightedId, windows, openCard]);
 
   if (inEmpty) {
     return (
@@ -155,7 +235,7 @@ export function App() {
       {pendingWindows.length > 0 && showNeedsStrip && (
         <NeedsStrip
           windows={pendingWindows}
-          onOpen={setOpenWindow}
+          onOpen={openCard}
           onDismiss={() => setShowNeedsStrip(false)}
         />
       )}
@@ -171,14 +251,26 @@ export function App() {
           sessions={sessions}
           windows={visible}
           focusedId={focusedId}
-          onOpen={setOpenWindow}
+          highlightedId={highlightedId}
+          onOpen={openCard}
           onSend={handleSend}
           onRename={handleRename}
           onFocus={handleFocus}
         />
       </main>
-      {openWindow && (
-        <TerminalModal window={openWindow} onClose={() => setOpenWindow(null)} />
+      {openWindow && <TerminalModal window={openWindow} onClose={closeModal} />}
+      {paletteTarget && (
+        <CommandPalette
+          target={paletteTarget}
+          onClose={() => setPaletteTargetId(null)}
+        />
+      )}
+      {renameTarget && (
+        <RenameOverlay
+          target={renameTarget}
+          onClose={() => setRenameTargetId(null)}
+          onApplied={refresh}
+        />
       )}
       <ToastStack toasts={toasts} />
     </div>

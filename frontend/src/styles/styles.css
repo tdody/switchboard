@@ -392,6 +392,71 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 [data-reduced-motion="true"] .card-pending { animation: none; }
 
+/* Keyboard-nav highlight — calmer than focusFlash; persists until move/escape. */
+.card-hl {
+  border-color: var(--accent-edge);
+  box-shadow: 0 0 0 1px var(--accent-edge) inset, var(--shadow-card);
+}
+
+/* Single-window rename overlay (different layout from the multi-row auto-rename) */
+.rename-modal .rename-hd {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13.5px;
+}
+.rename-modal .rename-body { padding: 18px; }
+.rename-modal .rename-body .rename-row {
+  display: grid;
+  grid-template-columns: 50px 1fr;
+  gap: 6px 12px;
+  padding: 6px 0;
+  border-top: 0;
+  align-items: center;
+}
+.rename-modal .rename-body .rename-row .lbl {
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: .05em;
+  color: var(--text-dim);
+}
+.rename-modal .rename-body .rename-row .old {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-mute);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rename-modal .rename-body .rename-row input {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sm);
+  outline: none;
+}
+.rename-modal .rename-body .rename-row input:focus {
+  border-color: var(--accent-edge);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.rename-modal .rename-error {
+  margin-top: 10px;
+  color: var(--tone-red);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+.rename-modal .rename-foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--hairline);
+}
+.rename-modal .rename-foot .hint {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 .card-row {
   display: flex; align-items: center; gap: 8px;
   padding: 9px 11px;

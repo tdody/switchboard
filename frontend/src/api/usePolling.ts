@@ -7,7 +7,19 @@ export interface PollingState<T> {
   refresh: () => void;
 }
 
-export function usePolling<T>(fn: () => Promise<T>, ms: number): PollingState<T> {
+/**
+ * Visibility-aware polling hook with in-flight cancellation.
+ *
+ * - Skips ticks when the document is hidden, immediately re-fires on
+ *   visibility-return.
+ * - Aborts any in-flight request before issuing a new one so a hung backend
+ *   can't pile up a backlog of stacked fetches.
+ * - `fn` receives an AbortSignal; pass it through to `fetch(..., { signal })`.
+ */
+export function usePolling<T>(
+  fn: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+): PollingState<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [consecutiveErrors, setConsecutiveErrors] = useState(0);
@@ -17,19 +29,28 @@ export function usePolling<T>(fn: () => Promise<T>, ms: number): PollingState<T>
 
   useEffect(() => {
     let alive = true;
+    let inflight: AbortController | null = null;
+
     const tick = async () => {
       if (!alive) return;
       if (document.visibilityState === "hidden") return;
+      inflight?.abort();
+      const ctrl = new AbortController();
+      inflight = ctrl;
       try {
-        const v = await fnRef.current();
-        if (!alive) return;
+        const v = await fnRef.current(ctrl.signal);
+        if (!alive || ctrl.signal.aborted) return;
         setData(v);
         setError(null);
         setConsecutiveErrors(0);
       } catch (e) {
-        if (!alive) return;
-        setError(e as Error);
+        if (!alive || ctrl.signal.aborted) return;
+        const err = e as Error;
+        if (err.name === "AbortError") return;
+        setError(err);
         setConsecutiveErrors((n) => n + 1);
+      } finally {
+        if (inflight === ctrl) inflight = null;
       }
     };
     tickRef.current = tick;
@@ -41,6 +62,7 @@ export function usePolling<T>(fn: () => Promise<T>, ms: number): PollingState<T>
     document.addEventListener("visibilitychange", onVis);
     return () => {
       alive = false;
+      inflight?.abort();
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVis);
     };

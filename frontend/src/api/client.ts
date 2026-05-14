@@ -2,10 +2,21 @@ import type { StateResponse } from "../types";
 
 const BASE = "/api";
 
-export async function fetchState(): Promise<StateResponse> {
-  const r = await fetch(`${BASE}/state`);
+// Module-scoped ETag + cached state so 304 responses reuse the prior body.
+let lastEtag: string | null = null;
+let lastState: StateResponse | null = null;
+
+export async function fetchState(signal?: AbortSignal): Promise<StateResponse> {
+  const headers: HeadersInit = {};
+  if (lastEtag) headers["if-none-match"] = lastEtag;
+  const r = await fetch(`${BASE}/state`, { headers, signal });
+  if (r.status === 304 && lastState) return lastState;
   if (!r.ok) throw new Error(`state ${r.status}`);
-  return r.json();
+  const etag = r.headers.get("etag");
+  const body = (await r.json()) as StateResponse;
+  if (etag) lastEtag = etag;
+  lastState = body;
+  return body;
 }
 
 export async function focusWindow(session: string, index: number): Promise<boolean> {

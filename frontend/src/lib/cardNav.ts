@@ -1,0 +1,72 @@
+import type { Session, Window } from "../types";
+import { sortPendingFirst } from "./filter";
+
+/**
+ * Build the per-column ordered list of visible windows.
+ *
+ * Mirrors the sort applied inside the Kanban so navigation matches what the
+ * user sees on screen.
+ */
+export function columnsForNav(
+  sessions: Session[],
+  windows: Window[],
+): { sessionId: string; windows: Window[] }[] {
+  return sessions.map((s) => ({
+    sessionId: s.id,
+    windows: sortPendingFirst(windows.filter((w) => w.session === s.id)),
+  }));
+}
+
+export type NavDirection = "up" | "down" | "left" | "right";
+
+/**
+ * Given the current highlighted card and a direction, find the next card to
+ * highlight. Up/down moves within a column; left/right moves between columns
+ * landing on the same vertical index (clamped to the new column's length).
+ *
+ * Empty columns are skipped on horizontal moves. Returns `null` if no move
+ * possible (e.g. left from the first non-empty column).
+ */
+export function navigateCard(
+  cols: { sessionId: string; windows: Window[] }[],
+  currentId: string | null,
+  dir: NavDirection,
+): Window | null {
+  const populated = cols.filter((c) => c.windows.length > 0);
+  if (populated.length === 0) return null;
+
+  // No current selection — pick the first card of the first populated column.
+  if (!currentId) return populated[0].windows[0] ?? null;
+
+  // Find current position
+  let colIdx = -1;
+  let rowIdx = -1;
+  for (let i = 0; i < populated.length; i++) {
+    const found = populated[i].windows.findIndex((w) => w.id === currentId);
+    if (found >= 0) {
+      colIdx = i;
+      rowIdx = found;
+      break;
+    }
+  }
+  // Current id isn't on screen — fall back to first card
+  if (colIdx < 0) return populated[0].windows[0] ?? null;
+
+  if (dir === "up") {
+    const next = populated[colIdx].windows[rowIdx - 1];
+    return next ?? populated[colIdx].windows[rowIdx];
+  }
+  if (dir === "down") {
+    const next = populated[colIdx].windows[rowIdx + 1];
+    return next ?? populated[colIdx].windows[rowIdx];
+  }
+  if (dir === "left") {
+    if (colIdx === 0) return null;
+    const target = populated[colIdx - 1];
+    return target.windows[Math.min(rowIdx, target.windows.length - 1)];
+  }
+  // right
+  if (colIdx === populated.length - 1) return null;
+  const target = populated[colIdx + 1];
+  return target.windows[Math.min(rowIdx, target.windows.length - 1)];
+}
