@@ -942,8 +942,28 @@ input, textarea, select { font: inherit; color: inherit; }
   font-size: 13px;
   line-height: 1.55;
   padding: 16px 22px 100px;
-  overflow: auto;
+  /* xterm.js owns scrolling via its own .xterm-viewport — the host element
+     must not also be a scroll container, or fit()'s sub-pixel rounding spawns
+     a spurious second scrollbar. (Most of this rule is dead styling from the
+     pre-xterm line renderer; full cleanup tracked in THI-55.) */
+  overflow: hidden;
   position: relative;
+}
+/* Auto-hiding terminal scrollbar — the gutter is always reserved (no reflow),
+   but the thumb is only painted while `.scrolling` is set, which TerminalModal
+   toggles on scroll with an ~800ms idle timeout. */
+.term-body .xterm-viewport { background-color: transparent; }
+.term-body .xterm-viewport::-webkit-scrollbar { width: 10px; }
+.term-body .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.term-body .xterm-viewport::-webkit-scrollbar-thumb {
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background-clip: content-box;
+}
+.term-body.scrolling .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--hairline-strong);
+  background-clip: content-box;
 }
 .term-body .ln { white-space: pre; }
 .term-body .ok    { color: var(--tone-green); }

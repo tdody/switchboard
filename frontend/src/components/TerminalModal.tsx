@@ -109,6 +109,20 @@ export function TerminalModal({ window: win, onClose }: Props) {
     };
     globalThis.addEventListener("resize", onResize);
 
+    // Auto-hide the scrollbar: reveal it only while actively scrolling, then
+    // fade it back out ~800ms after the last scroll event. `.scrolling` on the
+    // host is the CSS hook (see styles.css). xterm's viewport exists once
+    // `term.open()` has run.
+    const host = hostRef.current;
+    const viewport = host.querySelector<HTMLElement>(".xterm-viewport");
+    let scrollbarTimer: number | undefined;
+    const onScroll = () => {
+      host.classList.add("scrolling");
+      window.clearTimeout(scrollbarTimer);
+      scrollbarTimer = window.setTimeout(() => host.classList.remove("scrolling"), 800);
+    };
+    viewport?.addEventListener("scroll", onScroll, { passive: true });
+
     let ws: WebSocket | null = null;
     let dataSub: { dispose: () => void } | null = null;
     let cancelled = false;
@@ -138,6 +152,8 @@ export function TerminalModal({ window: win, onClose }: Props) {
     return () => {
       cancelled = true;
       globalThis.removeEventListener("resize", onResize);
+      viewport?.removeEventListener("scroll", onScroll);
+      window.clearTimeout(scrollbarTimer);
       dataSub?.dispose();
       if (ws) {
         try {
