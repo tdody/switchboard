@@ -37,7 +37,8 @@ class Agent(_CamelModel):
 
 
 class Window(_CamelModel):
-    id: str  # "{session}:{index}"
+    id: str  # "{session}:{index}" — addressing label; changes on rename/move
+    pane_id: str = ""  # tmux %N — stable for the life of the tmux server
     session: str
     index: int
     name: str

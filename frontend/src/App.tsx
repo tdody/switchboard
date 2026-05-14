@@ -45,16 +45,19 @@ export function App() {
   const serverRunning = state?.serverRunning ?? null;
   const inEmpty = serverRunning === false || (consecutiveErrors >= FAIL_THRESHOLD && !state);
 
+  // Selection state (openId / highlightedId / focusedId / palette / rename) is
+  // keyed by the stable paneId, not the session:index `id`, so a tmux rename or
+  // window-move doesn't drop the selection or remount the card.
   const openWindow = useMemo(
-    () => (openId ? windows.find((w) => w.id === openId) || null : null),
+    () => (openId ? windows.find((w) => w.paneId === openId) || null : null),
     [openId, windows],
   );
   const paletteTarget = useMemo(
-    () => (paletteTargetId ? windows.find((w) => w.id === paletteTargetId) || null : null),
+    () => (paletteTargetId ? windows.find((w) => w.paneId === paletteTargetId) || null : null),
     [paletteTargetId, windows],
   );
   const renameTarget = useMemo(
-    () => (renameTargetId ? windows.find((w) => w.id === renameTargetId) || null : null),
+    () => (renameTargetId ? windows.find((w) => w.paneId === renameTargetId) || null : null),
     [renameTargetId, windows],
   );
 
@@ -97,8 +100,8 @@ export function App() {
 
   const openCard = useCallback(
     (w: Window) => {
-      setOpenId(w.id);
-      setHighlightedId(w.id);
+      setOpenId(w.paneId);
+      setHighlightedId(w.paneId);
     },
     [setOpenId],
   );
@@ -107,9 +110,9 @@ export function App() {
 
   const handleFocus = useCallback(
     (w: Window) => {
-      setFocusedId(w.id);
+      setFocusedId(w.paneId);
       window.setTimeout(
-        () => setFocusedId((id) => (id === w.id ? null : id)),
+        () => setFocusedId((id) => (id === w.paneId ? null : id)),
         900,
       );
       pushToast({
@@ -121,13 +124,13 @@ export function App() {
         term: hostTerm,
       });
       void focusWindow(w.session, w.index);
-      window.setTimeout(() => setOpenId(w.id), 280);
+      window.setTimeout(() => setOpenId(w.paneId), 280);
     },
     [hostTerm, pushToast, setOpenId],
   );
 
-  const handleRename = useCallback((w: Window) => setRenameTargetId(w.id), []);
-  const handleSend = useCallback((w: Window) => setPaletteTargetId(w.id), []);
+  const handleRename = useCallback((w: Window) => setRenameTargetId(w.paneId), []);
+  const handleSend = useCallback((w: Window) => setPaletteTargetId(w.paneId), []);
 
   // Apply theme + density to <html>
   useEffect(() => {
@@ -151,9 +154,9 @@ export function App() {
         e.preventDefault();
         const target =
           windows.find((w) => w.pendingInput) ||
-          (highlightedId ? windows.find((w) => w.id === highlightedId) : null) ||
+          (highlightedId ? windows.find((w) => w.paneId === highlightedId) : null) ||
           windows[0];
-        if (target) setPaletteTargetId(target.id);
+        if (target) setPaletteTargetId(target.paneId);
         return;
       }
 
@@ -184,17 +187,19 @@ export function App() {
         e.preventDefault();
         const next = navigateCard(navCols, highlightedId, dir);
         if (next) {
-          setHighlightedId(next.id);
+          setHighlightedId(next.paneId);
           requestAnimationFrame(() => {
             document
-              .querySelector(`[data-card-id="${CSS.escape(next.id)}"]`)
+              .querySelector(`[data-card-id="${CSS.escape(next.paneId)}"]`)
               ?.scrollIntoView({ block: "nearest", inline: "nearest" });
           });
         }
         return;
       }
       if (e.key === "Enter") {
-        const w = highlightedId ? windows.find((x) => x.id === highlightedId) : null;
+        const w = highlightedId
+          ? windows.find((x) => x.paneId === highlightedId)
+          : null;
         if (w) {
           e.preventDefault();
           openCard(w);

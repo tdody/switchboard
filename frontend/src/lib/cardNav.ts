@@ -38,11 +38,11 @@ export function navigateCard(
   // No current selection — pick the first card of the first populated column.
   if (!currentId) return populated[0].windows[0] ?? null;
 
-  // Find current position
+  // Find current position. `currentId` is a stable paneId.
   let colIdx = -1;
   let rowIdx = -1;
   for (let i = 0; i < populated.length; i++) {
-    const found = populated[i].windows.findIndex((w) => w.id === currentId);
+    const found = populated[i].windows.findIndex((w) => w.paneId === currentId);
     if (found >= 0) {
       colIdx = i;
       rowIdx = found;

@@ -140,6 +140,7 @@ def collect_state() -> StateResponse:
             windows.append(
                 Window(
                     id=f"{name}:{idx}",
+                    pane_id=pane.pane_id or "",
                     session=name,
                     index=idx,
                     name=w.window_name or "",

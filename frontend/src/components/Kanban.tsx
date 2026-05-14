@@ -102,10 +102,10 @@ export function Kanban({
               ) : (
                 ws.map((w) => (
                   <WindowCard
-                    key={w.id}
+                    key={w.paneId}
                     w={w}
-                    isFocused={focusedId === w.id}
-                    isHighlighted={highlightedId === w.id}
+                    isFocused={focusedId === w.paneId}
+                    isHighlighted={highlightedId === w.paneId}
                     onOpen={onOpen}
                     onSendKeys={onSend}
                     onRename={onRename}

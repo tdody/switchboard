@@ -27,7 +27,8 @@ export interface Agent {
 }
 
 export interface Window {
-  id: string;
+  id: string; // "{session}:{index}" — addressing label; changes on rename/move
+  paneId: string; // tmux %N — stable identity; use for React keys + selection
   session: string;
   index: number;
   name: string;

@@ -37,7 +37,7 @@ function WindowCardImpl({
   return (
     <div
       className={className}
-      data-card-id={w.id}
+      data-card-id={w.paneId}
       onClick={() => onOpen(w)}
       role="button"
       tabIndex={0}
@@ -148,7 +148,9 @@ export const WindowCard = memo(WindowCardImpl, (prev, next) => {
   const a = prev.w;
   const b = next.w;
   return (
+    a.paneId === b.paneId &&
     a.id === b.id &&
+    a.session === b.session &&
     a.name === b.name &&
     a.index === b.index &&
     a.kind === b.kind &&

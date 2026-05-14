@@ -18,7 +18,7 @@ export function NeedsStrip({ windows, onOpen, onDismiss }: Props) {
       <div className="needs-strip-row">
         {windows.map((w) => (
           <button
-            key={w.id}
+            key={w.paneId}
             className="needs-pill"
             onClick={() => onOpen(w)}
             title={w.agent?.action || w.name}

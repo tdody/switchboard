@@ -78,7 +78,7 @@ export function TerminalModal({ window: win, onClose }: Props) {
       }
       term.dispose();
     };
-  }, [win.id, win.session, win.index]);
+  }, [win.paneId, win.session, win.index]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
