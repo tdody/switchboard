@@ -23,8 +23,8 @@ Open <http://localhost:5173>.
 ## Layout
 
 ```
-backend/    FastAPI + libtmux service
-frontend/   React 18 + TypeScript + Vite SPA
-scripts/    dev.sh + seed-tmux.sh
-design_handoff_switchboard/   Design reference (prototype JSX + styles.css)
+backend/                    FastAPI + libtmux service
+frontend/                   React 18 + TypeScript + Vite SPA
+scripts/                    dev.sh + seed-tmux.sh
+docs/design-reference/      Original design handoff (prototype JSX + styles.css)
 ```
