@@ -78,10 +78,13 @@ export function Icon({ name, size = 14, style, className }: IconProps) {
         </svg>
       );
     case "settings":
+      // A cog: hub + gear body + stubby rim teeth. (The old version had no
+      // body circle and read as a sun.)
       return (
         <svg {...props}>
-          <circle cx="8" cy="8" r="2" />
-          <path d="M8 1.5v1.6M8 12.9v1.6M14.5 8h-1.6M3.1 8H1.5M12.6 3.4l-1.1 1.1M4.5 11.5l-1.1 1.1M12.6 12.6l-1.1-1.1M4.5 4.5 3.4 3.4" />
+          <circle cx="8" cy="8" r="1.7" />
+          <circle cx="8" cy="8" r="4.4" />
+          <path d="M8 3.6V1.6M8 12.4v2M12.4 8h2M3.6 8h-2M11.1 4.9 12.5 3.5M4.9 4.9 3.5 3.5M11.1 11.1 12.5 12.5M4.9 11.1 3.5 12.5" />
         </svg>
       );
     case "sparkle":
