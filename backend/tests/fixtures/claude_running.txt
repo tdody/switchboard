@@ -1,0 +1,10 @@
+● Reviewing the auth middleware now.
+
+  Read(src/auth/middleware.py)
+  ⎿  read 412 lines
+
+✻ Synthesizing… (2m 14s · ↓ 8.4k tokens · still thinking)
+
+────────────────────────────────────────────────────────────────────────────────
+> wait for it
+────────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,12 @@
+● I'll run the tests now to verify the migration is safe.
+
+  Bash(uv run pytest tests/test_migration.py)
+  ⎿  ============================ test session starts ============================
+     collected 12 items
+     tests/test_migration.py .........FFF                                   [100%]
+
+  3 tests failed. Do you want me to investigate the failures? (y/n)
+
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────

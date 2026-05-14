@@ -1,0 +1,254 @@
+"""libtmux wrapper for Switchboard.
+
+Each request to /api/state calls collect_state(), which freshly queries libtmux.
+No caching in MVP. For agent panes, capture-pane is fed to claude_parser.
+"""
+
+from __future__ import annotations
+
+import libtmux
+
+from switchboard.schemas import Agent, Client, Kind, Session, StateResponse, Status, Window
+from switchboard.services import claude_parser
+
+
+def get_server() -> libtmux.Server | None:
+    srv = libtmux.Server()
+    return srv if srv.is_alive() else None
+
+
+def _to_int(value: str | int | None, default: int = 0) -> int:
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _truthy(value: str | int | None) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, int):
+        return value != 0
+    return value not in ("", "0")
+
+
+_AGENT_CMDS = {"claude", "claude-code"}
+_EDITOR_CMDS = {"nvim", "vim", "vi", "nano", "emacs", "hx", "helix", "code"}
+_SERVER_HINTS = ("dev", "serve", "server", "vite", "next", "uvicorn", "gunicorn", "fastapi", "django", "rails", "npm")
+_LOGS_CMDS = {"tail", "less", "journalctl", "kubectl", "k9s", "htop", "btop", "top"}
+
+
+def _infer_kind(cmd: str, window_name: str) -> Kind:
+    cmd_l = (cmd or "").lower()
+    name_l = (window_name or "").lower()
+    if cmd_l in _AGENT_CMDS or name_l.startswith("claude/") or name_l.startswith("claude-"):
+        return "agent"
+    if cmd_l in _EDITOR_CMDS:
+        return "editor"
+    if cmd_l in _LOGS_CMDS:
+        return "logs"
+    if any(h in cmd_l or h in name_l for h in _SERVER_HINTS):
+        return "server"
+    return "shell"
+
+
+def _list_clients(server: libtmux.Server, session_name: str) -> list[Client]:
+    out = server.cmd(
+        "list-clients",
+        "-t",
+        session_name,
+        "-F",
+        "#{client_tty}|#{client_termname}|#{client_activity}",
+    )
+    clients: list[Client] = []
+    for line in out.stdout or []:
+        if not line:
+            continue
+        parts = line.split("|", 2)
+        if len(parts) < 3:
+            continue
+        tty, term, since = parts
+        clients.append(Client(tty=tty, term=term, since=_to_int(since) * 1000))
+    return clients
+
+
+def _simple_status(cmd: str, capture: list[str]) -> Status:
+    cmd_l = (cmd or "").lower()
+    # A long-running foreground process (not the shell prompt itself) is "running".
+    shell_like = cmd_l in ("zsh", "bash", "fish", "sh", "dash", "")
+    return "idle" if shell_like else "running"
+
+
+def collect_state() -> StateResponse:
+    srv = get_server()
+    if srv is None:
+        return StateResponse(sessions=[], windows=[], server_running=False)
+
+    sessions: list[Session] = []
+    windows: list[Window] = []
+
+    for s in srv.sessions:
+        name = s.session_name or ""
+        clients = _list_clients(srv, name)
+        sessions.append(
+            Session(
+                id=name,
+                name=name,
+                attached=_truthy(s.session_attached) or bool(clients),
+                created=_to_int(s.session_created) * 1000,
+                clients=clients,
+            )
+        )
+
+        for w in s.windows:
+            pane = w.active_pane
+            if pane is None:
+                continue
+            try:
+                capture = pane.capture_pane()
+            except Exception:
+                capture = []
+            if isinstance(capture, str):
+                capture = capture.splitlines()
+
+            cmd = pane.pane_current_command or ""
+            cwd = pane.pane_current_path or ""
+            kind = _infer_kind(cmd, w.window_name or "")
+
+            if kind == "agent":
+                status, pending, agent = claude_parser.parse_pane(capture, cwd)
+            else:
+                status = _simple_status(cmd, capture)
+                pending = False
+                agent = None
+
+            idx = _to_int(w.window_index)
+            windows.append(
+                Window(
+                    id=f"{name}:{idx}",
+                    session=name,
+                    index=idx,
+                    name=w.window_name or "",
+                    kind=kind,
+                    status=status,
+                    last_activity=_to_int(getattr(w, "window_activity", None)) * 1000,
+                    cmd=cmd,
+                    cwd=cwd,
+                    pending_input=pending,
+                    agent=agent,
+                    preview=capture[-8:] if capture else [],
+                )
+            )
+
+    return StateResponse(sessions=sessions, windows=windows, server_running=True)
+
+
+# --- pane lookup + actions ---------------------------------------------------
+
+
+def get_pane(session: str, index: int):
+    srv = get_server()
+    if srv is None:
+        return None
+    try:
+        sess = srv.sessions.get(session_name=session)
+    except Exception:
+        return None
+    if sess is None:
+        return None
+    win = next((w for w in sess.windows if _to_int(w.window_index) == index), None)
+    return win.active_pane if win is not None else None
+
+
+def capture_pane(session: str, index: int, lines: int = 200) -> list[str] | None:
+    pane = get_pane(session, index)
+    if pane is None:
+        return None
+    try:
+        captured = pane.capture_pane(start=-lines)
+    except Exception:
+        return None
+    if isinstance(captured, str):
+        captured = captured.splitlines()
+    return captured
+
+
+def send_keys(
+    session: str,
+    index: int,
+    *,
+    keys: list[str] | None = None,
+    paste: str | None = None,
+) -> bool:
+    pane = get_pane(session, index)
+    if pane is None:
+        return False
+    target = f"{session}:{index}"
+    srv = get_server()
+    if srv is None:
+        return False
+    try:
+        if paste is not None:
+            # Send raw bytes — `-l` (literal) keeps escape sequences from being interpreted.
+            srv.cmd("send-keys", "-t", target, "-l", paste)
+        if keys:
+            for key in keys:
+                srv.cmd("send-keys", "-t", target, key)
+        return True
+    except Exception:
+        return False
+
+
+def send_signal(session: str, index: int, signal: str) -> bool:
+    """Send a non-literal key like C-c, Enter, Up, etc."""
+    srv = get_server()
+    if srv is None:
+        return False
+    try:
+        srv.cmd("send-keys", "-t", f"{session}:{index}", signal)
+        return True
+    except Exception:
+        return False
+
+
+def rename_window(session: str, index: int, name: str) -> bool:
+    srv = get_server()
+    if srv is None:
+        return False
+    target = f"{session}:{index}"
+    try:
+        result = srv.cmd("rename-window", "-t", target, name)
+        return not (result.stderr and any(result.stderr))
+    except Exception:
+        return False
+
+
+def focus(session: str, index: int) -> bool | None:
+    """select-window for the target, then switch every attached client of that session."""
+    srv = get_server()
+    if srv is None:
+        return None
+    target = f"{session}:{index}"
+    try:
+        sess = srv.sessions.get(session_name=session)
+    except Exception:
+        return None
+    if sess is None:
+        return None
+    try:
+        srv.cmd("select-window", "-t", target)
+    except Exception:
+        return False
+
+    out = srv.cmd("list-clients", "-t", session, "-F", "#{client_tty}")
+    ttys = [t for t in (out.stdout or []) if t]
+    if not ttys:
+        return False
+    for tty in ttys:
+        try:
+            srv.cmd("switch-client", "-c", tty, "-t", session)
+        except Exception:
+            continue
+    return True

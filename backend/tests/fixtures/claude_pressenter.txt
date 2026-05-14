@@ -1,0 +1,7 @@
+  I'm about to apply the migration. This will rewrite the users table
+  schema and is not reversible without a backup. Press Enter to continue,
+  or Ctrl+C to cancel.
+
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────
