@@ -53,7 +53,10 @@ _LOGS_CMDS = {"tail", "less", "journalctl", "kubectl", "k9s", "htop", "btop", "t
 
 
 def _infer_kind(cmd: str, window_name: str) -> Kind:
-    cmd_l = (cmd or "").lower()
+    # tmux reports the binary name in #{pane_current_command}; on some platforms
+    # it carries a `.exe` suffix (observed: `claude.exe` for Claude Code on
+    # macOS). Strip it so the lookups match regardless.
+    cmd_l = (cmd or "").lower().removesuffix(".exe")
     name_l = (window_name or "").lower()
     if cmd_l in _AGENT_CMDS or name_l.startswith("claude/") or name_l.startswith("claude-"):
         return "agent"
