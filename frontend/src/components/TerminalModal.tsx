@@ -4,7 +4,13 @@ import { Terminal } from "xterm";
 import "xterm/css/xterm.css";
 
 import { fetchPane, openPaneWS } from "../api/client";
-import { useSettings } from "../lib/settings";
+import {
+  TERM_FONT_DEFAULT,
+  TERM_FONT_MAX,
+  TERM_FONT_MIN,
+  updateSettings,
+  useSettings,
+} from "../lib/settings";
 import type { Window } from "../types";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
@@ -23,17 +29,33 @@ const CONN_LABEL: Record<Connection, string> = {
   snapshot: "snapshot",
 };
 
+/** Px the +/- buttons and ⌘=/⌘- shift the terminal font by per press. */
+const ZOOM_STEP = 2;
+
+function clampFont(n: number): number {
+  return Math.min(TERM_FONT_MAX, Math.max(TERM_FONT_MIN, n));
+}
+
 export function TerminalModal({ window: win, onClose }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const termRef = useRef<Terminal | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
   const [conn, setConn] = useState<Connection>("connecting");
-  const wsEnabled = useSettings().wsStreamEnabled;
+  const { wsStreamEnabled: wsEnabled, terminalFontSize } = useSettings();
+
+  // The construction effect below seeds the terminal's initial fontSize from
+  // this ref rather than depending on `terminalFontSize` directly — otherwise
+  // every zoom step would tear down and rebuild the terminal, dropping the
+  // scrollback and WS connection. A separate effect handles live changes.
+  const fontSizeRef = useRef(terminalFontSize);
+  fontSizeRef.current = terminalFontSize;
 
   useEffect(() => {
     if (!hostRef.current) return;
     const term = new Terminal({
       // Ghostty's default font is JetBrains Mono — matches the user's terminal.
       fontFamily: "JetBrains Mono, ui-monospace, Menlo, monospace",
-      fontSize: 13,
+      fontSize: fontSizeRef.current,
       lineHeight: 1.2,
       convertEol: true,
       cursorBlink: true,
@@ -71,6 +93,8 @@ export function TerminalModal({ window: win, onClose }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(hostRef.current);
+    termRef.current = term;
+    fitRef.current = fit;
     try {
       fit.fit();
     } catch {
@@ -123,16 +147,54 @@ export function TerminalModal({ window: win, onClose }: Props) {
         }
       }
       term.dispose();
+      termRef.current = null;
+      fitRef.current = null;
     };
   }, [win.paneId, win.session, win.index, wsEnabled]);
 
+  // Live zoom: mutate the existing terminal's fontSize and reflow the grid,
+  // without rebuilding it. rAF lets the font metrics settle before `fit()`.
+  useEffect(() => {
+    const term = termRef.current;
+    const fit = fitRef.current;
+    if (!term || !fit) return;
+    term.options.fontSize = terminalFontSize;
+    const id = requestAnimationFrame(() => {
+      try {
+        fit.fit();
+      } catch {
+        /* layout transient */
+      }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [terminalFontSize]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      // ⌘=/⌘-/⌘0 zoom. The browser binds these to page zoom, so preventDefault.
+      // ⌘+ is physically ⌘⇧= on most layouts — match the unshifted "=".
+      if (e.metaKey && (e.key === "=" || e.key === "-" || e.key === "0")) {
+        e.preventDefault();
+        if (e.key === "0") {
+          updateSettings({ terminalFontSize: TERM_FONT_DEFAULT });
+        } else {
+          const delta = e.key === "=" ? ZOOM_STEP : -ZOOM_STEP;
+          updateSettings({ terminalFontSize: clampFont(fontSizeRef.current + delta) });
+        }
+      }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const zoomBy = (delta: number) =>
+    updateSettings({ terminalFontSize: clampFont(terminalFontSize + delta) });
+  const zoomReset = () => updateSettings({ terminalFontSize: TERM_FONT_DEFAULT });
+  const zoomPct = Math.round((terminalFontSize / TERM_FONT_DEFAULT) * 100);
 
   return (
     <div className="scrim" onClick={onClose}>
@@ -172,6 +234,31 @@ export function TerminalModal({ window: win, onClose }: Props) {
           </span>
           <span className="term-cwd">{win.cwd || "—"}</span>
           <span className="term-spacer" style={{ flex: 1 }} />
+          <span className="term-zoom">
+            <button
+              className="btn btn-icon btn-ghost"
+              onClick={() => zoomBy(-ZOOM_STEP)}
+              disabled={terminalFontSize <= TERM_FONT_MIN}
+              title="Zoom out (⌘-)"
+            >
+              <Icon name="minus" size={12} />
+            </button>
+            <button
+              className="zoom-level"
+              onClick={zoomReset}
+              title="Reset zoom (⌘0)"
+            >
+              {zoomPct}%
+            </button>
+            <button
+              className="btn btn-icon btn-ghost"
+              onClick={() => zoomBy(ZOOM_STEP)}
+              disabled={terminalFontSize >= TERM_FONT_MAX}
+              title="Zoom in (⌘=)"
+            >
+              <Icon name="plus" size={12} />
+            </button>
+          </span>
           <span className="hint">Esc to close</span>
         </div>
       </div>

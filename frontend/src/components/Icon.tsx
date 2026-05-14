@@ -4,6 +4,7 @@ export type IconName =
   | "search"
   | "x"
   | "plus"
+  | "minus"
   | "settings"
   | "sparkle"
   | "focus"
@@ -75,6 +76,12 @@ export function Icon({ name, size = 14, style, className }: IconProps) {
       return (
         <svg {...props}>
           <path d="M8 3.5v9M3.5 8h9" />
+        </svg>
+      );
+    case "minus":
+      return (
+        <svg {...props}>
+          <path d="M3.5 8h9" />
         </svg>
       );
     case "settings":

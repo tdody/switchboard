@@ -25,6 +25,8 @@ export interface Settings {
   wsStreamEnabled: boolean;
   notifyBadge: boolean;
   notifyBrowser: boolean;
+  /** xterm.js font size for the terminal modal, in px. Zoomed via THI-102. */
+  terminalFontSize: number;
 }
 
 // OKLCH lightness/chroma/hue for each accent preset.
@@ -68,10 +70,16 @@ export const DEFAULT_SETTINGS: Settings = {
   wsStreamEnabled: true,
   notifyBadge: true,
   notifyBrowser: false,
+  terminalFontSize: 13,
 };
 
 export const POLL_MIN_S = 1;
 export const POLL_MAX_S = 30;
+
+/** Terminal-modal zoom bounds (px); default is `DEFAULT_SETTINGS.terminalFontSize`. */
+export const TERM_FONT_MIN = 8;
+export const TERM_FONT_MAX = 32;
+export const TERM_FONT_DEFAULT = 13;
 
 const STORAGE_KEY = "switchboard:settings";
 
