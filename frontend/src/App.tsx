@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchState, focusWindow } from "./api/client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { fetchState, focusWindow, killSession, killWindow } from "./api/client";
 import { usePolling } from "./api/usePolling";
 import { CommandPalette } from "./components/CommandPalette";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { EmptyState } from "./components/EmptyState";
 import { Header, type HeaderCounts } from "./components/Header";
 import { Kanban } from "./components/Kanban";
 import { NeedsStrip } from "./components/NeedsStrip";
+import { NewWindowOverlay } from "./components/NewWindowOverlay";
 import { RenameOverlay } from "./components/RenameOverlay";
 import { SettingsModal } from "./components/SettingsModal";
 import { Subhead } from "./components/Subhead";
@@ -21,6 +23,14 @@ import type { Window } from "./types";
 const FAIL_THRESHOLD = 3;
 const SERVER_ADDR = "127.0.0.1:8765";
 const STATUS_FILTERS: StatusFilter[] = ["all", "waiting", "running", "idle"];
+
+/** A pending destructive action awaiting confirmation in the ConfirmDialog. */
+interface ConfirmState {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  onConfirm: () => Promise<void>;
+}
 
 export function App() {
   const settings = useSettings();
@@ -46,6 +56,8 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [paletteTargetId, setPaletteTargetId] = useState<string | null>(null);
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
+  const [newWindowSession, setNewWindowSession] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
 
   const sessions = state?.sessions ?? [];
   const windows = state?.windows ?? [];
@@ -138,6 +150,71 @@ export function App() {
 
   const handleRename = useCallback((w: Window) => setRenameTargetId(w.paneId), []);
   const handleSend = useCallback((w: Window) => setPaletteTargetId(w.paneId), []);
+  const handleNewWindow = useCallback((session: string) => setNewWindowSession(session), []);
+
+  // `refresh` and `windows` are replaced on every poll. Read them through refs
+  // so the kill handlers stay referentially stable — otherwise every poll would
+  // bust WindowCard's memo (it compares `onKill` by identity).
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  const windowsRef = useRef(windows);
+  windowsRef.current = windows;
+
+  const killToast = useCallback(
+    (message: string) =>
+      pushToast({ id: Math.random().toString(36).slice(2), kind: "message", message }),
+    [pushToast],
+  );
+
+  const handleKill = useCallback(
+    (w: Window, skipConfirm: boolean) => {
+      const onlyWindow =
+        windowsRef.current.filter((x) => x.session === w.session).length === 1;
+      const doKill = async () => {
+        if (await killWindow(w.session, w.index)) refreshRef.current();
+        else killToast(`Couldn't kill ${w.session}:${w.index}`);
+      };
+      if (skipConfirm) {
+        void doKill();
+        return;
+      }
+      setConfirm({
+        title: "Kill window",
+        message: onlyWindow
+          ? `"${w.name}" is the only window in ${w.session} — killing it ends the session. This can't be undone.`
+          : `Kill ${w.session}:${w.index} "${w.name}"? This can't be undone.`,
+        confirmLabel: "Kill window",
+        onConfirm: async () => {
+          await doKill();
+          setConfirm(null);
+        },
+      });
+    },
+    [killToast],
+  );
+
+  const handleKillSession = useCallback(
+    (session: string, skipConfirm: boolean) => {
+      const doKill = async () => {
+        if (await killSession(session)) refreshRef.current();
+        else killToast(`Couldn't kill session ${session}`);
+      };
+      if (skipConfirm) {
+        void doKill();
+        return;
+      }
+      setConfirm({
+        title: "Kill session",
+        message: `Kill session "${session}" and all its windows? This can't be undone.`,
+        confirmLabel: "Kill session",
+        onConfirm: async () => {
+          await doKill();
+          setConfirm(null);
+        },
+      });
+    },
+    [killToast],
+  );
 
   // Apply persisted appearance settings to <html>. The theme/density/
   // reduced-motion CSS ships in styles.css; accent is written as CSS vars.
@@ -163,7 +240,13 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const tag = ((e.target as HTMLElement)?.tagName || "").toLowerCase();
       const inField = tag === "input" || tag === "textarea";
-      const anyOverlay = openId || paletteTargetId || renameTargetId || showSettings;
+      const anyOverlay =
+        openId ||
+        paletteTargetId ||
+        renameTargetId ||
+        showSettings ||
+        newWindowSession ||
+        confirm;
 
       // ⌘K / Ctrl+K — open palette pre-targeted to first pending, then highlighted,
       // then first window. Always available, even from inside inputs.
@@ -230,6 +313,8 @@ export function App() {
     paletteTargetId,
     renameTargetId,
     showSettings,
+    newWindowSession,
+    confirm,
     navCols,
     highlightedId,
     windows,
@@ -297,6 +382,9 @@ export function App() {
           onSend={handleSend}
           onRename={handleRename}
           onFocus={handleFocus}
+          onKill={handleKill}
+          onNewWindow={handleNewWindow}
+          onKillSession={handleKillSession}
         />
       </main>
       {openWindow && <TerminalModal window={openWindow} onClose={closeModal} />}
@@ -311,6 +399,22 @@ export function App() {
           target={renameTarget}
           onClose={() => setRenameTargetId(null)}
           onApplied={refresh}
+        />
+      )}
+      {newWindowSession && (
+        <NewWindowOverlay
+          session={newWindowSession}
+          onClose={() => setNewWindowSession(null)}
+          onApplied={refresh}
+        />
+      )}
+      {confirm && (
+        <ConfirmDialog
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel={confirm.confirmLabel}
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
         />
       )}
       {settingsModal}

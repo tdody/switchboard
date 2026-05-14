@@ -1,6 +1,8 @@
 import type { Session, Window } from "../types";
 import { sortPendingFirst } from "../lib/filter";
 import { formatAgo } from "../lib/format";
+import { DropdownMenu } from "./DropdownMenu";
+import { Icon } from "./Icon";
 import { WindowCard } from "./WindowCard";
 
 interface Props {
@@ -12,6 +14,9 @@ interface Props {
   onSend: (w: Window) => void;
   onRename: (w: Window) => void;
   onFocus: (w: Window) => void;
+  onKill: (w: Window, skipConfirm: boolean) => void;
+  onNewWindow: (session: string) => void;
+  onKillSession: (session: string, skipConfirm: boolean) => void;
 }
 
 export function Kanban({
@@ -23,6 +28,9 @@ export function Kanban({
   onSend,
   onRename,
   onFocus,
+  onKill,
+  onNewWindow,
+  onKillSession,
 }: Props) {
   return (
     <div className="kanban">
@@ -45,6 +53,26 @@ export function Kanban({
                   {ws.length}
                 </span>
               </span>
+              <div className="col-actions">
+                <button
+                  className="btn btn-icon"
+                  onClick={() => onNewWindow(s.id)}
+                  title={`New window in ${s.name}`}
+                >
+                  <Icon name="plus" size={14} />
+                </button>
+                <DropdownMenu
+                  label={`Actions for ${s.name}`}
+                  items={[
+                    {
+                      label: "Kill session",
+                      icon: "trash",
+                      danger: true,
+                      onClick: (e) => onKillSession(s.id, e.shiftKey),
+                    },
+                  ]}
+                />
+              </div>
 
               <div className="col-hover">
                 <div className="row">
@@ -110,6 +138,7 @@ export function Kanban({
                     onSendKeys={onSend}
                     onRename={onRename}
                     onFocus={onFocus}
+                    onKill={onKill}
                   />
                 ))
               )}

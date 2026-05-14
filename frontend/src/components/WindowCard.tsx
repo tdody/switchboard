@@ -14,6 +14,8 @@ interface Props {
   onSendKeys: (w: Window) => void;
   onRename: (w: Window) => void;
   onFocus: (w: Window) => void;
+  /** `skipConfirm` is true when the user Shift-clicked the kill button. */
+  onKill: (w: Window, skipConfirm: boolean) => void;
 }
 
 function WindowCardImpl({
@@ -24,6 +26,7 @@ function WindowCardImpl({
   onSendKeys,
   onRename,
   onFocus,
+  onKill,
 }: Props) {
   const pending = !!w.pendingInput;
   const ago = formatAgo(w.lastActivity);
@@ -126,6 +129,13 @@ function WindowCardImpl({
         <button className="act act-icon" onClick={() => onSendKeys(w)} title="Send keys">
           <Icon name="send" size={12} />
         </button>
+        <button
+          className="act act-icon act-danger"
+          onClick={(e) => onKill(w, e.shiftKey)}
+          title="Kill window — Shift-click to skip the confirm"
+        >
+          <Icon name="trash" size={12} />
+        </button>
         <span className="spacer" />
         <span className="ago" title="last activity">
           <Icon name="clock" size={11} style={{ opacity: 0.6 }} />
@@ -143,6 +153,7 @@ export const WindowCard = memo(WindowCardImpl, (prev, next) => {
   if (prev.onSendKeys !== next.onSendKeys) return false;
   if (prev.onRename !== next.onRename) return false;
   if (prev.onFocus !== next.onFocus) return false;
+  if (prev.onKill !== next.onKill) return false;
   // The Window object is replaced wholesale on each poll. Shallow-compare the
   // fields the card actually renders. (No deep-compare to keep this cheap.)
   const a = prev.w;
