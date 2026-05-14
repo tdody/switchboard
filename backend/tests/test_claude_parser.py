@@ -95,3 +95,14 @@ def test_parse_prompt_menu_redraw_rejected() -> None:
 
 def test_parse_prompt_no_prompt_returns_none() -> None:
     assert claude_parser.parse_prompt(_load("claude_idle.txt")) is None
+
+
+def test_parse_prompt_menu_no_question() -> None:
+    # A menu with no question line above the choices: question degrades to None,
+    # not the box border line.
+    prompt = claude_parser.parse_prompt(_load("claude_menu_no_question.txt"))
+    assert prompt is not None
+    assert prompt.kind == "menu"
+    assert prompt.question is None
+    assert [c.index for c in prompt.choices] == [1, 2]
+    assert [c.selected for c in prompt.choices] == [True, False]

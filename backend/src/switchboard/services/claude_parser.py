@@ -51,7 +51,7 @@ _PROMPT_BOX_RE = re.compile(r"^\s*>")
 # cursor, a 1-2 digit number, a dot, then the label. The trailing box-drawing
 # char (if any) is trimmed from the label by the strip in _scan_menu.
 _MENU_CHOICE_RE = re.compile(r"^[\s│|┃▏╎]*([❯>])?\s*(\d{1,2})\.\s+(.+?)\s*$")
-_BOX_CHARS = " │|┃▏╎─━═\t"
+_BOX_CHARS = " │|┃▏╎─━═╭╮╰╯\t"
 
 _RECAP_CLIP = 240
 _ACTION_CLIP = 160
@@ -125,10 +125,11 @@ def _scan_pending(lines: list[str]) -> tuple[bool, str | None]:
 def _scan_menu(lines: list[str]) -> Prompt | None:
     """Detect Claude Code's modern numbered arrow-key menu in the recent tail.
 
-    Walks up from the bottom, skipping trailing blank/border lines, and collects
-    the contiguous run of numbered choice lines. The run is only accepted as a
-    menu when the numbers are sequential starting at 1 — this rejects captures
-    caught mid-redraw and stray numbered prose.
+    Walks up from the bottom, skipping all non-matching lines until the first
+    choice line is found, then collects the contiguous run of numbered choice
+    lines. The run is only accepted as a menu when the numbers are sequential
+    starting at 1 — this rejects captures caught mid-redraw and stray numbered
+    prose.
     """
     tail = [_strip_ansi(r) for r in lines[-40:]]
     rev: list[tuple[int, str, bool]] = []  # (number, label, selected) bottom-up
