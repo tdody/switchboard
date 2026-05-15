@@ -53,6 +53,24 @@ export async function sendKeys(
   return r.ok;
 }
 
+/** Upload a clipboard image to a Claude Code agent pane. Resolves false on any
+ *  non-2xx (415 unsupported type / 413 too large / 409 non-agent / 404). */
+export async function pasteImage(
+  session: string,
+  index: number,
+  blob: Blob,
+): Promise<boolean> {
+  const r = await fetch(
+    `${BASE}/paste-image?session=${encodeURIComponent(session)}&index=${index}`,
+    {
+      method: "POST",
+      headers: { "content-type": blob.type, ...csrfHeaders() },
+      body: blob,
+    },
+  );
+  return r.ok;
+}
+
 export async function renameWindow(
   session: string,
   index: number,
