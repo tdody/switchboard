@@ -43,6 +43,7 @@ def _csrf(client: TestClient) -> dict[str, str]:
         ("delete", "/api/session?session=x"),
         ("post", "/api/window?session=x&name=y"),
         ("post", "/api/detach?tty=/dev/ttys000"),
+        ("post", "/api/send?session=x&index=0"),
     ],
 )
 def test_mutations_require_csrf(client: TestClient, method: str, path: str) -> None:
