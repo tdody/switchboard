@@ -3,7 +3,7 @@ import { FitAddon } from "xterm-addon-fit";
 import { Terminal } from "xterm";
 import "xterm/css/xterm.css";
 
-import { fetchPane, openPaneWS } from "../api/client";
+import { fetchPane, openPaneWS, pasteImage } from "../api/client";
 import {
   TERM_FONT_DEFAULT,
   TERM_FONT_MAX,
@@ -12,12 +12,14 @@ import {
   useSettings,
 } from "../lib/settings";
 import type { Window } from "../types";
+import { comboBytes, escAction } from "../lib/termKeys";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
 
 interface Props {
   window: Window;
   onClose: () => void;
+  onToast: (message: string) => void;
 }
 
 type Connection = "connecting" | "live" | "closed" | "snapshot";
@@ -36,10 +38,12 @@ function clampFont(n: number): number {
   return Math.min(TERM_FONT_MAX, Math.max(TERM_FONT_MIN, n));
 }
 
-export function TerminalModal({ window: win, onClose }: Props) {
+export function TerminalModal({ window: win, onClose, onToast }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const lastEscRef = useRef(0);
   const [conn, setConn] = useState<Connection>("connecting");
   const { wsStreamEnabled: wsEnabled, terminalFontSize } = useSettings();
 
@@ -129,6 +133,7 @@ export function TerminalModal({ window: win, onClose }: Props) {
 
     if (wsEnabled) {
       ws = openPaneWS(win.session, win.index);
+      wsRef.current = ws;
       ws.onopen = () => setConn("live");
       ws.onmessage = (ev) => {
         const data = ev.data;
@@ -162,6 +167,7 @@ export function TerminalModal({ window: win, onClose }: Props) {
           /* already closed */
         }
       }
+      wsRef.current = null;
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
@@ -185,12 +191,52 @@ export function TerminalModal({ window: win, onClose }: Props) {
     return () => cancelAnimationFrame(id);
   }, [terminalFontSize]);
 
+  // Image paste → upload to the pane. Capture phase so we intercept before
+  // xterm's own paste handling. Agent panes only — the `@path` reference is
+  // Claude Code's file-attach syntax and is meaningless in a plain shell.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
+    const host = hostRef.current;
+    if (!host) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const item = Array.from(e.clipboardData?.items ?? []).find((it) =>
+        it.type.startsWith("image/"),
+      );
+      if (!item) return; // not an image — let xterm handle the text paste
+      e.preventDefault();
+      e.stopPropagation();
+      if (win.kind !== "agent") {
+        onToast("Image paste works only in Claude Code panes");
         return;
       }
+      const blob = item.getAsFile();
+      if (!blob) return;
+      void pasteImage(win.session, win.index, blob).then((ok) => {
+        if (!ok) onToast("Image paste failed — too large or unsupported type");
+      });
+    };
+    host.addEventListener("paste", onPaste, true);
+    return () => host.removeEventListener("paste", onPaste, true);
+  }, [win.kind, win.session, win.index, onToast]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const ws = wsRef.current;
+      const live = ws !== null && ws.readyState === WebSocket.OPEN;
+
+      if (e.key === "Escape") {
+        // Double-Esc closes the modal; a single Esc is forwarded to the pane.
+        // With no live socket (snapshot mode) there's nothing to interrupt — Esc
+        // just closes.
+        if (live && ws && escAction(Date.now(), lastEscRef.current) === "send") {
+          e.preventDefault();
+          ws.send("\x1b");
+          lastEscRef.current = Date.now();
+        } else {
+          onClose();
+        }
+        return;
+      }
+
       // ⌘=/⌘-/⌘0 zoom. The browser binds these to page zoom, so preventDefault.
       // ⌘+ is physically ⌘⇧= on most layouts — match the unshifted "=".
       if (e.metaKey && (e.key === "=" || e.key === "-" || e.key === "0")) {
@@ -200,6 +246,16 @@ export function TerminalModal({ window: win, onClose }: Props) {
         } else {
           const delta = e.key === "=" ? ZOOM_STEP : -ZOOM_STEP;
           updateSettings({ terminalFontSize: clampFont(fontSizeRef.current + delta) });
+        }
+        return;
+      }
+
+      // ⌘-combo line editing → control bytes forwarded to the pane.
+      if (live && ws) {
+        const bytes = comboBytes(e);
+        if (bytes !== null) {
+          e.preventDefault();
+          ws.send(bytes);
         }
       }
     };
