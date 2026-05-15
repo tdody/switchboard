@@ -125,7 +125,10 @@ async def post_paste_image(
         )
     _sweep_old_paste_images()
     path = Path(tempfile.gettempdir()) / f"{_PASTE_PREFIX}{uuid.uuid4().hex}.{ext}"
-    path.write_bytes(body)
+    try:
+        path.write_bytes(body)
+    except OSError:
+        raise HTTPException(status_code=500, detail="failed to write temp file") from None
     # Claude Code's file-attach syntax: `@<path> ` (trailing space).
     if not tmux.deliver_text(session, index, f"@{path} ", bracketed=True):
         raise HTTPException(status_code=404, detail="pane not found")

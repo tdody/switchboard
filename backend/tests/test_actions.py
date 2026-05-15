@@ -46,6 +46,7 @@ def _csrf(client: TestClient) -> dict[str, str]:
         ("post", "/api/window?session=x&name=y"),
         ("post", "/api/detach?tty=/dev/ttys000"),
         ("post", "/api/send?session=x&index=0"),
+        ("post", "/api/paste-image?session=x&index=0"),
     ],
 )
 def test_mutations_require_csrf(client: TestClient, method: str, path: str) -> None:
@@ -130,15 +131,6 @@ def test_post_send_uses_bracketed_paste(client: TestClient, monkeypatch) -> None
 # The endpoint validates the Content-Type header and the byte length, not PNG
 # structure — arbitrary bytes with an image/* content type are sufficient here.
 FAKE_IMAGE = b"\x89PNG\r\n\x1a\n" + b"fake-image-data" * 8  # ~128 bytes
-
-
-def test_paste_image_requires_csrf(client: TestClient) -> None:
-    r = client.post(
-        "/api/paste-image?session=x&index=0",
-        content=FAKE_IMAGE,
-        headers={"content-type": "image/png"},
-    )
-    assert r.status_code == 403
 
 
 def test_paste_image_415_on_non_image(client: TestClient) -> None:
