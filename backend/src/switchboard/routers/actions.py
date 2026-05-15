@@ -25,7 +25,11 @@ def post_focus(session: str, index: int) -> dict[str, bool]:
 
 @router.post("/send")
 def post_send(session: str, index: int, body: SendBody) -> dict[str, bool]:
-    ok = tmux.send_keys(session, index, keys=body.keys, paste=body.paste)
+    # Command-palette text is always a typed block — bracket the paste so
+    # embedded newlines don't each submit; the trailing keys (Enter) submit once.
+    ok = tmux.send_keys(
+        session, index, keys=body.keys, paste=body.paste, bracketed=True
+    )
     if not ok:
         raise HTTPException(status_code=404, detail="pane not found")
     return {"ok": True}

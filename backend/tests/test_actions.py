@@ -101,3 +101,24 @@ def test_post_detach_ok(client: TestClient, monkeypatch) -> None:
     r = client.post("/api/detach?tty=/dev/ttys001", headers=_csrf(client))
     assert r.status_code == 200
     assert r.json() == {"ok": True}
+
+
+def test_post_send_uses_bracketed_paste(client: TestClient, monkeypatch) -> None:
+    seen: dict = {}
+
+    def fake_send_keys(session, index, *, keys=None, paste=None, bracketed=False):
+        seen.update(
+            session=session, index=index, keys=keys, paste=paste, bracketed=bracketed
+        )
+        return True
+
+    monkeypatch.setattr("switchboard.services.tmux.send_keys", fake_send_keys)
+    r = client.post(
+        "/api/send?session=dev&index=1",
+        headers={**_csrf(client), "content-type": "application/json"},
+        json={"paste": "echo a;b", "keys": ["Enter"]},
+    )
+    assert r.status_code == 200
+    assert seen["bracketed"] is True
+    assert seen["paste"] == "echo a;b"
+    assert seen["keys"] == ["Enter"]
