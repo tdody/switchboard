@@ -61,9 +61,8 @@ class PaneStreamer:
             return last_sent  # send failed — don't advance; retry next poll
         return current
 
-    async def _prompt_poll_loop(self) -> None:
+    async def _prompt_poll_loop(self, last_sent: str | None = None) -> None:
         """Re-capture the pane on a timer and emit prompt-change control frames."""
-        last_sent: str | None = None
         while True:
             interval = _PROMPT_POLL_ACTIVE if last_sent is not None else _PROMPT_POLL_IDLE
             await asyncio.sleep(interval)
@@ -113,7 +112,11 @@ class PaneStreamer:
 
             # Prompt parsing is only meaningful for Claude Code agent panes.
             if tmux.pane_kind(self.session, self.index) == "agent":
-                prompt_task = asyncio.create_task(self._prompt_poll_loop())
+                # Parse the already-sent initial snapshot synchronously so a
+                # prompt that's already on screen renders immediately rather
+                # than after the first idle poll (~1s later).
+                initial_prompt = await self._emit_prompt_if_changed(snapshot, None)
+                prompt_task = asyncio.create_task(self._prompt_poll_loop(initial_prompt))
 
             loop = asyncio.get_event_loop()
             reader = asyncio.StreamReader(limit=2**20)

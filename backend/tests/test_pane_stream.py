@@ -62,6 +62,18 @@ def test_emit_prompt_if_changed_sends_on_change_then_dedups() -> None:
     asyncio.run(_run())
 
 
+def test_emit_prompt_if_changed_handles_empty_snapshot() -> None:
+    """Empty lines (no snapshot yet) must not emit a control frame."""
+    async def _run() -> None:
+        ws = _FakeWS()
+        streamer = PaneStreamer(session="s", index=0, ws=ws)
+        last = await streamer._emit_prompt_if_changed([], None)
+        assert last is None
+        assert ws.sent == []
+
+    asyncio.run(_run())
+
+
 def test_emit_prompt_if_changed_send_failure_does_not_advance() -> None:
     async def _run() -> None:
         class _FailWS:
