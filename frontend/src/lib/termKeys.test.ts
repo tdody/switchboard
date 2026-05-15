@@ -10,6 +10,10 @@ describe("escAction", () => {
     expect(escAction(1_000_300, 1_000_000)).toBe("close");
   });
 
+  it("returns 'close' for a second Esc at exactly 400ms (inclusive boundary)", () => {
+    expect(escAction(1_000_400, 1_000_000)).toBe("close");
+  });
+
   it("returns 'send' for a second Esc after 400ms", () => {
     expect(escAction(1_000_500, 1_000_000)).toBe("send");
   });
