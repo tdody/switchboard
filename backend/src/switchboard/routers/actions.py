@@ -1,6 +1,12 @@
-from fastapi import APIRouter, HTTPException
+import tempfile
+import time
+import uuid
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from switchboard.config import settings
 from switchboard.services import tmux
 
 router = APIRouter(prefix="/api")
@@ -73,3 +79,54 @@ def post_detach(tty: str) -> dict[str, bool]:
     if not ok:
         raise HTTPException(status_code=404, detail="client not found")
     return {"ok": True}
+
+
+# --- image paste ------------------------------------------------------------
+
+_PASTE_PREFIX = "switchboard-paste-"
+_PASTE_MAX_AGE_S = 3600
+_EXT_BY_MIME = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
+
+
+def _sweep_old_paste_images() -> None:
+    """Delete switchboard-paste-* temp files older than _PASTE_MAX_AGE_S."""
+    cutoff = time.time() - _PASTE_MAX_AGE_S
+    for path in Path(tempfile.gettempdir()).glob(f"{_PASTE_PREFIX}*"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            continue
+
+
+@router.post("/paste-image")
+async def post_paste_image(
+    session: str, index: int, request: Request
+) -> dict[str, object]:
+    """Accept a clipboard image and bracket-paste its @path into an agent pane."""
+    mime = (request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    ext = _EXT_BY_MIME.get(mime)
+    if ext is None:
+        raise HTTPException(status_code=415, detail="unsupported image type")
+    body = await request.body()
+    if len(body) > settings.paste_image_max_bytes:
+        raise HTTPException(status_code=413, detail="image too large")
+    kind = tmux.pane_kind(session, index)
+    if kind is None:
+        raise HTTPException(status_code=404, detail="pane not found")
+    if kind != "agent":
+        raise HTTPException(
+            status_code=409, detail="image paste is only supported for agent panes"
+        )
+    _sweep_old_paste_images()
+    path = Path(tempfile.gettempdir()) / f"{_PASTE_PREFIX}{uuid.uuid4().hex}.{ext}"
+    path.write_bytes(body)
+    # Claude Code's file-attach syntax: `@<path> ` (trailing space).
+    if not tmux.deliver_text(session, index, f"@{path} ", bracketed=True):
+        raise HTTPException(status_code=404, detail="pane not found")
+    return {"ok": True, "path": str(path), "bytes": len(body)}

@@ -5,6 +5,8 @@ the success path monkeypatches the tmux service so it's deterministic without
 a live tmux server.
 """
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -123,3 +125,79 @@ def test_post_send_uses_bracketed_paste(client: TestClient, monkeypatch) -> None
     assert seen["bracketed"] is True
     assert seen["paste"] == "echo a;b"
     assert seen["keys"] == ["Enter"]
+
+
+# The endpoint validates the Content-Type header and the byte length, not PNG
+# structure — arbitrary bytes with an image/* content type are sufficient here.
+FAKE_IMAGE = b"\x89PNG\r\n\x1a\n" + b"fake-image-data" * 8  # ~128 bytes
+
+
+def test_paste_image_requires_csrf(client: TestClient) -> None:
+    r = client.post(
+        "/api/paste-image?session=x&index=0",
+        content=FAKE_IMAGE,
+        headers={"content-type": "image/png"},
+    )
+    assert r.status_code == 403
+
+
+def test_paste_image_415_on_non_image(client: TestClient) -> None:
+    r = client.post(
+        "/api/paste-image?session=x&index=0",
+        content=b"hello",
+        headers={**_csrf(client), "content-type": "text/plain"},
+    )
+    assert r.status_code == 415
+
+
+def test_paste_image_413_over_size_cap(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr(settings, "paste_image_max_bytes", 16)
+    r = client.post(
+        "/api/paste-image?session=x&index=0",
+        content=FAKE_IMAGE,
+        headers={**_csrf(client), "content-type": "image/png"},
+    )
+    assert r.status_code == 413
+
+
+def test_paste_image_404_on_missing_pane(client: TestClient) -> None:
+    r = client.post(
+        "/api/paste-image?session=__nope__&index=0",
+        content=FAKE_IMAGE,
+        headers={**_csrf(client), "content-type": "image/png"},
+    )
+    assert r.status_code == 404
+
+
+def test_paste_image_409_on_non_agent_pane(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr("switchboard.services.tmux.pane_kind", lambda s, i: "shell")
+    r = client.post(
+        "/api/paste-image?session=dev&index=0",
+        content=FAKE_IMAGE,
+        headers={**_csrf(client), "content-type": "image/png"},
+    )
+    assert r.status_code == 409
+
+
+def test_paste_image_ok_on_agent_pane(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr("switchboard.services.tmux.pane_kind", lambda s, i: "agent")
+    delivered: list = []
+    monkeypatch.setattr(
+        "switchboard.services.tmux.deliver_text",
+        lambda s, i, text, *, bracketed: delivered.append((s, i, text, bracketed))
+        or True,
+    )
+    r = client.post(
+        "/api/paste-image?session=dev&index=0",
+        content=FAKE_IMAGE,
+        headers={**_csrf(client), "content-type": "image/png"},
+    )
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload["ok"] is True
+    assert payload["bytes"] == len(FAKE_IMAGE)
+    # the @path reference was bracket-pasted into the pane
+    assert delivered and delivered[0][3] is True
+    assert delivered[0][2].startswith("@") and delivered[0][2].endswith(" ")
+    # clean up the temp file the endpoint wrote
+    Path(payload["path"]).unlink(missing_ok=True)
