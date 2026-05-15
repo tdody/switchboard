@@ -202,6 +202,7 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
         it.type.startsWith("image/"),
       );
       if (!item) return; // not an image — let xterm handle the text paste
+      if (!wsEnabled) return; // snapshot mode — no live pane to deliver to
       e.preventDefault();
       e.stopPropagation();
       if (win.kind !== "agent") {
@@ -216,7 +217,7 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
     };
     host.addEventListener("paste", onPaste, true);
     return () => host.removeEventListener("paste", onPaste, true);
-  }, [win.kind, win.session, win.index, onToast]);
+  }, [win.kind, win.session, win.index, onToast, wsEnabled]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -291,7 +292,11 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
             <StatusPill status={win.status} />
           </div>
           <span className="term-spacer" style={{ flex: 1 }} />
-          <button className="btn btn-icon btn-ghost" onClick={onClose} title="Close (Esc Esc)">
+          <button
+            className="btn btn-icon btn-ghost"
+            onClick={onClose}
+            title={conn === "live" ? "Close (Esc Esc)" : "Close (Esc)"}
+          >
             <Icon name="x" />
           </button>
         </div>
@@ -331,7 +336,9 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
               <Icon name="plus" size={12} />
             </button>
           </span>
-          <span className="hint">Esc to pane · Esc Esc to close</span>
+          <span className="hint">
+            {conn === "live" ? "Esc to pane · Esc Esc to close" : "Esc to close"}
+          </span>
         </div>
       </div>
     </div>
