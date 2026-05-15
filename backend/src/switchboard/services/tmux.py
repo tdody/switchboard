@@ -11,6 +11,7 @@ at most 2 positional args, despite its `*args: Any`.
 from __future__ import annotations
 
 import subprocess
+import time
 import uuid
 
 import libtmux
@@ -244,6 +245,7 @@ def send_keys(
     *,
     keys: list[str] | None = None,
     paste: str | None = None,
+    bracketed: bool = False,
 ) -> bool:
     pane = get_pane(session, index)
     if pane is None:
@@ -254,8 +256,13 @@ def send_keys(
         return False
     try:
         if paste is not None:
-            # Send raw bytes — `-l` (literal) keeps escape sequences from being interpreted.
-            srv.cmd("send-keys", "-t", target, "-l", paste)  # ty: ignore
+            # Literal text goes through deliver_text (load-buffer/paste-buffer)
+            # rather than `send-keys -l`, which silently drops a standalone `;`.
+            if not deliver_text(session, index, paste, bracketed=bracketed):
+                return False
+            if keys:
+                # Grace so a TUI applies the pasted block before Enter lands.
+                time.sleep(0.10)
         if keys:
             for key in keys:
                 srv.cmd("send-keys", "-t", target, key)  # ty: ignore

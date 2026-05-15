@@ -87,3 +87,51 @@ def test_deliver_text_false_on_oserror(monkeypatch) -> None:
 
     monkeypatch.setattr(tmux.subprocess, "run", fake_run)
     assert tmux.deliver_text("dev", 1, "x", bracketed=False) is False
+
+
+def test_send_keys_paste_routes_through_deliver_text(monkeypatch) -> None:
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: None))
+    seen = []
+    monkeypatch.setattr(
+        tmux,
+        "deliver_text",
+        lambda s, i, text, *, bracketed: seen.append((s, i, text, bracketed)) or True,
+    )
+    assert tmux.send_keys("dev", 1, paste="a;b", bracketed=True) is True
+    assert seen == [("dev", 1, "a;b", True)]
+
+
+def test_send_keys_sleeps_between_paste_and_keys(monkeypatch) -> None:
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    cmds = []
+    monkeypatch.setattr(
+        tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: cmds.append(a))
+    )
+    monkeypatch.setattr(tmux, "deliver_text", lambda *a, **k: True)
+    slept = []
+    monkeypatch.setattr(tmux.time, "sleep", lambda s: slept.append(s))
+    assert tmux.send_keys("dev", 1, paste="x", keys=["Enter"]) is True
+    assert slept == [0.10]
+    assert cmds == [("send-keys", "-t", "dev:1", "Enter")]
+
+
+def test_send_keys_keys_only_skips_deliver_and_sleep(monkeypatch) -> None:
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: None))
+    slept = []
+    monkeypatch.setattr(tmux.time, "sleep", lambda s: slept.append(s))
+
+    def _explode(*a, **k):
+        raise AssertionError("deliver_text should not be called for keys-only")
+
+    monkeypatch.setattr(tmux, "deliver_text", _explode)
+    assert tmux.send_keys("dev", 1, keys=["C-c"]) is True
+    assert slept == []
+
+
+def test_send_keys_false_when_deliver_text_fails(monkeypatch) -> None:
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: None))
+    monkeypatch.setattr(tmux, "deliver_text", lambda *a, **k: False)
+    assert tmux.send_keys("dev", 1, paste="x") is False
