@@ -291,7 +291,7 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
             <StatusPill status={win.status} />
           </div>
           <span className="term-spacer" style={{ flex: 1 }} />
-          <button className="btn btn-icon btn-ghost" onClick={onClose} title="Close (Esc)">
+          <button className="btn btn-icon btn-ghost" onClick={onClose} title="Close (Esc Esc)">
             <Icon name="x" />
           </button>
         </div>
@@ -331,7 +331,7 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
               <Icon name="plus" size={12} />
             </button>
           </span>
-          <span className="hint">Esc to close</span>
+          <span className="hint">Esc to pane · Esc Esc to close</span>
         </div>
       </div>
     </div>
