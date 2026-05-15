@@ -135,3 +135,33 @@ def test_send_keys_false_when_deliver_text_fails(monkeypatch) -> None:
     monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: None))
     monkeypatch.setattr(tmux, "deliver_text", lambda *a, **k: False)
     assert tmux.send_keys("dev", 1, paste="x") is False
+
+
+def _fake_server_with_pane(cmd: str, window_name: str, index: str = "1"):
+    pane = SimpleNamespace(pane_current_command=cmd)
+    win = SimpleNamespace(window_index=index, window_name=window_name, active_pane=pane)
+    sess = SimpleNamespace(windows=[win])
+    return SimpleNamespace(sessions=SimpleNamespace(get=lambda session_name: sess))
+
+
+def test_pane_kind_returns_agent_for_claude_pane(monkeypatch) -> None:
+    monkeypatch.setattr(tmux, "get_server", lambda: _fake_server_with_pane("claude", "main"))
+    assert tmux.pane_kind("dev", 1) == "agent"
+
+
+def test_pane_kind_returns_shell_for_plain_pane(monkeypatch) -> None:
+    monkeypatch.setattr(tmux, "get_server", lambda: _fake_server_with_pane("zsh", "main"))
+    assert tmux.pane_kind("dev", 1) == "shell"
+
+
+def test_pane_kind_none_when_window_missing(monkeypatch) -> None:
+    empty = SimpleNamespace(
+        sessions=SimpleNamespace(get=lambda session_name: SimpleNamespace(windows=[]))
+    )
+    monkeypatch.setattr(tmux, "get_server", lambda: empty)
+    assert tmux.pane_kind("dev", 1) is None
+
+
+def test_pane_kind_none_when_no_server(monkeypatch) -> None:
+    monkeypatch.setattr(tmux, "get_server", lambda: None)
+    assert tmux.pane_kind("dev", 1) is None
