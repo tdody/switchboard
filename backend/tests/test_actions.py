@@ -193,3 +193,35 @@ def test_paste_image_ok_on_agent_pane(client: TestClient, monkeypatch) -> None:
     assert delivered[0][2].startswith("@") and delivered[0][2].endswith(" ")
     # clean up the temp file the endpoint wrote
     Path(payload["path"]).unlink(missing_ok=True)
+
+
+def test_paste_image_500_when_write_fails(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr("switchboard.services.tmux.pane_kind", lambda s, i: "agent")
+
+    def fail_write(self, data):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("pathlib.Path.write_bytes", fail_write)
+    r = client.post(
+        "/api/paste-image?session=dev&index=0",
+        content=FAKE_IMAGE,
+        headers={**_csrf(client), "content-type": "image/png"},
+    )
+    assert r.status_code == 500
+
+
+def test_paste_image_404_when_deliver_text_fails(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr("switchboard.services.tmux.pane_kind", lambda s, i: "agent")
+    monkeypatch.setattr(
+        "switchboard.services.tmux.deliver_text", lambda *a, **k: False
+    )
+    # Stub the write to a no-op so no real temp file is created. The endpoint
+    # only cares that the path exists logically (it passes the path string to
+    # deliver_text); we don't need on-disk content for this test.
+    monkeypatch.setattr("pathlib.Path.write_bytes", lambda self, data: None)
+    r = client.post(
+        "/api/paste-image?session=dev&index=0",
+        content=FAKE_IMAGE,
+        headers={**_csrf(client), "content-type": "image/png"},
+    )
+    assert r.status_code == 404
