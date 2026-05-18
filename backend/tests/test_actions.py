@@ -111,9 +111,7 @@ def test_post_send_uses_bracketed_paste(client: TestClient, monkeypatch) -> None
     seen: dict = {}
 
     def fake_send_keys(session, index, *, keys=None, paste=None, bracketed=False):
-        seen.update(
-            session=session, index=index, keys=keys, paste=paste, bracketed=bracketed
-        )
+        seen.update(session=session, index=index, keys=keys, paste=paste, bracketed=bracketed)
         return True
 
     monkeypatch.setattr("switchboard.services.tmux.send_keys", fake_send_keys)
@@ -176,8 +174,7 @@ def test_paste_image_ok_on_agent_pane(client: TestClient, monkeypatch) -> None:
     delivered: list = []
     monkeypatch.setattr(
         "switchboard.services.tmux.deliver_text",
-        lambda s, i, text, *, bracketed: delivered.append((s, i, text, bracketed))
-        or True,
+        lambda s, i, text, *, bracketed: delivered.append((s, i, text, bracketed)) or True,
     )
     r = client.post(
         "/api/paste-image?session=dev&index=0",
@@ -212,9 +209,7 @@ def test_paste_image_500_when_write_fails(client: TestClient, monkeypatch) -> No
 
 def test_paste_image_404_when_deliver_text_fails(client: TestClient, monkeypatch) -> None:
     monkeypatch.setattr("switchboard.services.tmux.pane_kind", lambda s, i: "agent")
-    monkeypatch.setattr(
-        "switchboard.services.tmux.deliver_text", lambda *a, **k: False
-    )
+    monkeypatch.setattr("switchboard.services.tmux.deliver_text", lambda *a, **k: False)
     # Stub the write to a no-op so no real temp file is created. The endpoint
     # only cares that the path exists logically (it passes the path string to
     # deliver_text); we don't need on-disk content for this test.

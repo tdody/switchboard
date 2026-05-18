@@ -7,6 +7,8 @@ leaving the receive loop's control-message dispatch under test.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -52,9 +54,7 @@ def ws_client(tmp_path, monkeypatch):
 
 def test_ws_resize_calls_tmux_resize_window(monkeypatch, ws_client: TestClient) -> None:
     resize_calls: list[tuple] = []
-    monkeypatch.setattr(
-        tmux, "get_window_size", lambda s, i: ("latest", 80, 24)
-    )
+    monkeypatch.setattr(tmux, "get_window_size", lambda s, i: ("latest", 80, 24))
     monkeypatch.setattr(
         tmux,
         "resize_window",
@@ -72,9 +72,7 @@ def test_ws_resize_snapshots_then_restores_on_disconnect(
     monkeypatch, ws_client: TestClient
 ) -> None:
     restore_calls: list[tuple] = []
-    monkeypatch.setattr(
-        tmux, "get_window_size", lambda s, i: ("latest", 80, 24)
-    )
+    monkeypatch.setattr(tmux, "get_window_size", lambda s, i: ("latest", 80, 24))
     monkeypatch.setattr(tmux, "resize_window", lambda *a: True)
     monkeypatch.setattr(
         tmux,
@@ -89,9 +87,7 @@ def test_ws_resize_snapshots_then_restores_on_disconnect(
     assert restore_calls == [("dev", 2, "latest", 80, 24)]
 
 
-def test_ws_no_restore_when_resize_never_arrives(
-    monkeypatch, ws_client: TestClient
-) -> None:
+def test_ws_no_restore_when_resize_never_arrives(monkeypatch, ws_client: TestClient) -> None:
     # If the client never sent a resize, restoring the window would clobber
     # a size that nothing in this connection ever set.
     restore_calls: list[tuple] = []
@@ -107,9 +103,7 @@ def test_ws_no_restore_when_resize_never_arrives(
     assert restore_calls == []
 
 
-def test_ws_resize_with_bogus_dims_is_ignored(
-    monkeypatch, ws_client: TestClient
-) -> None:
+def test_ws_resize_with_bogus_dims_is_ignored(monkeypatch, ws_client: TestClient) -> None:
     resize_calls: list[tuple] = []
     monkeypatch.setattr(tmux, "get_window_size", lambda s, i: ("latest", 80, 24))
     monkeypatch.setattr(
@@ -127,9 +121,7 @@ def test_ws_resize_with_bogus_dims_is_ignored(
     assert resize_calls == []
 
 
-def test_ws_non_resize_json_falls_through_to_send_keys(
-    monkeypatch, ws_client: TestClient
-) -> None:
+def test_ws_non_resize_json_falls_through_to_send_keys(monkeypatch, ws_client: TestClient) -> None:
     send_calls: list[tuple] = []
     monkeypatch.setattr(
         tmux,
@@ -164,9 +156,7 @@ def test_ws_signal_control_message_routes_to_send_signal(
     assert signals == [("dev", 2, "C-c")]
 
 
-def test_ws_plain_text_is_pasted_as_keys(
-    monkeypatch, ws_client: TestClient
-) -> None:
+def test_ws_plain_text_is_pasted_as_keys(monkeypatch, ws_client: TestClient) -> None:
     pastes: list[str] = []
 
     def _send_keys(session, index, *, keys=None, paste=None, bracketed=False):
@@ -187,7 +177,7 @@ class _RecordingStreamer:
     its first action so a test can drain it and be certain the streamer
     has progressed past construction before checking state."""
 
-    instances: list["_RecordingStreamer"] = []
+    instances: ClassVar[list[_RecordingStreamer]] = []
 
     def __init__(self, *, ws=None, **_kwargs) -> None:
         self.id = len(_RecordingStreamer.instances)
@@ -201,7 +191,7 @@ class _RecordingStreamer:
         if self.ws is not None:
             try:
                 await self.ws.send_text(f"streamer-ready:{self.id}")
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
         try:
             await asyncio.Event().wait()
@@ -217,9 +207,7 @@ def _wait_ready(ws) -> str:
     return msg
 
 
-def test_ws_second_connection_evicts_the_first(
-    monkeypatch, ws_client: TestClient
-) -> None:
+def test_ws_second_connection_evicts_the_first(monkeypatch, ws_client: TestClient) -> None:
     # Two overlapping WS to the same pane: tmux only supports one pipe-pane
     # per pane, so without per-target serialization the first connection's
     # cleanup races the second's setup and one of them ends up with a dead
@@ -238,9 +226,7 @@ def test_ws_second_connection_evicts_the_first(
             assert _RecordingStreamer.instances[1].cancelled is False
 
 
-def test_ws_eviction_does_not_apply_across_panes(
-    monkeypatch, ws_client: TestClient
-) -> None:
+def test_ws_eviction_does_not_apply_across_panes(monkeypatch, ws_client: TestClient) -> None:
     # The serialization is per-target; a connection to a different pane must
     # not disturb an existing one.
     _RecordingStreamer.instances.clear()

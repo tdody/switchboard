@@ -33,9 +33,7 @@ def post_focus(session: str, index: int) -> dict[str, bool]:
 def post_send(session: str, index: int, body: SendBody) -> dict[str, bool]:
     # Command-palette text is always a typed block — bracket the paste so
     # embedded newlines don't each submit; the trailing keys (Enter) submit once.
-    ok = tmux.send_keys(
-        session, index, keys=body.keys, paste=body.paste, bracketed=True
-    )
+    ok = tmux.send_keys(session, index, keys=body.keys, paste=body.paste, bracketed=True)
     if not ok:
         raise HTTPException(status_code=404, detail="pane not found")
     return {"ok": True}
@@ -105,9 +103,7 @@ def _sweep_old_paste_images() -> None:
 
 
 @router.post("/paste-image")
-async def post_paste_image(
-    session: str, index: int, request: Request
-) -> dict[str, object]:
+async def post_paste_image(session: str, index: int, request: Request) -> dict[str, object]:
     """Accept a clipboard image and bracket-paste its @path into an agent pane."""
     mime = (request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
     ext = _EXT_BY_MIME.get(mime)
@@ -120,9 +116,7 @@ async def post_paste_image(
     if kind is None:
         raise HTTPException(status_code=404, detail="pane not found")
     if kind != "agent":
-        raise HTTPException(
-            status_code=409, detail="image paste is only supported for agent panes"
-        )
+        raise HTTPException(status_code=409, detail="image paste is only supported for agent panes")
     _sweep_old_paste_images()
     path = Path(tempfile.gettempdir()) / f"{_PASTE_PREFIX}{uuid.uuid4().hex}.{ext}"
     try:

@@ -65,8 +65,9 @@ def test_deliver_text_bracketed_adds_dash_p(monkeypatch) -> None:
     monkeypatch.setattr(
         tmux.subprocess,
         "run",
-        lambda args, **kw: calls.append(args)
-        or SimpleNamespace(returncode=0, stdout=b"", stderr=b""),
+        lambda args, **kw: (
+            calls.append(args) or SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+        ),
     )
     assert tmux.deliver_text("dev", 1, "x", bracketed=True) is True
     assert calls[1][:4] == ["tmux", "paste-buffer", "-d", "-p"]
@@ -105,9 +106,7 @@ def test_send_keys_paste_routes_through_deliver_text(monkeypatch) -> None:
 def test_send_keys_sleeps_between_paste_and_keys(monkeypatch) -> None:
     monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
     cmds = []
-    monkeypatch.setattr(
-        tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: cmds.append(a))
-    )
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: cmds.append(a)))
     monkeypatch.setattr(tmux, "deliver_text", lambda *a, **k: True)
     slept = []
     monkeypatch.setattr(tmux.time, "sleep", lambda s: slept.append(s))
@@ -224,18 +223,14 @@ def test_get_window_size_defaults_blank_mode_to_latest(monkeypatch) -> None:
     # `show-option -v window-size` returns "" when the option isn't set on
     # the window; that means tmux falls back to the global default, which
     # for current tmux is "latest" — call it explicitly when restoring.
-    srv, _ = _recording_server(
-        {"show-option": [""], "display-message": ["80 24"]}
-    )
+    srv, _ = _recording_server({"show-option": [""], "display-message": ["80 24"]})
     monkeypatch.setattr(tmux, "get_server", lambda: srv)
 
     assert tmux.get_window_size("dev", 2) == ("latest", 80, 24)
 
 
 def test_get_window_size_none_when_dims_unparseable(monkeypatch) -> None:
-    srv, _ = _recording_server(
-        {"show-option": ["latest"], "display-message": ["garbage"]}
-    )
+    srv, _ = _recording_server({"show-option": ["latest"], "display-message": ["garbage"]})
     monkeypatch.setattr(tmux, "get_server", lambda: srv)
 
     assert tmux.get_window_size("dev", 2) is None
