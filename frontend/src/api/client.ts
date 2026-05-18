@@ -145,7 +145,12 @@ export async function fetchPane(
 
 export function openPaneWS(session: string, index: number): WebSocket {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
-  return new WebSocket(
+  const ws = new WebSocket(
     `${proto}://${window.location.host}/ws/pane?session=${encodeURIComponent(session)}&index=${index}`,
   );
+  // Without this, the browser delivers each ws.send_bytes() chunk as a Blob
+  // — TerminalModal's `instanceof ArrayBuffer` check then drops them and the
+  // pane never paints after the initial snapshot.
+  ws.binaryType = "arraybuffer";
+  return ws;
 }

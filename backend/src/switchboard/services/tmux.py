@@ -304,6 +304,68 @@ def send_signal(session: str, index: int, signal: str) -> bool:
         return False
 
 
+def get_window_size(session: str, index: int) -> tuple[str, int, int] | None:
+    """Read the window's current window-size mode + dimensions.
+
+    Returns (mode, cols, rows) so a caller can restore the window after a
+    temporary resize. None when the lookup fails (window gone, tmux down).
+    """
+    srv = get_server()
+    if srv is None:
+        return None
+    target = f"{session}:{index}"
+    dims_fmt = "#{window_width} #{window_height}"
+    try:
+        mode_out = srv.cmd("show-option", "-t", target, "-w", "-v", "window-size")  # ty: ignore
+        dims_out = srv.cmd("display-message", "-t", target, "-p", dims_fmt)  # ty: ignore
+        mode = (mode_out.stdout or [""])[0].strip() or "latest"
+        dims = (dims_out.stdout or [""])[0].strip().split()
+        if len(dims) != 2:
+            return None
+        return mode, int(dims[0]), int(dims[1])
+    except (ValueError, Exception):  # noqa: BLE001
+        return None
+
+
+def resize_window(session: str, index: int, cols: int, rows: int) -> bool:
+    """Resize the window containing pane `session:index` to (cols, rows).
+
+    tmux ignores `resize-window` unless `window-size` is `manual`, so we
+    switch the option first. Callers that want the original size/mode back
+    should snapshot via `get_window_size` beforehand and pass the result to
+    `restore_window_size`.
+    """
+    srv = get_server()
+    if srv is None:
+        return False
+    target = f"{session}:{index}"
+    try:
+        srv.cmd("setw", "-t", target, "window-size", "manual")  # ty: ignore
+        srv.cmd("resize-window", "-t", target, "-x", str(cols), "-y", str(rows))  # ty: ignore
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def restore_window_size(session: str, index: int, mode: str, cols: int, rows: int) -> bool:
+    """Restore a window to a previously-snapshotted size + window-size mode.
+
+    Restoring the mode is what re-lets the largest attached client drive the
+    geometry (the normal "latest"/"largest" behavior). Without this, the
+    window stays at whatever Switchboard set even after the modal closes.
+    """
+    srv = get_server()
+    if srv is None:
+        return False
+    target = f"{session}:{index}"
+    try:
+        srv.cmd("resize-window", "-t", target, "-x", str(cols), "-y", str(rows))  # ty: ignore
+        srv.cmd("setw", "-t", target, "window-size", mode)  # ty: ignore
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def rename_window(session: str, index: int, name: str) -> bool:
     srv = get_server()
     if srv is None:

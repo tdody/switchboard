@@ -61,10 +61,16 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
       fontFamily: "JetBrains Mono, ui-monospace, Menlo, monospace",
       fontSize: fontSizeRef.current,
       lineHeight: 1.2,
-      convertEol: true,
+      // pipe-pane already emits raw PTY bytes (CRLF intact); converting LF→CRLF
+      // a second time would double-CR after each newline.
+      convertEol: false,
       cursorBlink: true,
       allowProposedApi: true,
       scrollback: 5000,
+      // Option key → Meta escape prefix. Lets Option+Backspace become readline
+      // word-delete (ESC + DEL), Option+Left become word-back (ESC + b), etc.
+      // — sequences Claude Code's input box honors.
+      macOptionIsMeta: true,
       // Nudge low-contrast source colors to stay readable against the bg
       // (Ghostty does the same minimum-contrast adjustment).
       minimumContrastRatio: 4.5,
@@ -97,21 +103,51 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(hostRef.current);
+    // Focus immediately so the user can start typing without first clicking
+    // inside the modal.
+    term.focus();
     termRef.current = term;
     fitRef.current = fit;
+
+    // Resize lifecycle: fit xterm to the modal's actual pixel box, then ask
+    // tmux to match. Without sending the size to the backend, the pane stays
+    // at whatever geometry it had under the user's real client — typically
+    // taller/wider than the modal — so xterm's viewport clips or pads tmux's
+    // output. ResizeObserver catches modal-driven changes the `window.resize`
+    // listener misses (zoom, sidebar toggles, devtools).
+    let lastCols = 0;
+    let lastRows = 0;
+    const sendSize = () => {
+      const sock = wsRef.current;
+      if (!sock || sock.readyState !== WebSocket.OPEN) return;
+      if (term.cols === lastCols && term.rows === lastRows) return;
+      lastCols = term.cols;
+      lastRows = term.rows;
+      try {
+        sock.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      } catch {
+        /* socket racing with cleanup */
+      }
+    };
+    let fitTimer: number | undefined;
+    const scheduleFit = () => {
+      window.clearTimeout(fitTimer);
+      fitTimer = window.setTimeout(() => {
+        try {
+          fit.fit();
+        } catch {
+          return;
+        }
+        sendSize();
+      }, 80);
+    };
     try {
       fit.fit();
     } catch {
       /* layout not ready yet */
     }
-    const onResize = () => {
-      try {
-        fit.fit();
-      } catch {
-        /* layout transient */
-      }
-    };
-    globalThis.addEventListener("resize", onResize);
+    const resizeObs = new ResizeObserver(scheduleFit);
+    resizeObs.observe(hostRef.current);
 
     // Auto-hide the scrollbar: reveal it only while actively scrolling, then
     // fade it back out ~800ms after the last scroll event. `.scrolling` on the
@@ -134,7 +170,12 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
     if (wsEnabled) {
       ws = openPaneWS(win.session, win.index);
       wsRef.current = ws;
-      ws.onopen = () => setConn("live");
+      ws.onopen = () => {
+        setConn("live");
+        // First resize: report the size we measured before the socket opened,
+        // so tmux sizes the pane to the modal from the start.
+        sendSize();
+      };
       ws.onmessage = (ev) => {
         const data = ev.data;
         if (typeof data === "string") term.write(data);
@@ -156,7 +197,8 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
 
     return () => {
       cancelled = true;
-      globalThis.removeEventListener("resize", onResize);
+      resizeObs.disconnect();
+      window.clearTimeout(fitTimer);
       viewport?.removeEventListener("scroll", onScroll);
       window.clearTimeout(scrollbarTimer);
       dataSub?.dispose();
@@ -185,7 +227,17 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
       try {
         fit.fit();
       } catch {
-        /* layout transient */
+        return;
+      }
+      // Zoom changed cell metrics → the cols/rows the modal can hold changed
+      // too; forward the new size so tmux reshapes the pane to match.
+      const sock = wsRef.current;
+      if (sock && sock.readyState === WebSocket.OPEN) {
+        try {
+          sock.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        } catch {
+          /* socket racing with cleanup */
+        }
       }
     });
     return () => cancelAnimationFrame(id);

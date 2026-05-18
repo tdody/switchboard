@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { pasteImage } from "./client";
+import { openPaneWS, pasteImage } from "./client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -29,5 +29,31 @@ describe("pasteImage", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
     const blob = new Blob([new Uint8Array([1])], { type: "image/png" });
     expect(await pasteImage("dev", 2, blob)).toBe(false);
+  });
+});
+
+describe("openPaneWS", () => {
+  // The browser default binaryType is "blob"; with that default, the
+  // backend's pipe-pane stream (sent via ws.send_bytes) arrives as a Blob
+  // and the TerminalModal's `instanceof ArrayBuffer` check silently drops
+  // every chunk — leaving the modal's xterm blank while keystrokes still
+  // reach tmux. Pinning "arraybuffer" is what makes the round-trip render.
+  it('sets binaryType to "arraybuffer" so streamed pane bytes render', () => {
+    const created: { url: string; binaryType: string }[] = [];
+    class FakeWS {
+      url: string;
+      binaryType = "blob";
+      constructor(url: string) {
+        this.url = url;
+        created.push(this);
+      }
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", FakeWS);
+
+    const ws = openPaneWS("dev", 2);
+
+    expect(ws.binaryType).toBe("arraybuffer");
+    expect(created[0].url).toMatch(/\/ws\/pane\?session=dev&index=2$/);
   });
 });

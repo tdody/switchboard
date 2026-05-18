@@ -165,3 +165,82 @@ def test_pane_kind_none_when_window_missing(monkeypatch) -> None:
 def test_pane_kind_none_when_no_server(monkeypatch) -> None:
     monkeypatch.setattr(tmux, "get_server", lambda: None)
     assert tmux.pane_kind("dev", 1) is None
+
+
+def _recording_server(stdouts: dict[str, list[str]] | None = None):
+    """Stub Server with a `cmd` that records calls and replays stdout by command."""
+    calls: list[tuple[str, ...]] = []
+    stdouts = stdouts or {}
+
+    def cmd(*args: str, **_kwargs):
+        calls.append(args)
+        return SimpleNamespace(stdout=stdouts.get(args[0], []), stderr=[])
+
+    return SimpleNamespace(cmd=cmd), calls
+
+
+def test_resize_window_flips_to_manual_then_resizes(monkeypatch) -> None:
+    srv, calls = _recording_server()
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+
+    assert tmux.resize_window("dev", 2, 100, 30) is True
+    assert calls == [
+        ("setw", "-t", "dev:2", "window-size", "manual"),
+        ("resize-window", "-t", "dev:2", "-x", "100", "-y", "30"),
+    ]
+
+
+def test_resize_window_false_without_server(monkeypatch) -> None:
+    monkeypatch.setattr(tmux, "get_server", lambda: None)
+    assert tmux.resize_window("dev", 2, 100, 30) is False
+
+
+def test_restore_window_size_resizes_then_restores_mode(monkeypatch) -> None:
+    srv, calls = _recording_server()
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+
+    assert tmux.restore_window_size("dev", 2, "latest", 120, 40) is True
+    # The mode flip comes after the dimensions — otherwise the window-size
+    # option re-takes control before our resize lands.
+    assert calls == [
+        ("resize-window", "-t", "dev:2", "-x", "120", "-y", "40"),
+        ("setw", "-t", "dev:2", "window-size", "latest"),
+    ]
+
+
+def test_get_window_size_parses_mode_and_dims(monkeypatch) -> None:
+    srv, _ = _recording_server(
+        {
+            "show-option": ["manual"],
+            "display-message": ["120 36"],
+        }
+    )
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+
+    assert tmux.get_window_size("dev", 2) == ("manual", 120, 36)
+
+
+def test_get_window_size_defaults_blank_mode_to_latest(monkeypatch) -> None:
+    # `show-option -v window-size` returns "" when the option isn't set on
+    # the window; that means tmux falls back to the global default, which
+    # for current tmux is "latest" — call it explicitly when restoring.
+    srv, _ = _recording_server(
+        {"show-option": [""], "display-message": ["80 24"]}
+    )
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+
+    assert tmux.get_window_size("dev", 2) == ("latest", 80, 24)
+
+
+def test_get_window_size_none_when_dims_unparseable(monkeypatch) -> None:
+    srv, _ = _recording_server(
+        {"show-option": ["latest"], "display-message": ["garbage"]}
+    )
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+
+    assert tmux.get_window_size("dev", 2) is None
+
+
+def test_get_window_size_none_without_server(monkeypatch) -> None:
+    monkeypatch.setattr(tmux, "get_server", lambda: None)
+    assert tmux.get_window_size("dev", 2) is None
