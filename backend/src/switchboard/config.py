@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     port: int = 8765
     cors_origins: list[str] = ["http://localhost:5173"]
     pane_capture_lines: int = 200
+    paste_image_max_bytes: int = 10 * 1024 * 1024  # 10 MiB cap on /api/paste-image
 
     # Auth is auto-enabled when bound to a non-loopback host. Set explicitly
     # (SWITCHBOARD_AUTH_REQUIRED=true/false) to override.
