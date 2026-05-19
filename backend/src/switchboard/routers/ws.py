@@ -19,6 +19,44 @@ router = APIRouter()
 _ACTIVE_STREAMERS: dict[str, asyncio.Task] = {}
 
 
+async def _pane_recv_loop(
+    ws: WebSocket,
+    session: str,
+    index: int,
+    saved_size_box: list,
+) -> None:
+    """Receive client→server messages: resize control frames and keystrokes.
+
+    `saved_size_box` is a length-1 list used as a mutable holder for the
+    pre-resize window snapshot. The handler's finally block reads it to
+    restore the window on disconnect; we need it accessible from outside this
+    coroutine because it survives the recv loop's exit.
+    """
+    while True:
+        msg = await ws.receive_text()
+        if msg.startswith("{"):
+            try:
+                payload = json.loads(msg)
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict) and "signal" in payload:
+                tmux.send_signal(session, index, str(payload["signal"]))
+                continue
+            if isinstance(payload, dict) and payload.get("type") == "resize":
+                try:
+                    cols = int(payload.get("cols") or 0)
+                    rows = int(payload.get("rows") or 0)
+                except (TypeError, ValueError):
+                    cols = rows = 0
+                if cols > 0 and rows > 0:
+                    if saved_size_box[0] is None:
+                        saved_size_box[0] = tmux.get_window_size(session, index)
+                    tmux.resize_window(session, index, cols, rows)
+                continue
+        # Default: forward as literal keys to the pane.
+        tmux.send_keys(session, index, paste=msg)
+
+
 @router.websocket("/ws/pane")
 async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
     await ws.accept()
@@ -46,38 +84,18 @@ async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
     # Snapshot of the window's pre-resize size + window-size mode, captured
     # on the first {type:"resize"} message and restored on disconnect — so
     # closing the modal returns the pane to whatever shape the user's real
-    # terminal client wants.
-    saved_size: tuple[str, int, int] | None = None
+    # terminal client wants. Held in a length-1 list so _pane_recv_loop can
+    # mutate it from another coroutine.
+    saved_size_box: list = [None]
 
     try:
-        while True:
-            msg = await ws.receive_text()
-            if msg.startswith("{"):
-                try:
-                    payload = json.loads(msg)
-                except json.JSONDecodeError:
-                    payload = None
-                if isinstance(payload, dict) and "signal" in payload:
-                    tmux.send_signal(session, index, str(payload["signal"]))
-                    continue
-                if isinstance(payload, dict) and payload.get("type") == "resize":
-                    try:
-                        cols = int(payload.get("cols") or 0)
-                        rows = int(payload.get("rows") or 0)
-                    except (TypeError, ValueError):
-                        cols = rows = 0
-                    if cols > 0 and rows > 0:
-                        if saved_size is None:
-                            saved_size = tmux.get_window_size(session, index)
-                        tmux.resize_window(session, index, cols, rows)
-                    continue
-            # Default: forward as literal keys to the pane.
-            tmux.send_keys(session, index, paste=msg)
+        await _pane_recv_loop(ws, session, index, saved_size_box)
     except WebSocketDisconnect:
         pass
     except Exception as e:  # noqa: BLE001
         log.debug("ws loop error: %s", e)
     finally:
+        saved_size = saved_size_box[0]
         if saved_size is not None:
             mode, cols, rows = saved_size
             tmux.restore_window_size(session, index, mode, cols, rows)
