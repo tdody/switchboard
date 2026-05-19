@@ -42,7 +42,7 @@ const AGENT_PROMPTS: Item[] = [
 export function CommandPalette({ target, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const items = useMemo<Item[]>(() => {
     const all = [...RECENT_COMMANDS, ...AGENT_PROMPTS];
@@ -90,10 +90,21 @@ export function CommandPalette({ target, onClose }: Props) {
       e.preventDefault();
       setCursor((c) => Math.max(0, c - 1));
     }
-    if (e.key === "Enter") {
+    if (e.key === "Enter" && !e.shiftKey) {
+      // Shift+Enter falls through to the textarea's default and inserts a
+      // newline — matches Claude Code's input box and lets the backend's
+      // bracket-paste path actually be exercised for multi-line blocks.
       e.preventDefault();
       void submit(items[cursor] || null);
     }
+  };
+
+  const autoGrow = (el: HTMLTextAreaElement) => {
+    // Reset to single-line so shrinking on backspace works, then expand to
+    // fit. Capped at ~8 lines to keep the palette compact.
+    el.style.height = "auto";
+    const max = 8 * 22; // ~lineHeight * 8
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
   };
 
   // Split items back into the two sections for display
@@ -121,13 +132,15 @@ export function CommandPalette({ target, onClose }: Props) {
       <div className="palette" onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
         <div className="palette-hd">
           <Icon name="send" />
-          <input
+          <textarea
             ref={inputRef}
+            rows={1}
             placeholder={`Send to ${target.session}:${target.index} ${target.name}…`}
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
               setCursor(0);
+              autoGrow(e.target);
             }}
           />
           <span className="kbd">esc</span>

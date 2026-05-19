@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { comboBytes, escAction } from "./termKeys";
+import { comboBytes, escAction, newlineBytes } from "./termKeys";
 
 describe("escAction", () => {
   it("returns 'send' for the first Esc (no prior press)", () => {
@@ -39,5 +39,79 @@ describe("comboBytes", () => {
 
   it("returns null for unrelated combos", () => {
     expect(comboBytes({ metaKey: true, key: "c" })).toBeNull();
+  });
+});
+
+describe("newlineBytes", () => {
+  // Claude Code (Ink) accepts ESC + CR (the Option/Alt+Enter convention) as
+  // an in-prompt newline; bare CR submits. xterm.js emits CR for both Enter
+  // and Shift+Enter by default, so we have to translate Shift+Enter
+  // ourselves before xterm's default fires.
+  it("maps Shift+Enter to ESC + CR", () => {
+    expect(
+      newlineBytes({
+        key: "Enter",
+        shiftKey: true,
+        metaKey: false,
+        ctrlKey: false,
+        altKey: false,
+      }),
+    ).toBe("\x1b\r");
+  });
+
+  it("returns null for plain Enter (xterm sends CR as usual)", () => {
+    expect(
+      newlineBytes({
+        key: "Enter",
+        shiftKey: false,
+        metaKey: false,
+        ctrlKey: false,
+        altKey: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null for Shift+Enter combined with another modifier", () => {
+    // Ctrl/Cmd/Alt+Shift+Enter is reserved for whatever the app or browser
+    // wants; we only own the bare Shift+Enter case.
+    expect(
+      newlineBytes({
+        key: "Enter",
+        shiftKey: true,
+        metaKey: true,
+        ctrlKey: false,
+        altKey: false,
+      }),
+    ).toBeNull();
+    expect(
+      newlineBytes({
+        key: "Enter",
+        shiftKey: true,
+        metaKey: false,
+        ctrlKey: true,
+        altKey: false,
+      }),
+    ).toBeNull();
+    expect(
+      newlineBytes({
+        key: "Enter",
+        shiftKey: true,
+        metaKey: false,
+        ctrlKey: false,
+        altKey: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("returns null for non-Enter keys", () => {
+    expect(
+      newlineBytes({
+        key: "Tab",
+        shiftKey: true,
+        metaKey: false,
+        ctrlKey: false,
+        altKey: false,
+      }),
+    ).toBeNull();
   });
 });

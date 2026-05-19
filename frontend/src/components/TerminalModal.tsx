@@ -12,7 +12,7 @@ import {
   useSettings,
 } from "../lib/settings";
 import type { Window } from "../types";
-import { comboBytes, escAction } from "../lib/termKeys";
+import { comboBytes, escAction, newlineBytes } from "../lib/termKeys";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
 
@@ -102,6 +102,19 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // Intercept Shift+Enter *before* xterm processes it — xterm emits the
+    // same CR for Enter and Shift+Enter, which Claude Code reads as submit.
+    // ESC + CR is the Option/Alt+Enter convention Ink interprets as a
+    // newline in the prompt. Returning false tells xterm to skip its default.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      const bytes = newlineBytes(e);
+      if (bytes === null) return true;
+      e.preventDefault();
+      const sock = wsRef.current;
+      if (sock && sock.readyState === WebSocket.OPEN) sock.send(bytes);
+      return false;
+    });
     term.open(hostRef.current);
     // Focus immediately so the user can start typing without first clicking
     // inside the modal.

@@ -32,3 +32,24 @@ export function comboBytes(e: { metaKey: boolean; key: string }): string | null 
       return null;
   }
 }
+
+/**
+ * Map an Enter keypress to the bytes to forward to the pane, or `null` when
+ * the event should fall through to xterm's default. We only own the bare
+ * Shift+Enter case — it becomes ESC + CR, the Option/Alt+Enter convention
+ * that Claude Code (Ink) interprets as an in-prompt newline; plain CR would
+ * submit. xterm.js emits CR for both Enter and Shift+Enter by default, so
+ * without this translation Shift+Enter would commit the prompt.
+ */
+export function newlineBytes(e: {
+  key: string;
+  shiftKey: boolean;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+}): string | null {
+  if (e.key !== "Enter") return null;
+  if (!e.shiftKey) return null;
+  if (e.metaKey || e.ctrlKey || e.altKey) return null;
+  return "\x1b\r";
+}
