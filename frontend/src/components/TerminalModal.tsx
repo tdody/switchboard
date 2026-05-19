@@ -261,7 +261,7 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
       wsRef.current = sock;
 
       sock.onopen = () => {
-        if (attemptRef.current > 0) {
+        if (isReconnect) {
           term.writeln("\r\n\x1b[32m[reconnected]\x1b[0m");
         }
         attemptRef.current = 0;
@@ -326,6 +326,14 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
       // Reconnect button (in the JSX, outside this effect) can invoke it
       // without us having to re-create the closure on every render.
       manualReconnectRef.current = () => {
+        // Defensive: in today's state machine the Reconnect button is only
+        // reachable from `disconnected` (which arrives via `exhausted`, which
+        // doesn't schedule a timer). If future code lets the button get
+        // clicked with a pending timer, this prevents two concurrent sockets.
+        if (backoffTimerRef.current) {
+          window.clearTimeout(backoffTimerRef.current);
+          backoffTimerRef.current = null;
+        }
         attemptRef.current = 0;
         noticeWrittenRef.current = false;
         connect(true);

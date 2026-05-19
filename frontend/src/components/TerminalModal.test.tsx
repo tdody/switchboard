@@ -232,7 +232,7 @@ describe("TerminalModal — reconnect", () => {
 
   it("manual Reconnect button resets the attempt counter and opens a fresh WS", () => {
     vi.useFakeTimers();
-    render(<TerminalModal window={win} onClose={() => {}} onToast={() => {}} />);
+    const { container } = render(<TerminalModal window={win} onClose={() => {}} onToast={() => {}} />);
     const backoff = [250, 500, 1000, 2000, 4000, 4000, 4000, 4000];
 
     act(() => { FakeWebSocket.instances[0].open(); });
@@ -245,6 +245,18 @@ describe("TerminalModal — reconnect", () => {
     fireEvent.click(screen.getByRole("button", { name: /reconnect/i }));
     // A fresh WS was opened immediately (no backoff for manual reconnect).
     expect(FakeWebSocket.instances.length).toBe(beforeClick + 1);
+
+    // Drive the newly-opened socket to live and verify the success path
+    // writes [reconnected] and flips the pill to `live`.
+    const newWs = FakeWebSocket.instances.at(-1)!;
+    act(() => {
+      newWs.open();
+    });
+    const reconnectedNotices = (mockTerminals[0]?.writes ?? []).filter((w) =>
+      w.includes("[reconnected]"),
+    );
+    expect(reconnectedNotices.length).toBeGreaterThanOrEqual(1);
+    expect(container.querySelector(".connect-pill")?.textContent).toContain("WS · live");
   });
 
   it("clears the backoff timer on unmount", () => {
