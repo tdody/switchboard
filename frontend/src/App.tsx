@@ -160,7 +160,7 @@ export function App() {
   const windowsRef = useRef(windows);
   windowsRef.current = windows;
 
-  const killToast = useCallback(
+  const messageToast = useCallback(
     (message: string) =>
       pushToast({ id: Math.random().toString(36).slice(2), kind: "message", message }),
     [pushToast],
@@ -172,7 +172,7 @@ export function App() {
         windowsRef.current.filter((x) => x.session === w.session).length === 1;
       const doKill = async () => {
         if (await killWindow(w.session, w.index)) refreshRef.current();
-        else killToast(`Couldn't kill ${w.session}:${w.index}`);
+        else messageToast(`Couldn't kill ${w.session}:${w.index}`);
       };
       if (skipConfirm) {
         void doKill();
@@ -190,14 +190,14 @@ export function App() {
         },
       });
     },
-    [killToast],
+    [messageToast],
   );
 
   const handleKillSession = useCallback(
     (session: string, skipConfirm: boolean) => {
       const doKill = async () => {
         if (await killSession(session)) refreshRef.current();
-        else killToast(`Couldn't kill session ${session}`);
+        else messageToast(`Couldn't kill session ${session}`);
       };
       if (skipConfirm) {
         void doKill();
@@ -213,7 +213,7 @@ export function App() {
         },
       });
     },
-    [killToast],
+    [messageToast],
   );
 
   // Apply persisted appearance settings to <html>. The theme/density/
@@ -387,7 +387,13 @@ export function App() {
           onKillSession={handleKillSession}
         />
       </main>
-      {openWindow && <TerminalModal window={openWindow} onClose={closeModal} />}
+      {openWindow && (
+        <TerminalModal
+          window={openWindow}
+          onClose={closeModal}
+          onToast={messageToast}
+        />
+      )}
       {paletteTarget && (
         <CommandPalette
           target={paletteTarget}

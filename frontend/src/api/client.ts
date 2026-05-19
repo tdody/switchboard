@@ -53,6 +53,24 @@ export async function sendKeys(
   return r.ok;
 }
 
+/** Upload a clipboard image to a Claude Code agent pane. Resolves false on any
+ *  non-2xx (415 unsupported type / 413 too large / 409 non-agent / 404). */
+export async function pasteImage(
+  session: string,
+  index: number,
+  blob: Blob,
+): Promise<boolean> {
+  const r = await fetch(
+    `${BASE}/paste-image?session=${encodeURIComponent(session)}&index=${index}`,
+    {
+      method: "POST",
+      headers: { "content-type": blob.type, ...csrfHeaders() },
+      body: blob,
+    },
+  );
+  return r.ok;
+}
+
 export async function renameWindow(
   session: string,
   index: number,
@@ -127,7 +145,12 @@ export async function fetchPane(
 
 export function openPaneWS(session: string, index: number): WebSocket {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
-  return new WebSocket(
+  const ws = new WebSocket(
     `${proto}://${window.location.host}/ws/pane?session=${encodeURIComponent(session)}&index=${index}`,
   );
+  // Without this, the browser delivers each ws.send_bytes() chunk as a Blob
+  // — TerminalModal's `instanceof ArrayBuffer` check then drops them and the
+  // pane never paints after the initial snapshot.
+  ws.binaryType = "arraybuffer";
+  return ws;
 }

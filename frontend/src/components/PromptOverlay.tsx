@@ -6,6 +6,10 @@ interface Props {
   prompt: Prompt;
   /** Send a raw frame to the pane WS: a `{"signal":...}` JSON string, or literal text. */
   send: (data: string) => void;
+  /** Modal's Esc handler — same single-to-pane / double-to-close semantics as
+   *  xterm focus. Routed through the modal so a tap on the overlay can be the
+   *  second tap of a pair that started on the terminal (and vice versa). */
+  onEscape: () => void;
 }
 
 const signal = (s: string): string => JSON.stringify({ signal: s });
@@ -13,7 +17,7 @@ const signal = (s: string): string => JSON.stringify({ signal: s });
 /** ms within which a second Enter is ignored, so mashing can't skip prompts. */
 const COMMIT_DEBOUNCE = 300;
 
-export function PromptOverlay({ prompt, send }: Props) {
+export function PromptOverlay({ prompt, send, onEscape }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   const lastCommit = useRef(0);
 
@@ -30,7 +34,12 @@ export function PromptOverlay({ prompt, send }: Props) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    // Escape intentionally falls through so the modal's handler can close it.
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      onEscape();
+      return;
+    }
     if (e.key === "ArrowUp") {
       e.preventDefault();
       e.stopPropagation();

@@ -10,6 +10,10 @@ at most 2 positional args, despite its `*args: Any`.
 
 from __future__ import annotations
 
+import subprocess
+import time
+import uuid
+
 import libtmux
 
 from switchboard.schemas import Client, Kind, Session, StateResponse, Status, Window
@@ -183,10 +187,11 @@ def get_pane(session: str, index: int):
 
 
 def pane_kind(session: str, index: int) -> Kind | None:
-    """Infer the Kind of a window's active pane. None when it can't be found.
+    """Infer the Kind of a window's active pane; None when it can't be found.
 
-    Mirrors get_pane's lookup; used by pane_stream to gate prompt parsing to
-    agent panes only (a plain shell can echo "[Y/n]" etc.).
+    Mirrors get_pane's lookup but returns the inferred Kind. Used to gate
+    agent-only paths: /api/paste-image (a plain shell can't use the @path
+    syntax) and pane_stream's prompt parsing (a shell can echo "[Y/n]").
     """
     srv = get_server()
     if srv is None:
@@ -222,12 +227,47 @@ def capture_pane(session: str, index: int, lines: int = 200) -> list[str] | None
         return None
 
 
+def deliver_text(session: str, index: int, text: str, *, bracketed: bool) -> bool:
+    """Deliver literal text to a pane via tmux load-buffer + paste-buffer.
+
+    The text enters tmux on stdin (`load-buffer ... -`), so tmux's command
+    parser never sees it as an argv element. This is what fixes `send-keys -l`
+    silently dropping a standalone `;` (tmux treats a bare `;` arg as a command
+    separator) and stripping embedded newlines.
+
+    `bracketed` adds `-p`, wrapping the paste in bracketed-paste markers so a
+    multi-line block's newlines don't each submit — the caller sends an explicit
+    Enter afterward.
+    """
+    target = f"{session}:{index}"
+    buf = f"sb-in-{uuid.uuid4().hex[:8]}"
+    paste_args = ["tmux", "paste-buffer", "-d"]
+    if bracketed:
+        paste_args.append("-p")
+    paste_args += ["-b", buf, "-t", target]
+    try:
+        load = subprocess.run(
+            ["tmux", "load-buffer", "-b", buf, "-"],
+            input=text,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+        if load.returncode != 0:
+            return False
+        paste = subprocess.run(paste_args, capture_output=True, text=True, timeout=5)
+        return paste.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def send_keys(
     session: str,
     index: int,
     *,
     keys: list[str] | None = None,
     paste: str | None = None,
+    bracketed: bool = False,
 ) -> bool:
     pane = get_pane(session, index)
     if pane is None:
@@ -238,8 +278,13 @@ def send_keys(
         return False
     try:
         if paste is not None:
-            # Send raw bytes — `-l` (literal) keeps escape sequences from being interpreted.
-            srv.cmd("send-keys", "-t", target, "-l", paste)  # ty: ignore
+            # Literal text goes through deliver_text (load-buffer/paste-buffer)
+            # rather than `send-keys -l`, which silently drops a standalone `;`.
+            if not deliver_text(session, index, paste, bracketed=bracketed):
+                return False
+            if keys:
+                # Grace so a TUI applies the pasted block before Enter lands.
+                time.sleep(0.10)
         if keys:
             for key in keys:
                 srv.cmd("send-keys", "-t", target, key)  # ty: ignore
@@ -255,6 +300,68 @@ def send_signal(session: str, index: int, signal: str) -> bool:
         return False
     try:
         srv.cmd("send-keys", "-t", f"{session}:{index}", signal)  # ty: ignore
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def get_window_size(session: str, index: int) -> tuple[str, int, int] | None:
+    """Read the window's current window-size mode + dimensions.
+
+    Returns (mode, cols, rows) so a caller can restore the window after a
+    temporary resize. None when the lookup fails (window gone, tmux down).
+    """
+    srv = get_server()
+    if srv is None:
+        return None
+    target = f"{session}:{index}"
+    dims_fmt = "#{window_width} #{window_height}"
+    try:
+        mode_out = srv.cmd("show-option", "-t", target, "-w", "-v", "window-size")  # ty: ignore
+        dims_out = srv.cmd("display-message", "-t", target, "-p", dims_fmt)  # ty: ignore
+        mode = (mode_out.stdout or [""])[0].strip() or "latest"
+        dims = (dims_out.stdout or [""])[0].strip().split()
+        if len(dims) != 2:
+            return None
+        return mode, int(dims[0]), int(dims[1])
+    except (ValueError, Exception):  # noqa: BLE001
+        return None
+
+
+def resize_window(session: str, index: int, cols: int, rows: int) -> bool:
+    """Resize the window containing pane `session:index` to (cols, rows).
+
+    tmux ignores `resize-window` unless `window-size` is `manual`, so we
+    switch the option first. Callers that want the original size/mode back
+    should snapshot via `get_window_size` beforehand and pass the result to
+    `restore_window_size`.
+    """
+    srv = get_server()
+    if srv is None:
+        return False
+    target = f"{session}:{index}"
+    try:
+        srv.cmd("setw", "-t", target, "window-size", "manual")  # ty: ignore
+        srv.cmd("resize-window", "-t", target, "-x", str(cols), "-y", str(rows))  # ty: ignore
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def restore_window_size(session: str, index: int, mode: str, cols: int, rows: int) -> bool:
+    """Restore a window to a previously-snapshotted size + window-size mode.
+
+    Restoring the mode is what re-lets the largest attached client drive the
+    geometry (the normal "latest"/"largest" behavior). Without this, the
+    window stays at whatever Switchboard set even after the modal closes.
+    """
+    srv = get_server()
+    if srv is None:
+        return False
+    target = f"{session}:{index}"
+    try:
+        srv.cmd("resize-window", "-t", target, "-x", str(cols), "-y", str(rows))  # ty: ignore
+        srv.cmd("setw", "-t", target, "window-size", mode)  # ty: ignore
         return True
     except Exception:  # noqa: BLE001
         return False

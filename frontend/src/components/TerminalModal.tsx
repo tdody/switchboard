@@ -3,7 +3,7 @@ import { FitAddon } from "xterm-addon-fit";
 import { Terminal } from "xterm";
 import "xterm/css/xterm.css";
 
-import { fetchPane, openPaneWS } from "../api/client";
+import { fetchPane, openPaneWS, pasteImage } from "../api/client";
 import {
   TERM_FONT_DEFAULT,
   TERM_FONT_MAX,
@@ -12,6 +12,7 @@ import {
   useSettings,
 } from "../lib/settings";
 import type { Window } from "../types";
+import { comboBytes, escAction, newlineBytes } from "../lib/termKeys";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
 import { PromptOverlay } from "./PromptOverlay";
@@ -21,6 +22,7 @@ import type { Prompt } from "../lib/prompt";
 interface Props {
   window: Window;
   onClose: () => void;
+  onToast: (message: string) => void;
 }
 
 type Connection = "connecting" | "live" | "closed" | "snapshot";
@@ -39,14 +41,37 @@ function clampFont(n: number): number {
   return Math.min(TERM_FONT_MAX, Math.max(TERM_FONT_MIN, n));
 }
 
-export function TerminalModal({ window: win, onClose }: Props) {
+export function TerminalModal({ window: win, onClose, onToast }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const lastEscRef = useRef(0);
+  // attachCustomKeyEventHandler captures its closure once when the terminal
+  // is constructed; deferring onClose through a ref lets parent re-renders
+  // update the callback without tearing down the terminal + WS.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const [conn, setConn] = useState<Connection>("connecting");
   const [prompt, setPrompt] = useState<Prompt | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
   const { wsStreamEnabled: wsEnabled, terminalFontSize } = useSettings();
+
+  // Shared Esc handler — used both by xterm's customKeyEventHandler (when the
+  // terminal has focus) and by PromptOverlay (when it grabs focus). Same
+  // single-tap-to-pane / double-tap-to-close semantics either way; sharing
+  // `lastEscRef` means a tap on the overlay can be the second tap of a pair
+  // started on the terminal (and vice versa).
+  const handleEscRef = useRef(() => {});
+  handleEscRef.current = () => {
+    const sock = wsRef.current;
+    const live = sock !== null && sock.readyState === WebSocket.OPEN;
+    if (live && sock && escAction(Date.now(), lastEscRef.current) === "send") {
+      sock.send("\x1b");
+      lastEscRef.current = Date.now();
+    } else {
+      onCloseRef.current();
+    }
+  };
 
   // The construction effect below seeds the terminal's initial fontSize from
   // this ref rather than depending on `terminalFontSize` directly — otherwise
@@ -62,10 +87,16 @@ export function TerminalModal({ window: win, onClose }: Props) {
       fontFamily: "JetBrains Mono, ui-monospace, Menlo, monospace",
       fontSize: fontSizeRef.current,
       lineHeight: 1.2,
-      convertEol: true,
+      // pipe-pane already emits raw PTY bytes (CRLF intact); converting LF→CRLF
+      // a second time would double-CR after each newline.
+      convertEol: false,
       cursorBlink: true,
       allowProposedApi: true,
       scrollback: 5000,
+      // Option key → Meta escape prefix. Lets Option+Backspace become readline
+      // word-delete (ESC + DEL), Option+Left become word-back (ESC + b), etc.
+      // — sequences Claude Code's input box honors.
+      macOptionIsMeta: true,
       // Nudge low-contrast source colors to stay readable against the bg
       // (Ghostty does the same minimum-contrast adjustment).
       minimumContrastRatio: 4.5,
@@ -97,22 +128,90 @@ export function TerminalModal({ window: win, onClose }: Props) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // xterm's keydown handler calls stopPropagation on keys it owns, so
+    // document-level listeners never see Cmd-combos or Esc. Anything that
+    // needs to override xterm's default byte emission has to live here.
+    // Returning false makes xterm skip its own processing; we still need to
+    // preventDefault to suppress browser defaults (history-back for
+    // Cmd+Backspace, etc.). ⌘=/⌘-/⌘0 zoom stays at the document level —
+    // it has to work whether xterm is focused or not.
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== "keydown") return true;
+      const sock = wsRef.current;
+      const live = sock !== null && sock.readyState === WebSocket.OPEN;
+
+      // Shift+Enter → ESC + CR (Claude Code's in-prompt newline).
+      const newline = newlineBytes(e);
+      if (newline !== null) {
+        e.preventDefault();
+        if (live && sock) sock.send(newline);
+        return false;
+      }
+
+      // Esc: single → forward to pane (interrupt); double within 400 ms →
+      // close modal. In snapshot mode (no live socket) Esc just closes.
+      if (e.key === "Escape") {
+        e.preventDefault();
+        handleEscRef.current();
+        return false;
+      }
+
+      // Cmd-combo line editing → control bytes forwarded to the pane.
+      const combo = comboBytes(e);
+      if (combo !== null) {
+        e.preventDefault();
+        if (live && sock) sock.send(combo);
+        return false;
+      }
+
+      return true;
+    });
     term.open(hostRef.current);
+    // Focus immediately so the user can start typing without first clicking
+    // inside the modal.
+    term.focus();
     termRef.current = term;
     fitRef.current = fit;
+
+    // Resize lifecycle: fit xterm to the modal's actual pixel box, then ask
+    // tmux to match. Without sending the size to the backend, the pane stays
+    // at whatever geometry it had under the user's real client — typically
+    // taller/wider than the modal — so xterm's viewport clips or pads tmux's
+    // output. ResizeObserver catches modal-driven changes the `window.resize`
+    // listener misses (zoom, sidebar toggles, devtools).
+    let lastCols = 0;
+    let lastRows = 0;
+    const sendSize = () => {
+      const sock = wsRef.current;
+      if (!sock || sock.readyState !== WebSocket.OPEN) return;
+      if (term.cols === lastCols && term.rows === lastRows) return;
+      lastCols = term.cols;
+      lastRows = term.rows;
+      try {
+        sock.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+      } catch {
+        /* socket racing with cleanup */
+      }
+    };
+    let fitTimer: number | undefined;
+    const scheduleFit = () => {
+      window.clearTimeout(fitTimer);
+      fitTimer = window.setTimeout(() => {
+        try {
+          fit.fit();
+        } catch {
+          return;
+        }
+        sendSize();
+      }, 80);
+    };
     try {
       fit.fit();
     } catch {
       /* layout not ready yet */
     }
-    const onResize = () => {
-      try {
-        fit.fit();
-      } catch {
-        /* layout transient */
-      }
-    };
-    globalThis.addEventListener("resize", onResize);
+    const resizeObs = new ResizeObserver(scheduleFit);
+    resizeObs.observe(hostRef.current);
 
     // Auto-hide the scrollbar: reveal it only while actively scrolling, then
     // fade it back out ~800ms after the last scroll event. `.scrolling` on the
@@ -135,7 +234,12 @@ export function TerminalModal({ window: win, onClose }: Props) {
     if (wsEnabled) {
       ws = openPaneWS(win.session, win.index);
       wsRef.current = ws;
-      ws.onopen = () => setConn("live");
+      ws.onopen = () => {
+        setConn("live");
+        // First resize: report the size we measured before the socket opened,
+        // so tmux sizes the pane to the modal from the start.
+        sendSize();
+      };
       ws.onmessage = (ev) => {
         const data = ev.data;
         if (typeof data === "string") {
@@ -165,7 +269,8 @@ export function TerminalModal({ window: win, onClose }: Props) {
 
     return () => {
       cancelled = true;
-      globalThis.removeEventListener("resize", onResize);
+      resizeObs.disconnect();
+      window.clearTimeout(fitTimer);
       viewport?.removeEventListener("scroll", onScroll);
       window.clearTimeout(scrollbarTimer);
       dataSub?.dispose();
@@ -195,20 +300,56 @@ export function TerminalModal({ window: win, onClose }: Props) {
       try {
         fit.fit();
       } catch {
-        /* layout transient */
+        return;
+      }
+      // Zoom changed cell metrics → the cols/rows the modal can hold changed
+      // too; forward the new size so tmux reshapes the pane to match.
+      const sock = wsRef.current;
+      if (sock && sock.readyState === WebSocket.OPEN) {
+        try {
+          sock.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        } catch {
+          /* socket racing with cleanup */
+        }
       }
     });
     return () => cancelAnimationFrame(id);
   }, [terminalFontSize]);
 
+  // Image paste → upload to the pane. Capture phase so we intercept before
+  // xterm's own paste handling. Agent panes only — the `@path` reference is
+  // Claude Code's file-attach syntax and is meaningless in a plain shell.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
+    const host = hostRef.current;
+    if (!host) return;
+    const onPaste = (e: ClipboardEvent) => {
+      const item = Array.from(e.clipboardData?.items ?? []).find((it) =>
+        it.type.startsWith("image/"),
+      );
+      if (!item) return; // not an image — let xterm handle the text paste
+      if (!wsEnabled) return; // snapshot mode — no live pane to deliver to
+      e.preventDefault();
+      e.stopPropagation();
+      if (win.kind !== "agent") {
+        onToast("Image paste works only in Claude Code panes");
         return;
       }
+      const blob = item.getAsFile();
+      if (!blob) return;
+      void pasteImage(win.session, win.index, blob).then((ok) => {
+        if (!ok) onToast("Image paste failed — too large or unsupported type");
+      });
+    };
+    host.addEventListener("paste", onPaste, true);
+    return () => host.removeEventListener("paste", onPaste, true);
+  }, [win.kind, win.session, win.index, onToast, wsEnabled]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
       // ⌘=/⌘-/⌘0 zoom. The browser binds these to page zoom, so preventDefault.
       // ⌘+ is physically ⌘⇧= on most layouts — match the unshifted "=".
+      // Lives at the document level so it works whether or not xterm has focus
+      // (xterm's customKeyEventHandler only fires for keys on the textarea).
       if (e.metaKey && (e.key === "=" || e.key === "-" || e.key === "0")) {
         e.preventDefault();
         if (e.key === "0") {
@@ -221,7 +362,7 @@ export function TerminalModal({ window: win, onClose }: Props) {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   // Return focus to the terminal when a prompt clears; the overlay grabs focus
   // itself while it is mounted.
@@ -262,7 +403,11 @@ export function TerminalModal({ window: win, onClose }: Props) {
             <StatusPill status={win.status} />
           </div>
           <span className="term-spacer" style={{ flex: 1 }} />
-          <button className="btn btn-icon btn-ghost" onClick={onClose} title="Close (Esc)">
+          <button
+            className="btn btn-icon btn-ghost"
+            onClick={onClose}
+            title={conn === "live" ? "Close (Esc Esc)" : "Close (Esc)"}
+          >
             <Icon name="x" />
           </button>
         </div>
@@ -271,7 +416,13 @@ export function TerminalModal({ window: win, onClose }: Props) {
           ref={hostRef}
           style={{ padding: 6, background: "#282c34" }}
         />
-        {prompt && <PromptOverlay prompt={prompt} send={sendToPane} />}
+        {prompt && (
+          <PromptOverlay
+            prompt={prompt}
+            send={sendToPane}
+            onEscape={() => handleEscRef.current()}
+          />
+        )}
         <div className="term-foot">
           <span className={`connect-pill ${conn}`}>
             <span className="dot" /> {CONN_LABEL[conn]}
@@ -303,7 +454,9 @@ export function TerminalModal({ window: win, onClose }: Props) {
               <Icon name="plus" size={12} />
             </button>
           </span>
-          <span className="hint">Esc to close</span>
+          <span className="hint">
+            {conn === "live" ? "Esc to pane · Esc Esc to close" : "Esc to close"}
+          </span>
         </div>
       </div>
     </div>
