@@ -96,6 +96,11 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
 
   useEffect(() => {
     if (!hostRef.current) return;
+    // Refs persist across effect re-runs; reset the reconnect flag so a
+    // remount (e.g. wsEnabled toggle, pane swap) starts in a clean state.
+    // attemptRef and noticeWrittenRef get reset on onopen/manualReconnect
+    // already; intentionalRef is the only one without a natural reset.
+    intentionalRef.current = false;
     const term = new Terminal({
       // Ghostty's default font is JetBrains Mono — matches the user's terminal.
       fontFamily: "JetBrains Mono, ui-monospace, Menlo, monospace",
@@ -305,6 +310,7 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
             setConn("reconnecting");
             attemptRef.current = action.attempt + 1;
             backoffTimerRef.current = window.setTimeout(() => {
+              backoffTimerRef.current = null;
               // Guard against the timer firing after cleanup raced ahead:
               // intentionalRef is set in the cleanup function below.
               if (intentionalRef.current) return;
@@ -315,16 +321,16 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
       };
     }
 
-    // Publish a stable handle to the manual reconnect path so the
-    // Reconnect button (in the JSX, outside this effect) can invoke it
-    // without us having to re-create the closure on every render.
-    manualReconnectRef.current = () => {
-      attemptRef.current = 0;
-      noticeWrittenRef.current = false;
-      connect(true);
-    };
-
     if (wsEnabled) {
+      // Publish a stable handle to the manual reconnect path so the
+      // Reconnect button (in the JSX, outside this effect) can invoke it
+      // without us having to re-create the closure on every render.
+      manualReconnectRef.current = () => {
+        attemptRef.current = 0;
+        noticeWrittenRef.current = false;
+        connect(true);
+      };
+
       // term.onData lives outside connect() so it reads wsRef.current per
       // call — this lets it survive a future socket replacement (reconnect).
       dataSub = term.onData((d) => {
