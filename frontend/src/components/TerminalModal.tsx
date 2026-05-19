@@ -44,6 +44,11 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const lastEscRef = useRef(0);
+  // attachCustomKeyEventHandler captures its closure once when the terminal
+  // is constructed; deferring onClose through a ref lets parent re-renders
+  // update the callback without tearing down the terminal + WS.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const [conn, setConn] = useState<Connection>("connecting");
   const { wsStreamEnabled: wsEnabled, terminalFontSize } = useSettings();
 
@@ -102,18 +107,48 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    // Intercept Shift+Enter *before* xterm processes it — xterm emits the
-    // same CR for Enter and Shift+Enter, which Claude Code reads as submit.
-    // ESC + CR is the Option/Alt+Enter convention Ink interprets as a
-    // newline in the prompt. Returning false tells xterm to skip its default.
+    // xterm's keydown handler calls stopPropagation on keys it owns, so
+    // document-level listeners never see Cmd-combos or Esc. Anything that
+    // needs to override xterm's default byte emission has to live here.
+    // Returning false makes xterm skip its own processing; we still need to
+    // preventDefault to suppress browser defaults (history-back for
+    // Cmd+Backspace, etc.). ⌘=/⌘-/⌘0 zoom stays at the document level —
+    // it has to work whether xterm is focused or not.
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
-      const bytes = newlineBytes(e);
-      if (bytes === null) return true;
-      e.preventDefault();
       const sock = wsRef.current;
-      if (sock && sock.readyState === WebSocket.OPEN) sock.send(bytes);
-      return false;
+      const live = sock !== null && sock.readyState === WebSocket.OPEN;
+
+      // Shift+Enter → ESC + CR (Claude Code's in-prompt newline).
+      const newline = newlineBytes(e);
+      if (newline !== null) {
+        e.preventDefault();
+        if (live && sock) sock.send(newline);
+        return false;
+      }
+
+      // Esc: single → forward to pane (interrupt); double within 400 ms →
+      // close modal. In snapshot mode (no live socket) Esc just closes.
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (live && sock && escAction(Date.now(), lastEscRef.current) === "send") {
+          sock.send("\x1b");
+          lastEscRef.current = Date.now();
+        } else {
+          onCloseRef.current();
+        }
+        return false;
+      }
+
+      // Cmd-combo line editing → control bytes forwarded to the pane.
+      const combo = comboBytes(e);
+      if (combo !== null) {
+        e.preventDefault();
+        if (live && sock) sock.send(combo);
+        return false;
+      }
+
+      return true;
     });
     term.open(hostRef.current);
     // Focus immediately so the user can start typing without first clicking
@@ -286,25 +321,10 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const ws = wsRef.current;
-      const live = ws !== null && ws.readyState === WebSocket.OPEN;
-
-      if (e.key === "Escape") {
-        // Double-Esc closes the modal; a single Esc is forwarded to the pane.
-        // With no live socket (snapshot mode) there's nothing to interrupt — Esc
-        // just closes.
-        if (live && ws && escAction(Date.now(), lastEscRef.current) === "send") {
-          e.preventDefault();
-          ws.send("\x1b");
-          lastEscRef.current = Date.now();
-        } else {
-          onClose();
-        }
-        return;
-      }
-
       // ⌘=/⌘-/⌘0 zoom. The browser binds these to page zoom, so preventDefault.
       // ⌘+ is physically ⌘⇧= on most layouts — match the unshifted "=".
+      // Lives at the document level so it works whether or not xterm has focus
+      // (xterm's customKeyEventHandler only fires for keys on the textarea).
       if (e.metaKey && (e.key === "=" || e.key === "-" || e.key === "0")) {
         e.preventDefault();
         if (e.key === "0") {
@@ -313,21 +333,11 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
           const delta = e.key === "=" ? ZOOM_STEP : -ZOOM_STEP;
           updateSettings({ terminalFontSize: clampFont(fontSizeRef.current + delta) });
         }
-        return;
-      }
-
-      // ⌘-combo line editing → control bytes forwarded to the pane.
-      if (live && ws) {
-        const bytes = comboBytes(e);
-        if (bytes !== null) {
-          e.preventDefault();
-          ws.send(bytes);
-        }
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
 
   const zoomBy = (delta: number) =>
     updateSettings({ terminalFontSize: clampFont(terminalFontSize + delta) });
