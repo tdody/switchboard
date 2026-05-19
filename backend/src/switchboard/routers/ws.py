@@ -23,7 +23,7 @@ async def _pane_recv_loop(
     ws: WebSocket,
     session: str,
     index: int,
-    saved_size_box: list,
+    saved_size_box: list[tuple[str, int, int] | None],
 ) -> None:
     """Receive client→server messages: resize control frames and keystrokes.
 
@@ -31,6 +31,9 @@ async def _pane_recv_loop(
     pre-resize window snapshot. The handler's finally block reads it to
     restore the window on disconnect; we need it accessible from outside this
     coroutine because it survives the recv loop's exit.
+
+    Raises `WebSocketDisconnect` when the client closes; all other exceptions
+    propagate unchanged. The caller is responsible for cleanup.
     """
     while True:
         msg = await ws.receive_text()
@@ -86,7 +89,7 @@ async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
     # closing the modal returns the pane to whatever shape the user's real
     # terminal client wants. Held in a length-1 list so _pane_recv_loop can
     # mutate it from another coroutine.
-    saved_size_box: list = [None]
+    saved_size_box: list[tuple[str, int, int] | None] = [None]
 
     try:
         await _pane_recv_loop(ws, session, index, saved_size_box)
