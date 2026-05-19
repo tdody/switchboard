@@ -68,6 +68,7 @@ afterEach(() => {
   mockTerminals.length = 0;
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 // Minimal Window literal. If your local `Window` type has required fields
@@ -127,8 +128,7 @@ class FakeWebSocket {
 
 beforeEach(() => {
   FakeWebSocket.instances = [];
-  // @ts-expect-error — minimal stub, sufficient for the component
-  globalThis.WebSocket = FakeWebSocket;
+  vi.stubGlobal("WebSocket", FakeWebSocket);
 });
 
 describe("TerminalModal — reconnect", () => {
@@ -168,6 +168,12 @@ describe("TerminalModal — reconnect", () => {
     expect(container.querySelector(".connect-pill")?.textContent).toContain(
       "reconnecting",
     );
+    // Direct check of dedup invariant: the notice must appear once even
+    // though three closes happened.
+    const reconnectNotices = (mockTerminals[0]?.writes ?? []).filter((w) =>
+      w.includes("[reconnecting"),
+    );
+    expect(reconnectNotices).toHaveLength(1);
   });
 
   it("transitions to `gone` on close code 4404 (pane not found) without retrying", () => {
@@ -243,15 +249,28 @@ describe("TerminalModal — reconnect", () => {
 
   it("clears the backoff timer on unmount", () => {
     vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
     const clearSpy = vi.spyOn(window, "clearTimeout");
     const { unmount } = render(
       <TerminalModal window={win} onClose={() => {}} onToast={() => {}} />,
     );
 
-    act(() => { FakeWebSocket.instances[0].open(); });
-    act(() => { FakeWebSocket.instances[0].triggerClose(1006); });
-    // The backoff timer is now scheduled; unmount before it fires.
+    act(() => {
+      FakeWebSocket.instances[0].open();
+    });
+    // After the close fires, connect()'s onclose handler schedules a backoff
+    // timer via window.setTimeout. Capture its returned id so we can assert
+    // clearTimeout was called with that specific id (not the unrelated fit /
+    // scrollbar timers that also get cleared on every unmount).
+    const setTimeoutCallsBefore = setTimeoutSpy.mock.results.length;
+    act(() => {
+      FakeWebSocket.instances[0].triggerClose(1006);
+    });
+    // The most recent setTimeout call after the close is the backoff scheduler.
+    expect(setTimeoutSpy.mock.results.length).toBeGreaterThan(setTimeoutCallsBefore);
+    const backoffTimerId = setTimeoutSpy.mock.results.at(-1)?.value as number;
+
     unmount();
-    expect(clearSpy).toHaveBeenCalled();
+    expect(clearSpy).toHaveBeenCalledWith(backoffTimerId);
   });
 });
