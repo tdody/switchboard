@@ -18,6 +18,7 @@ import { StatusPill } from "./StatusPill";
 import { PromptOverlay } from "./PromptOverlay";
 import { parsePromptMessage } from "../lib/prompt";
 import type { Prompt } from "../lib/prompt";
+import { decideCloseAction } from "../lib/wsReconnect";
 
 interface Props {
   window: Window;
@@ -25,12 +26,20 @@ interface Props {
   onToast: (message: string) => void;
 }
 
-type Connection = "connecting" | "live" | "closed" | "snapshot";
+type Connection =
+  | "connecting"
+  | "live"
+  | "reconnecting"
+  | "disconnected"
+  | "gone"
+  | "snapshot";
 
 const CONN_LABEL: Record<Connection, string> = {
   connecting: "connecting",
   live: "WS · live",
-  closed: "closed",
+  reconnecting: "reconnecting",
+  disconnected: "disconnected",
+  gone: "pane gone",
   snapshot: "snapshot",
 };
 
@@ -47,6 +56,11 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const lastEscRef = useRef(0);
+  const attemptRef = useRef(0);
+  const intentionalRef = useRef(false);
+  const backoffTimerRef = useRef<number | null>(null);
+  const noticeWrittenRef = useRef(false);
+  const manualReconnectRef = useRef<() => void>(() => {});
   // attachCustomKeyEventHandler captures its closure once when the terminal
   // is constructed; deferring onClose through a ref lets parent re-renders
   // update the callback without tearing down the terminal + WS.
@@ -231,17 +245,23 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
     let dataSub: { dispose: () => void } | null = null;
     let cancelled = false;
 
-    /** Opens a new WebSocket and wires its handlers. Called once at mount;
-     *  Task 5 will also call it from setTimeout for reconnects. */
-    function connect() {
+    /** Opens a new WebSocket and wires its handlers. Called once at mount
+     *  and again from setTimeout for automatic reconnects, or from the
+     *  manual Reconnect button via manualReconnectRef. */
+    function connect(isReconnect: boolean) {
+      if (isReconnect) term.clear();
+      setConn(isReconnect ? "reconnecting" : "connecting");
       const sock = openPaneWS(win.session, win.index);
       ws = sock;
       wsRef.current = sock;
 
       sock.onopen = () => {
+        if (attemptRef.current > 0) {
+          term.writeln("\r\n\x1b[32m[reconnected]\x1b[0m");
+        }
+        attemptRef.current = 0;
+        noticeWrittenRef.current = false;
         setConn("live");
-        // First resize: report the size we measured before the socket opened,
-        // so tmux sizes the pane to the modal from the start.
         sendSize();
       };
       sock.onmessage = (ev) => {
@@ -257,9 +277,52 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
           term.write(new Uint8Array(data));
         }
       };
-      sock.onclose = () => setConn("closed");
-      sock.onerror = () => setConn("closed");
+      sock.onerror = () => {
+        /* onclose follows; no-op */
+      };
+      sock.onclose = (e) => {
+        const action = decideCloseAction(
+          e.code,
+          attemptRef.current,
+          intentionalRef.current,
+          sock !== wsRef.current,
+        );
+        switch (action.kind) {
+          case "ignore":
+            return;
+          case "gone":
+            term.writeln("\r\n\x1b[31m[pane no longer exists]\x1b[0m");
+            setConn("gone");
+            return;
+          case "exhausted":
+            setConn("disconnected");
+            return;
+          case "retry":
+            if (!noticeWrittenRef.current) {
+              term.writeln("\r\n\x1b[33m[reconnecting…]\x1b[0m");
+              noticeWrittenRef.current = true;
+            }
+            setConn("reconnecting");
+            attemptRef.current = action.attempt + 1;
+            backoffTimerRef.current = window.setTimeout(() => {
+              // Guard against the timer firing after cleanup raced ahead:
+              // intentionalRef is set in the cleanup function below.
+              if (intentionalRef.current) return;
+              connect(true);
+            }, action.delayMs);
+            return;
+        }
+      };
     }
+
+    // Publish a stable handle to the manual reconnect path so the
+    // Reconnect button (in the JSX, outside this effect) can invoke it
+    // without us having to re-create the closure on every render.
+    manualReconnectRef.current = () => {
+      attemptRef.current = 0;
+      noticeWrittenRef.current = false;
+      connect(true);
+    };
 
     if (wsEnabled) {
       // term.onData lives outside connect() so it reads wsRef.current per
@@ -268,7 +331,7 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
         const sock = wsRef.current;
         if (sock && sock.readyState === WebSocket.OPEN) sock.send(d);
       });
-      connect();
+      connect(false);
     } else {
       // Live streaming disabled in settings — show a one-shot snapshot (read-only).
       setConn("snapshot");
@@ -278,6 +341,13 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
     }
 
     return () => {
+      // Set intentionalRef + clear backoff timer FIRST so any pending close
+      // event or fired timer is suppressed before we tear down the socket.
+      intentionalRef.current = true;
+      if (backoffTimerRef.current) {
+        window.clearTimeout(backoffTimerRef.current);
+        backoffTimerRef.current = null;
+      }
       cancelled = true;
       resizeObs.disconnect();
       window.clearTimeout(fitTimer);
@@ -437,6 +507,15 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
           <span className={`connect-pill ${conn}`}>
             <span className="dot" /> {CONN_LABEL[conn]}
           </span>
+          {conn === "disconnected" && (
+            <button
+              className="btn btn-ghost btn-reconnect"
+              onClick={() => manualReconnectRef.current()}
+              title="Open a fresh WebSocket"
+            >
+              Reconnect
+            </button>
+          )}
           <span className="term-cwd">{win.cwd || "—"}</span>
           <span className="term-spacer" style={{ flex: 1 }} />
           <span className="term-zoom">
