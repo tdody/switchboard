@@ -69,6 +69,11 @@ async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
         return
 
     target = f"{session}:{index}"
+    # Evict any prior streamer on this pane and wait for its cleanup to
+    # finish before installing ours — otherwise its pipe-pane teardown could
+    # race with our setup. Awaiting drains the prior task's finally block
+    # (which is what disables pipe-pane), so when we proceed the pane is
+    # guaranteed to have no live pipe.
     prev = _ACTIVE_STREAMERS.pop(target, None)
     if prev is not None and not prev.done():
         prev.cancel()
@@ -79,6 +84,11 @@ async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
     tail_task = asyncio.create_task(streamer.run())
     _ACTIVE_STREAMERS[target] = tail_task
 
+    # Snapshot of the window's pre-resize size + window-size mode, captured
+    # on the first {type:"resize"} message and restored on disconnect — so
+    # closing the modal returns the pane to whatever shape the user's real
+    # terminal client wants. Held in a length-1 list so _pane_recv_loop can
+    # mutate it from another coroutine.
     saved_size_box: list[tuple[str, int, int] | None] = [None]
     recv_task = asyncio.create_task(_pane_recv_loop(ws, session, index, saved_size_box))
 
@@ -88,12 +98,14 @@ async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
             return_when=asyncio.FIRST_COMPLETED,
         )
         if tail_task in done and recv_task not in done:
-            # Stream ended while client was still connected (tmux killed the
-            # pane, pipe-pane failed, etc.). Yield once to let recv_task
-            # process any messages that arrived in the same event-loop batch
-            # as the stream's completion (e.g. a resize frame queued just
-            # before pipe-pane EOF) — those are needed for window-size
-            # restore in the finally block.
+            # Best-effort drain: yield once so the recv task has a chance to
+            # process anything already in its read buffer (e.g. a resize frame
+            # that landed microseconds before the streamer EOF'd) before the
+            # close frame goes out. This is not a guarantee — under load a
+            # message queued via call_soon_threadsafe may still be missed and
+            # the saved_size snapshot will simply stay None. The window
+            # restore is best-effort itself; the test environment is
+            # deterministic enough that a single yield is sufficient there.
             await asyncio.sleep(0)
             # Tell the frontend so its reconnect controller can transition
             # to `gone` instead of cycling through backoff.
@@ -117,5 +129,7 @@ async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
         if saved_size is not None:
             mode, cols, rows = saved_size
             tmux.restore_window_size(session, index, mode, cols, rows)
+        # Only deregister if we're still the current owner — a later
+        # connection may have evicted us and registered its own task.
         if _ACTIVE_STREAMERS.get(target) is tail_task:
             _ACTIVE_STREAMERS.pop(target, None)
