@@ -15,6 +15,9 @@ import type { Window } from "../types";
 import { comboBytes, escAction, newlineBytes } from "../lib/termKeys";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
+import { PromptOverlay } from "./PromptOverlay";
+import { parsePromptMessage } from "../lib/prompt";
+import type { Prompt } from "../lib/prompt";
 
 interface Props {
   window: Window;
@@ -50,7 +53,25 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const [conn, setConn] = useState<Connection>("connecting");
+  const [prompt, setPrompt] = useState<Prompt | null>(null);
   const { wsStreamEnabled: wsEnabled, terminalFontSize } = useSettings();
+
+  // Shared Esc handler — used both by xterm's customKeyEventHandler (when the
+  // terminal has focus) and by PromptOverlay (when it grabs focus). Same
+  // single-tap-to-pane / double-tap-to-close semantics either way; sharing
+  // `lastEscRef` means a tap on the overlay can be the second tap of a pair
+  // started on the terminal (and vice versa).
+  const handleEscRef = useRef(() => {});
+  handleEscRef.current = () => {
+    const sock = wsRef.current;
+    const live = sock !== null && sock.readyState === WebSocket.OPEN;
+    if (live && sock && escAction(Date.now(), lastEscRef.current) === "send") {
+      sock.send("\x1b");
+      lastEscRef.current = Date.now();
+    } else {
+      onCloseRef.current();
+    }
+  };
 
   // The construction effect below seeds the terminal's initial fontSize from
   // this ref rather than depending on `terminalFontSize` directly — otherwise
@@ -131,12 +152,7 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
       // close modal. In snapshot mode (no live socket) Esc just closes.
       if (e.key === "Escape") {
         e.preventDefault();
-        if (live && sock && escAction(Date.now(), lastEscRef.current) === "send") {
-          sock.send("\x1b");
-          lastEscRef.current = Date.now();
-        } else {
-          onCloseRef.current();
-        }
+        handleEscRef.current();
         return false;
       }
 
@@ -226,8 +242,16 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
       };
       ws.onmessage = (ev) => {
         const data = ev.data;
-        if (typeof data === "string") term.write(data);
-        else if (data instanceof ArrayBuffer) term.write(new Uint8Array(data));
+        if (typeof data === "string") {
+          const parsed = parsePromptMessage(data);
+          if (parsed !== undefined) {
+            setPrompt(parsed);
+            return;
+          }
+          term.write(data);
+        } else if (data instanceof ArrayBuffer) {
+          term.write(new Uint8Array(data));
+        }
       };
       ws.onclose = () => setConn("closed");
       ws.onerror = () => setConn("closed");
@@ -258,6 +282,7 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
         }
       }
       wsRef.current = null;
+      setPrompt(null);
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
@@ -339,6 +364,17 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
+  // Return focus to the terminal when a prompt clears; the overlay grabs focus
+  // itself while it is mounted.
+  useEffect(() => {
+    if (prompt === null) termRef.current?.focus();
+  }, [prompt]);
+
+  const sendToPane = (data: string) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
+  };
+
   const zoomBy = (delta: number) =>
     updateSettings({ terminalFontSize: clampFont(terminalFontSize + delta) });
   const zoomReset = () => updateSettings({ terminalFontSize: TERM_FONT_DEFAULT });
@@ -380,6 +416,13 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
           ref={hostRef}
           style={{ padding: 6, background: "#282c34" }}
         />
+        {prompt && (
+          <PromptOverlay
+            prompt={prompt}
+            send={sendToPane}
+            onEscape={() => handleEscRef.current()}
+          />
+        )}
         <div className="term-foot">
           <span className={`connect-pill ${conn}`}>
             <span className="dot" /> {CONN_LABEL[conn]}

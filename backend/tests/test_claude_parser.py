@@ -65,3 +65,82 @@ def test_duration_parsing(duration_str: str, expected: str) -> None:
     _, _, agent = claude_parser.parse_pane([line], cwd=None)
     assert agent is not None
     assert agent.duration == expected
+
+
+def test_parse_prompt_menu_cursor_on_first() -> None:
+    prompt = claude_parser.parse_prompt(_load("claude_menu.txt"))
+    assert prompt is not None
+    assert prompt.kind == "menu"
+    assert prompt.question == "Do you want to proceed?"
+    assert [c.index for c in prompt.choices] == [1, 2, 3]
+    assert [c.label for c in prompt.choices] == [
+        "Yes",
+        "Yes, and don't ask again for rm commands in this project",
+        "No, and tell Claude what to do differently (esc)",
+    ]
+    assert [c.selected for c in prompt.choices] == [True, False, False]
+
+
+def test_parse_prompt_menu_cursor_on_second() -> None:
+    prompt = claude_parser.parse_prompt(_load("claude_menu_cursor2.txt"))
+    assert prompt is not None
+    assert prompt.kind == "menu"
+    assert [c.selected for c in prompt.choices] == [False, True, False]
+
+
+def test_parse_prompt_menu_redraw_rejected() -> None:
+    # Non-sequential numbering (1. not yet drawn) must not be treated as a menu.
+    assert claude_parser.parse_prompt(_load("claude_menu_redraw.txt")) is None
+
+
+def test_parse_prompt_numbered_prose_without_cursor_rejected() -> None:
+    # Regression: chat messages with sequential numbered lists were classified
+    # as menus (cursor was optional), and lines containing a mid-sentence
+    # `(y/n)` / `[Y/n]` were classified as yn prompts. Both fired on this
+    # repo's own assistant messages. The fixture mirrors a real Switchboard
+    # PR-review chat: numbered prose, a `❯` inside one item's label (to verify
+    # the cursor regex anchor is "before the number", not "anywhere on line"),
+    # and `(y/n)` / `[Y/n]` mid-sentence (to verify the end-of-line anchor).
+    assert claude_parser.parse_prompt(_load("claude_numbered_prose.txt")) is None
+
+
+def test_parse_prompt_no_prompt_returns_none() -> None:
+    assert claude_parser.parse_prompt(_load("claude_idle.txt")) is None
+
+
+def test_parse_prompt_menu_no_question() -> None:
+    # A menu with no question line above the choices: question degrades to None,
+    # not the box border line.
+    prompt = claude_parser.parse_prompt(_load("claude_menu_no_question.txt"))
+    assert prompt is not None
+    assert prompt.kind == "menu"
+    assert prompt.question is None
+    assert [c.index for c in prompt.choices] == [1, 2]
+    assert [c.selected for c in prompt.choices] == [True, False]
+
+
+def test_parse_prompt_yn() -> None:
+    prompt = claude_parser.parse_prompt(_load("claude_waiting.txt"))
+    assert prompt is not None
+    assert prompt.kind == "yn"
+    assert prompt.choices == []
+    assert prompt.question is not None
+    assert "(y/n)" in prompt.question.lower()
+
+
+def test_parse_prompt_enter() -> None:
+    prompt = claude_parser.parse_prompt(_load("claude_pressenter.txt"))
+    assert prompt is not None
+    assert prompt.kind == "enter"
+    assert prompt.choices == []
+    assert prompt.question is not None
+    assert "press enter" in prompt.question.lower()
+
+
+def test_menu_prompt_makes_parse_pane_waiting() -> None:
+    # A menu pane flows through parse_pane → parse_prompt and reports "waiting".
+    status, pending, agent = claude_parser.parse_pane(_load("claude_menu.txt"), cwd=None)
+    assert status == "waiting"
+    assert pending is True
+    assert agent is not None
+    assert agent.action == "Do you want to proceed?"

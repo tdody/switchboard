@@ -190,7 +190,8 @@ def pane_kind(session: str, index: int) -> Kind | None:
     """Infer the Kind of a window's active pane; None when it can't be found.
 
     Mirrors get_pane's lookup but returns the inferred Kind. Used to gate
-    /api/paste-image to agent panes (a plain shell can't use the @path syntax).
+    agent-only paths: /api/paste-image (a plain shell can't use the @path
+    syntax) and pane_stream's prompt parsing (a shell can echo "[Y/n]").
     """
     srv = get_server()
     if srv is None:
@@ -220,7 +221,7 @@ def capture_pane(session: str, index: int, lines: int = 200) -> list[str] | None
         return None
     try:
         # libtmux's Pane.capture_pane() can't pass -e; call tmux directly.
-        out = pane.cmd("capture-pane", "-p", "-e", "-S", f"-{lines}")  # ty: ignore
+        out = pane.cmd("capture-pane", "-p", "-e", "-S", f"-{lines}")
         return list(out.stdout or [])
     except Exception:  # noqa: BLE001
         return None

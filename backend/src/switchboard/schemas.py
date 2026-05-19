@@ -6,6 +6,7 @@ from pydantic.alias_generators import to_camel
 Status = Literal["running", "waiting", "idle", "done", "error"]
 Kind = Literal["shell", "editor", "server", "agent", "logs"]
 CIState = Literal["passing", "failing", "running"]
+PromptKind = Literal["menu", "yn", "enter"]
 
 
 class _CamelModel(BaseModel):
@@ -34,6 +35,18 @@ class Agent(_CamelModel):
     duration: str | None = None
     recap: str | None = None
     action: str | None = None
+
+
+class PromptChoice(_CamelModel):
+    index: int  # 1-based, as Claude Code numbers the menu
+    label: str
+    selected: bool  # the choice currently bearing the ❯ cursor
+
+
+class Prompt(_CamelModel):
+    kind: PromptKind
+    question: str | None = None
+    choices: list[PromptChoice] = []  # empty for "enter"
 
 
 class Window(_CamelModel):

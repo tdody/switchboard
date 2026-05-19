@@ -1620,3 +1620,39 @@ input, textarea, select { font: inherit; color: inherit; }
   margin-left: 2px;
   border-left: 1px solid var(--hairline);
 }
+
+/* THI-104 — interactive prompt overlay inside the terminal modal. */
+.prompt-overlay {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--hairline-strong);
+  background: var(--panel-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+}
+.prompt-overlay:focus-visible { box-shadow: inset 0 0 0 1px var(--accent-edge); }
+.prompt-q { color: var(--text); font-weight: 600; }
+.prompt-choices { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.prompt-choice {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 3px 6px;
+  border-radius: var(--r-sm);
+  color: var(--text-mute);
+  cursor: pointer;
+}
+.prompt-choice:hover { background: var(--bg-elev); }
+.prompt-choice.selected {
+  background: var(--accent-soft);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent-edge);
+}
+.prompt-cursor { width: 1ch; color: var(--accent); }
+.prompt-num { color: var(--text-dim); }
+.prompt-label { flex: 1; }
+.prompt-buttons { display: flex; gap: 8px; }
+.prompt-hint { color: var(--text-dim); font-size: 11px; }
