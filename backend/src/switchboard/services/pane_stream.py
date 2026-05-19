@@ -40,9 +40,7 @@ class PaneStreamer:
         self.index = index
         self.ws = ws
 
-    async def _emit_prompt_if_changed(
-        self, lines: list[str], last_sent: str | None
-    ) -> str | None:
+    async def _emit_prompt_if_changed(self, lines: list[str], last_sent: str | None) -> str | None:
         """Parse `lines` for a prompt; send a control frame iff it changed.
 
         `last_sent` is a stable JSON key for the last prompt we successfully

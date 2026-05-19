@@ -93,6 +93,17 @@ def test_parse_prompt_menu_redraw_rejected() -> None:
     assert claude_parser.parse_prompt(_load("claude_menu_redraw.txt")) is None
 
 
+def test_parse_prompt_numbered_prose_without_cursor_rejected() -> None:
+    # Regression: chat messages with sequential numbered lists were classified
+    # as menus (cursor was optional), and lines containing a mid-sentence
+    # `(y/n)` / `[Y/n]` were classified as yn prompts. Both fired on this
+    # repo's own assistant messages. The fixture mirrors a real Switchboard
+    # PR-review chat: numbered prose, a `❯` inside one item's label (to verify
+    # the cursor regex anchor is "before the number", not "anywhere on line"),
+    # and `(y/n)` / `[Y/n]` mid-sentence (to verify the end-of-line anchor).
+    assert claude_parser.parse_prompt(_load("claude_numbered_prose.txt")) is None
+
+
 def test_parse_prompt_no_prompt_returns_none() -> None:
     assert claude_parser.parse_prompt(_load("claude_idle.txt")) is None
 

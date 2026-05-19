@@ -1,0 +1,14 @@
+● Manual checks from the PR body:
+
+  1. Open the terminal modal on a Claude Code agent pane and trigger a permission menu — verify the overlay appears with the parsed choices and the highlight matches the pane's ❯.
+  2. ↑/↓ move the highlight (small lag is expected — it mirrors the real cursor); Enter confirms.
+  3. Click a lower/upper choice — highlight jumps, Enter still required to commit.
+  4. Trigger a (y/n) prompt — Yes/No buttons + y/n keys both work.
+  5. Trigger a confirmation prompt — Continue button works.
+  6. Open the modal on a non-agent pane (shell) — no overlay appears even if the shell echoes [Y/n].
+  7. While the overlay is up, single Esc sends an interrupt to the pane.
+  8. Tap Esc once on the terminal then once on the overlay within 400 ms.
+
+╭──────────────────────────────────────────────────────────────────────────────╮
+│ >                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯

@@ -41,6 +41,10 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "RUF", "BLE"]
+# `❯` is Claude Code's selected-choice glyph — we parse it, mention it in
+# docstrings, and embed it in regexes. Without this exception, RUF001/002/003
+# flag every occurrence as a confusable with `>`.
+allowed-confusables = ["❯"]
 
 [tool.ty.src]
 include = ["src"]

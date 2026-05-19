@@ -35,9 +35,14 @@ _ACTIVE_VERB_RE = re.compile(
 )
 
 # Pending-input patterns. Must match a recent line (last ~25 lines).
+# The trailing `(?=[\s│|┃▏╎]*$)` anchors the marker to the end of the line
+# (allowing only whitespace or box-drawing chars after). Without this anchor,
+# prose mentioning `[Y/n]` mid-sentence — e.g. a chat message describing the
+# feature — was classified as a pending y/n prompt. Real Claude Code prompts
+# always render the marker as the last visible content on the question line.
 _YN_PATTERNS: Final = [
-    re.compile(r"\(\s*y\s*/\s*n[a-z/?]*\)", re.IGNORECASE),
-    re.compile(r"\[\s*y\s*/\s*n[a-z/?]*\]", re.IGNORECASE),
+    re.compile(r"\(\s*y\s*/\s*n[a-z/?]*\)(?=[\s│|┃▏╎]*$)", re.IGNORECASE),
+    re.compile(r"\[\s*y\s*/\s*n[a-z/?]*\](?=[\s│|┃▏╎]*$)", re.IGNORECASE),
 ]
 _ENTER_PATTERNS: Final = [
     re.compile(r"\bpress\s+enter\b", re.IGNORECASE),
@@ -130,9 +135,11 @@ def _scan_menu(lines: list[str]) -> Prompt | None:
 
     Walks up from the bottom, skipping all non-matching lines until the first
     choice line is found, then collects the contiguous run of numbered choice
-    lines. The run is only accepted as a menu when the numbers are sequential
-    starting at 1 — this rejects captures caught mid-redraw and stray numbered
-    prose.
+    lines. The run is only accepted as a menu when (a) the numbers are
+    sequential starting at 1 — rejects captures caught mid-redraw — AND (b) at
+    least one collected choice carries the `❯` cursor — rejects numbered prose
+    (chat messages, README excerpts) that happens to look like a menu. A real
+    Claude Code menu always renders a cursor on the selected choice.
     """
     tail = [_strip_ansi(r) for r in lines[-40:]]
     rev: list[tuple[int, str, bool]] = []  # (number, label, selected) bottom-up
@@ -152,6 +159,8 @@ def _scan_menu(lines: list[str]) -> Prompt | None:
     rev.reverse()
     nums = [n for n, _, _ in rev]
     if nums != list(range(1, len(nums) + 1)):
+        return None
+    if not any(sel for _, _, sel in rev):
         return None
     choices = [PromptChoice(index=n, label=lbl, selected=sel) for n, lbl, sel in rev]
     # At most one selected; if a redraw left two cursors, keep only the last.

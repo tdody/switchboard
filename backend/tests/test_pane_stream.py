@@ -64,6 +64,7 @@ def test_emit_prompt_if_changed_sends_on_change_then_dedups() -> None:
 
 def test_emit_prompt_if_changed_handles_empty_snapshot() -> None:
     """Empty lines (no snapshot yet) must not emit a control frame."""
+
     async def _run() -> None:
         ws = _FakeWS()
         streamer = PaneStreamer(session="s", index=0, ws=ws)

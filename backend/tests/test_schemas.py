@@ -1,4 +1,4 @@
-from switchboard.schemas import Window, Prompt, PromptChoice
+from switchboard.schemas import Prompt, PromptChoice, Window
 
 _BASE = {
     "id": "main:0",

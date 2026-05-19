@@ -221,7 +221,7 @@ def capture_pane(session: str, index: int, lines: int = 200) -> list[str] | None
         return None
     try:
         # libtmux's Pane.capture_pane() can't pass -e; call tmux directly.
-        out = pane.cmd("capture-pane", "-p", "-e", "-S", f"-{lines}")  # ty: ignore
+        out = pane.cmd("capture-pane", "-p", "-e", "-S", f"-{lines}")
         return list(out.stdout or [])
     except Exception:  # noqa: BLE001
         return None
