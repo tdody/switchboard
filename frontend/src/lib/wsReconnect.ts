@@ -1,7 +1,7 @@
 /** Periscope's backoff curve: 250, 500, 1000, 2000ms, then steady 4000ms.
  *  Eight entries means eight retry attempts after the initial failure
  *  (~19.75s of total trying) before transitioning to `disconnected`. */
-export const BACKOFF_MS = [250, 500, 1000, 2000, 4000, 4000, 4000, 4000];
+export const BACKOFF_MS = [250, 500, 1000, 2000, 4000, 4000, 4000, 4000] as const;
 
 /** Decision a `ws.onclose` handler should take. Discriminated union so
  *  the caller is forced to handle every kind explicitly. */
@@ -27,6 +27,7 @@ export function decideCloseAction(
   isIntentional: boolean,
   isStale: boolean,
 ): CloseAction {
+  // Intentional teardown and stale sockets always win — even over permanent codes.
   if (isIntentional || isStale) return { kind: "ignore" };
   if (closeCode === 4404 || closeCode === 4410) return { kind: "gone" };
   if (closeCode === 1000) return { kind: "ignore" };

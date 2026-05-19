@@ -9,6 +9,7 @@ describe("decideCloseAction — intentional / stale shortcuts", () => {
 
   it("returns ignore when isStale is true (a replaced socket fired late)", () => {
     expect(decideCloseAction(1006, 0, false, true)).toEqual({ kind: "ignore" });
+    expect(decideCloseAction(4404, 0, false, true)).toEqual({ kind: "ignore" });
   });
 });
 
