@@ -231,16 +231,20 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
     let dataSub: { dispose: () => void } | null = null;
     let cancelled = false;
 
-    if (wsEnabled) {
-      ws = openPaneWS(win.session, win.index);
-      wsRef.current = ws;
-      ws.onopen = () => {
+    /** Opens a new WebSocket and wires its handlers. Called once at mount;
+     *  Task 5 will also call it from setTimeout for reconnects. */
+    function connect() {
+      const sock = openPaneWS(win.session, win.index);
+      ws = sock;
+      wsRef.current = sock;
+
+      sock.onopen = () => {
         setConn("live");
         // First resize: report the size we measured before the socket opened,
         // so tmux sizes the pane to the modal from the start.
         sendSize();
       };
-      ws.onmessage = (ev) => {
+      sock.onmessage = (ev) => {
         const data = ev.data;
         if (typeof data === "string") {
           const parsed = parsePromptMessage(data);
@@ -253,12 +257,18 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
           term.write(new Uint8Array(data));
         }
       };
-      ws.onclose = () => setConn("closed");
-      ws.onerror = () => setConn("closed");
-      const sock = ws;
+      sock.onclose = () => setConn("closed");
+      sock.onerror = () => setConn("closed");
+    }
+
+    if (wsEnabled) {
+      // term.onData lives outside connect() so it reads wsRef.current per
+      // call — this lets it survive a future socket replacement (reconnect).
       dataSub = term.onData((d) => {
-        if (sock.readyState === WebSocket.OPEN) sock.send(d);
+        const sock = wsRef.current;
+        if (sock && sock.readyState === WebSocket.OPEN) sock.send(d);
       });
+      connect();
     } else {
       // Live streaming disabled in settings — show a one-shot snapshot (read-only).
       setConn("snapshot");
