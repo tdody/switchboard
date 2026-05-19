@@ -254,13 +254,18 @@ class _ImmediateExitStreamer:
         _ImmediateExitStreamer.instances.append(self)
 
     async def run(self) -> None:
-        # Yield once so the event loop has a chance to schedule the recv
-        # task before we exit; otherwise the race is decided synchronously
-        # in a way the production code path would never see.
+        # Wait briefly so the recv task can drain anything the client has
+        # queued (TestClient.send_text uses call_soon_threadsafe; the
+        # delivery to recv requires at least one event-loop tick — Darwin's
+        # selector loop is generous about this, Linux's is not). 50ms is
+        # short enough to not slow the suite and long enough to be reliable
+        # across loop policies. In production the streamer dies after
+        # seconds/minutes of activity, so this artificial pause models real
+        # behavior more honestly than a single asyncio.sleep(0).
         import asyncio
 
-        await asyncio.sleep(0)
-        return  # streamer "completes" immediately
+        await asyncio.sleep(0.05)
+        return  # streamer "completes"
 
 
 def test_ws_closes_with_4410_when_streamer_ends_first(monkeypatch, ws_client: TestClient) -> None:
