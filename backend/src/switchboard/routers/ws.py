@@ -19,6 +19,47 @@ router = APIRouter()
 _ACTIVE_STREAMERS: dict[str, asyncio.Task] = {}
 
 
+async def _pane_recv_loop(
+    ws: WebSocket,
+    session: str,
+    index: int,
+    saved_size_box: list[tuple[str, int, int] | None],
+) -> None:
+    """Receive client→server messages: resize control frames and keystrokes.
+
+    `saved_size_box` is a length-1 list used as a mutable holder for the
+    pre-resize window snapshot. The handler's finally block reads it to
+    restore the window on disconnect; we need it accessible from outside this
+    coroutine because it survives the recv loop's exit.
+
+    Raises `WebSocketDisconnect` when the client closes; all other exceptions
+    propagate unchanged. The caller is responsible for cleanup.
+    """
+    while True:
+        msg = await ws.receive_text()
+        if msg.startswith("{"):
+            try:
+                payload = json.loads(msg)
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict) and "signal" in payload:
+                tmux.send_signal(session, index, str(payload["signal"]))
+                continue
+            if isinstance(payload, dict) and payload.get("type") == "resize":
+                try:
+                    cols = int(payload.get("cols") or 0)
+                    rows = int(payload.get("rows") or 0)
+                except (TypeError, ValueError):
+                    cols = rows = 0
+                if cols > 0 and rows > 0:
+                    if saved_size_box[0] is None:
+                        saved_size_box[0] = tmux.get_window_size(session, index)
+                    tmux.resize_window(session, index, cols, rows)
+                continue
+        # Default: forward as literal keys to the pane.
+        tmux.send_keys(session, index, paste=msg)
+
+
 @router.websocket("/ws/pane")
 async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
     await ws.accept()
@@ -46,38 +87,45 @@ async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
     # Snapshot of the window's pre-resize size + window-size mode, captured
     # on the first {type:"resize"} message and restored on disconnect — so
     # closing the modal returns the pane to whatever shape the user's real
-    # terminal client wants.
-    saved_size: tuple[str, int, int] | None = None
+    # terminal client wants. Held in a length-1 list so _pane_recv_loop can
+    # mutate it from another coroutine.
+    saved_size_box: list[tuple[str, int, int] | None] = [None]
+    recv_task = asyncio.create_task(_pane_recv_loop(ws, session, index, saved_size_box))
 
     try:
-        while True:
-            msg = await ws.receive_text()
-            if msg.startswith("{"):
-                try:
-                    payload = json.loads(msg)
-                except json.JSONDecodeError:
-                    payload = None
-                if isinstance(payload, dict) and "signal" in payload:
-                    tmux.send_signal(session, index, str(payload["signal"]))
-                    continue
-                if isinstance(payload, dict) and payload.get("type") == "resize":
-                    try:
-                        cols = int(payload.get("cols") or 0)
-                        rows = int(payload.get("rows") or 0)
-                    except (TypeError, ValueError):
-                        cols = rows = 0
-                    if cols > 0 and rows > 0:
-                        if saved_size is None:
-                            saved_size = tmux.get_window_size(session, index)
-                        tmux.resize_window(session, index, cols, rows)
-                    continue
-            # Default: forward as literal keys to the pane.
-            tmux.send_keys(session, index, paste=msg)
-    except WebSocketDisconnect:
-        pass
+        done, _pending = await asyncio.wait(
+            [tail_task, recv_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if tail_task in done and recv_task not in done:
+            # Best-effort drain: yield once so the recv task has a chance to
+            # process anything already in its read buffer (e.g. a resize frame
+            # that landed microseconds before the streamer EOF'd) before the
+            # close frame goes out. This is not a guarantee — under load a
+            # message queued via call_soon_threadsafe may still be missed and
+            # the saved_size snapshot will simply stay None. The window
+            # restore is best-effort itself; the test environment is
+            # deterministic enough that a single yield is sufficient there.
+            await asyncio.sleep(0)
+            # Tell the frontend so its reconnect controller can transition
+            # to `gone` instead of cycling through backoff.
+            with contextlib.suppress(Exception):
+                await ws.close(code=4410, reason="pane stream ended")
+            recv_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await recv_task
+        else:
+            tail_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await tail_task
+            # Consume the recv task's exception (typically WebSocketDisconnect)
+            # so asyncio doesn't log "Task exception was never retrieved".
+            with contextlib.suppress(WebSocketDisconnect, Exception):
+                recv_task.result()
     except Exception as e:  # noqa: BLE001
         log.debug("ws loop error: %s", e)
     finally:
+        saved_size = saved_size_box[0]
         if saved_size is not None:
             mode, cols, rows = saved_size
             tmux.restore_window_size(session, index, mode, cols, rows)
@@ -85,8 +133,3 @@ async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
         # connection may have evicted us and registered its own task.
         if _ACTIVE_STREAMERS.get(target) is tail_task:
             _ACTIVE_STREAMERS.pop(target, None)
-        tail_task.cancel()
-        try:
-            await tail_task
-        except (asyncio.CancelledError, Exception):  # noqa: BLE001
-            pass

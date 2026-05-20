@@ -7,6 +7,7 @@ leaving the receive loop's control-message dispatch under test.
 
 from __future__ import annotations
 
+import contextlib
 from typing import ClassVar
 
 import pytest
@@ -239,3 +240,92 @@ def test_ws_eviction_does_not_apply_across_panes(monkeypatch, ws_client: TestCli
             assert len(_RecordingStreamer.instances) == 2
             assert _RecordingStreamer.instances[0].cancelled is False
             assert _RecordingStreamer.instances[1].cancelled is False
+
+
+class _ImmediateExitStreamer:
+    """Streamer that returns from `run()` immediately. Simulates the
+    real-world case where tmux killed the pane and pipe-pane EOF'd before
+    the client disconnected — the handler must close the WS with 4410."""
+
+    instances: ClassVar[list[_ImmediateExitStreamer]] = []
+
+    def __init__(self, *, ws=None, **_kwargs) -> None:
+        self.ws = ws
+        _ImmediateExitStreamer.instances.append(self)
+
+    async def run(self) -> None:
+        # Wait briefly so the recv task can drain anything the client has
+        # queued (TestClient.send_text uses call_soon_threadsafe; the
+        # delivery to recv requires at least one event-loop tick — Darwin's
+        # selector loop is generous about this, Linux's is not). 50ms is
+        # short enough to not slow the suite and long enough to be reliable
+        # across loop policies. In production the streamer dies after
+        # seconds/minutes of activity, so this artificial pause models real
+        # behavior more honestly than a single asyncio.sleep(0).
+        import asyncio
+
+        await asyncio.sleep(0.05)
+        return  # streamer "completes"
+
+
+def test_ws_closes_with_4410_when_streamer_ends_first(monkeypatch, ws_client: TestClient) -> None:
+    """When the streamer task completes while the client is still connected,
+    the handler must close the WS with code 4410 so the frontend's reconnect
+    controller can transition to `gone` rather than cycling through backoff."""
+    _ImmediateExitStreamer.instances.clear()
+    monkeypatch.setattr(pane_stream, "PaneStreamer", _ImmediateExitStreamer)
+
+    with pytest.raises(Exception) as exc_info:
+        with ws_client.websocket_connect("/ws/pane?session=dev&index=2", headers=_HOST) as ws:
+            # Block on receive; the server-side close should land here.
+            ws.receive_text()
+    # starlette's TestClient surfaces server-side close as WebSocketDisconnect
+    # with the code attached. Tolerate either the typed exception or the
+    # close-code attribute being present on whatever bubbles up.
+    err = exc_info.value
+    code = getattr(err, "code", None)
+    assert code == 4410, f"expected close code 4410, got {code!r} ({err!r})"
+
+
+def test_ws_no_4410_when_client_disconnects_first(monkeypatch, ws_client: TestClient) -> None:
+    """If the client closes first (normal modal-close), the handler must NOT
+    emit a 4410 — the streamer is cancelled cleanly and the WS shuts down
+    via the WebSocketDisconnect path."""
+    _RecordingStreamer.instances.clear()
+    monkeypatch.setattr(pane_stream, "PaneStreamer", _RecordingStreamer)
+
+    with ws_client.websocket_connect("/ws/pane?session=dev&index=2", headers=_HOST) as ws:
+        _wait_ready(ws)
+        # Drop the connection from the client side.
+    # If the handler reached the 4410 path inadvertently we'd see the
+    # streamer marked uncancelled — but cancellation flows through the
+    # normal WebSocketDisconnect path here.
+    assert _RecordingStreamer.instances[0].cancelled is True
+
+
+def test_ws_saved_size_restored_when_streamer_ends_first(
+    monkeypatch, ws_client: TestClient
+) -> None:
+    """The pre-resize window snapshot must still be restored when the
+    streamer's race-loss triggers the 4410 path — not only on client
+    disconnect."""
+    _ImmediateExitStreamer.instances.clear()
+    monkeypatch.setattr(pane_stream, "PaneStreamer", _ImmediateExitStreamer)
+
+    restore_calls: list[tuple] = []
+    monkeypatch.setattr(tmux, "get_window_size", lambda s, i: ("latest", 80, 24))
+    monkeypatch.setattr(tmux, "resize_window", lambda *a: True)
+    monkeypatch.setattr(
+        tmux,
+        "restore_window_size",
+        lambda s, i, m, c, r: restore_calls.append((s, i, m, c, r)) or True,
+    )
+
+    with contextlib.suppress(Exception):
+        with ws_client.websocket_connect("/ws/pane?session=dev&index=2", headers=_HOST) as ws:
+            ws.send_text('{"type":"resize","cols":120,"rows":40}')
+            # Allow the streamer-completion close to land.
+            with contextlib.suppress(Exception):
+                ws.receive_text()
+
+    assert restore_calls == [("dev", 2, "latest", 80, 24)]

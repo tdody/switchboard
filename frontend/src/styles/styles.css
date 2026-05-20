@@ -1314,6 +1314,36 @@ input, textarea, select { font: inherit; color: inherit; }
 @keyframes connectPulse { 50% { opacity: .4; } }
 [data-reduced-motion="true"] .connect-pill .dot { animation: none; }
 
+.connect-pill.connecting,
+.connect-pill.reconnecting {
+  background: color-mix(in oklch, var(--tone-amber) 16%, transparent);
+  color: var(--tone-amber);
+}
+.connect-pill.disconnected,
+.connect-pill.gone {
+  background: color-mix(in oklch, var(--tone-red) 16%, transparent);
+  color: var(--tone-red);
+}
+.connect-pill.snapshot {
+  background: var(--hairline);
+  color: var(--text-mute);
+}
+
+/* Reconnect button in the terminal footer — same size as the pill so they
+   read as paired elements. */
+.btn-reconnect {
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-edge);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.btn-reconnect:hover {
+  background: color-mix(in oklch, var(--accent-edge) 22%, transparent);
+}
+
 /* toggle */
 .toggle {
   width: 32px; height: 18px;
