@@ -146,8 +146,24 @@ export function App() {
         () => setFocusedId((id) => (id === w.paneId ? null : id)),
         900,
       );
-      void focusWindow(w.session, w.index).then((focused) => {
-        if (focused) {
+      // Fork the toast on the backend's response, but on rejection fall back
+      // to the focus toast — the click still registered the user's intent.
+      void focusWindow(w.session, w.index).then(
+        (focused) => {
+          if (focused) {
+            pushToast({
+              id: Math.random().toString(36).slice(2),
+              kind: "focus",
+              session: w.session,
+              index: w.index,
+              name: w.name,
+              term: hostTerm,
+            });
+          } else {
+            messageToast(`No attached client for ${w.session} — opening modal instead`);
+          }
+        },
+        () => {
           pushToast({
             id: Math.random().toString(36).slice(2),
             kind: "focus",
@@ -156,11 +172,12 @@ export function App() {
             name: w.name,
             term: hostTerm,
           });
-        } else {
-          messageToast(`No attached client for ${w.session} — opening modal instead`);
-        }
-        window.setTimeout(() => setOpenId(w.paneId), 280);
-      });
+        },
+      );
+      // Modal-open is unconditional and synchronous-scheduled — keeps the
+      // pre-PR 280 ms contract and avoids a stale setOpenId if the user moves
+      // on during the focus-API RTT, or a silent click on backend error.
+      window.setTimeout(() => setOpenId(w.paneId), 280);
     },
     [hostTerm, pushToast, messageToast, setOpenId],
   );
