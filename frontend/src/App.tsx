@@ -267,11 +267,13 @@ export function App() {
   useEffect(() => {
     if (hydratedRef.current) return;
     if (!state) return;
-    hydratedRef.current = true;
     if (highlightedId !== null) return;
-    const first = navCols[0]?.windows[0]?.paneId ?? visible[0]?.paneId ?? null;
-    if (first) setHighlightedId(first);
-  }, [state, navCols, visible, highlightedId]);
+    const first = openId || navCols[0]?.windows[0]?.paneId || visible[0]?.paneId || null;
+    if (first) {
+      hydratedRef.current = true;
+      setHighlightedId(first);
+    }
+  }, [state, navCols, visible, highlightedId, openId]);
 
   // Global hotkeys: ⌘K palette, arrows + j/k/h/l for card nav, / for search,
   // Esc closes modal, Enter opens highlighted card.
