@@ -397,6 +397,7 @@ export function App() {
           <EmptyState onRetry={refresh} />
         </main>
         {settingsModal}
+        <ToastStack toasts={toasts} />
       </div>
     );
   }
