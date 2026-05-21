@@ -274,6 +274,11 @@ def test_ws_closes_with_4410_when_streamer_ends_first(monkeypatch, ws_client: Te
     controller can transition to `gone` rather than cycling through backoff."""
     _ImmediateExitStreamer.instances.clear()
     monkeypatch.setattr(pane_stream, "PaneStreamer", _ImmediateExitStreamer)
+    # Pin "server alive at probe time" — without this, CI hosts that have no
+    # live tmux server return None from get_server and the handler emits 4408
+    # (THI-94's server-gone branch) instead. This test specifically pins the
+    # pane-gone-but-server-alive code path.
+    monkeypatch.setattr(tmux, "get_server", lambda: object())
 
     with pytest.raises(Exception) as exc_info:
         with ws_client.websocket_connect("/ws/pane?session=dev&index=2", headers=_HOST) as ws:
