@@ -286,3 +286,37 @@ describe("TerminalModal — reconnect", () => {
     expect(clearSpy).toHaveBeenCalledWith(backoffTimerId);
   });
 });
+
+describe("TerminalModal — kill window (THI-111)", () => {
+  it("invokes onKill with the modal's window and the click's shiftKey when the Kill button is clicked", () => {
+    const onKill = vi.fn();
+    render(
+      <TerminalModal
+        window={win}
+        onClose={() => {}}
+        onToast={() => {}}
+        onKill={onKill}
+      />,
+    );
+    const btn = screen.getByRole("button", { name: /kill window/i });
+    fireEvent.click(btn, { shiftKey: false });
+    expect(onKill).toHaveBeenCalledTimes(1);
+    expect(onKill.mock.calls[0][0]).toBe(win);
+    expect(onKill.mock.calls[0][1]).toBe(false);
+  });
+
+  it("forwards shift-click so the parent can skip the confirm dialog", () => {
+    const onKill = vi.fn();
+    render(
+      <TerminalModal
+        window={win}
+        onClose={() => {}}
+        onToast={() => {}}
+        onKill={onKill}
+      />,
+    );
+    const btn = screen.getByRole("button", { name: /kill window/i });
+    fireEvent.click(btn, { shiftKey: true });
+    expect(onKill).toHaveBeenCalledWith(win, true);
+  });
+});

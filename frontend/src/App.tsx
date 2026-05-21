@@ -405,6 +405,7 @@ export function App() {
           window={openWindow}
           onClose={closeModal}
           onToast={messageToast}
+          onKill={handleKill}
         />
       )}
       {paletteTarget && (
