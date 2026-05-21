@@ -19,9 +19,11 @@ log = logging.getLogger(__name__)
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     setup_logging()
     auth_state.init()
-    # Sweep stale `sb-pane-*.fifo` from any prior crashed run, then arm an
-    # atexit hook for clean SIGTERM shutdowns (THI-85). The startup sweep is
-    # what catches SIGKILL cases where atexit never ran.
+    # Sweep stale `sb-pane-<pid>-*.fifo` from any prior crashed run, then arm
+    # an atexit hook for clean SIGTERM shutdowns (THI-85). The startup sweep
+    # is what catches SIGKILL cases where atexit never ran. PID-scoped so
+    # that under `uvicorn --workers >1` each worker only touches its own
+    # FIFOs and never a sibling's live ones.
     swept = pane_stream.cleanup_orphaned_fifos()
     if swept:
         log.info("Cleared %d orphaned pane FIFO(s) from a prior run.", swept)
