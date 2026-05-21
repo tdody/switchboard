@@ -265,3 +265,23 @@ def test_new_window_returns_none_on_stderr(monkeypatch) -> None:
 def test_new_window_none_without_server(monkeypatch) -> None:
     monkeypatch.setattr(tmux, "get_server", lambda: None)
     assert tmux.new_window("dev", "logs") is None
+
+
+def test_rename_session_invokes_tmux_with_old_and_new(monkeypatch) -> None:
+    srv, calls = _recording_server()
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+    assert tmux.rename_session("dev", "feat") is True
+    assert calls == [("rename-session", "-t", "dev", "feat")]
+
+
+def test_rename_session_returns_false_on_stderr(monkeypatch) -> None:
+    def cmd(*args: str, **_kwargs):
+        return SimpleNamespace(stdout=[], stderr=["duplicate session: feat"])
+
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=cmd))
+    assert tmux.rename_session("dev", "feat") is False
+
+
+def test_rename_session_false_without_server(monkeypatch) -> None:
+    monkeypatch.setattr(tmux, "get_server", lambda: None)
+    assert tmux.rename_session("dev", "feat") is False

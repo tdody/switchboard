@@ -105,6 +105,20 @@ export async function killSession(session: string): Promise<boolean> {
   return r.ok;
 }
 
+/** rename-session for `session`. Resolves false on any non-2xx (e.g. missing
+ *  session or duplicate target name). */
+export async function renameSession(session: string, name: string): Promise<boolean> {
+  const r = await fetch(
+    `${BASE}/rename-session?session=${encodeURIComponent(session)}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", ...csrfHeaders() },
+      body: JSON.stringify({ name }),
+    },
+  );
+  return r.ok;
+}
+
 /** new-window in `session`; resolves the new window's id, or null on failure. */
 export async function createWindow(
   session: string,

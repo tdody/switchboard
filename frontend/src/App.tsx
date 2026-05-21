@@ -9,6 +9,7 @@ import { Kanban } from "./components/Kanban";
 import { NeedsStrip } from "./components/NeedsStrip";
 import { NewWindowOverlay } from "./components/NewWindowOverlay";
 import { RenameOverlay } from "./components/RenameOverlay";
+import { RenameSessionOverlay } from "./components/RenameSessionOverlay";
 import { SettingsModal } from "./components/SettingsModal";
 import { Subhead } from "./components/Subhead";
 import { TerminalModal } from "./components/TerminalModal";
@@ -61,6 +62,7 @@ export function App() {
   const [paletteTargetId, setPaletteTargetId] = useState<string | null>(null);
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
   const [newWindowSession, setNewWindowSession] = useState<string | null>(null);
+  const [renameSessionTarget, setRenameSessionTarget] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
 
   const sessions = state?.sessions ?? [];
@@ -155,6 +157,10 @@ export function App() {
   const handleRename = useCallback((w: Window) => setRenameTargetId(w.paneId), []);
   const handleSend = useCallback((w: Window) => setPaletteTargetId(w.paneId), []);
   const handleNewWindow = useCallback((session: string) => setNewWindowSession(session), []);
+  const handleRenameSession = useCallback(
+    (session: string) => setRenameSessionTarget(session),
+    [],
+  );
 
   // `refresh` and `windows` are replaced on every poll. Read them through refs
   // so the kill handlers stay referentially stable — otherwise every poll would
@@ -250,6 +256,7 @@ export function App() {
         renameTargetId ||
         showSettings ||
         newWindowSession ||
+        renameSessionTarget ||
         confirm;
 
       // ⌘K / Ctrl+K — open palette pre-targeted to first pending, then highlighted,
@@ -318,6 +325,7 @@ export function App() {
     renameTargetId,
     showSettings,
     newWindowSession,
+    renameSessionTarget,
     confirm,
     navCols,
     highlightedId,
@@ -389,6 +397,7 @@ export function App() {
           onKill={handleKill}
           onNewWindow={handleNewWindow}
           onKillSession={handleKillSession}
+          onRenameSession={handleRenameSession}
         />
       </main>
       {openWindow && (
@@ -415,6 +424,13 @@ export function App() {
         <NewWindowOverlay
           session={newWindowSession}
           onClose={() => setNewWindowSession(null)}
+          onApplied={refresh}
+        />
+      )}
+      {renameSessionTarget && (
+        <RenameSessionOverlay
+          session={renameSessionTarget}
+          onClose={() => setRenameSessionTarget(null)}
           onApplied={refresh}
         />
       )}
