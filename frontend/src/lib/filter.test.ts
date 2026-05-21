@@ -72,21 +72,40 @@ describe("applyFilter", () => {
 });
 
 describe("sortPendingFirst", () => {
-  it("orders pending → error → running → done → other", () => {
+  it("floats pending to the top, error to the second tier, and keeps the rest in tmux index order", () => {
+    // THI-122: collapse running/done/idle into one bucket so a Claude pane
+    // oscillating between running and idle no longer reorders mid-poll.
     const ws = [
-      mkWindow({ name: "idle1", status: "idle" }),
-      mkWindow({ name: "done1", status: "done" }),
-      mkWindow({ name: "pending1", status: "running", pendingInput: true }),
-      mkWindow({ name: "error1", status: "error" }),
-      mkWindow({ name: "running1", status: "running" }),
+      mkWindow({ name: "idle1", status: "idle", index: 4 }),
+      mkWindow({ name: "done1", status: "done", index: 3 }),
+      mkWindow({ name: "pending1", status: "running", pendingInput: true, index: 5 }),
+      mkWindow({ name: "error1", status: "error", index: 2 }),
+      mkWindow({ name: "running1", status: "running", index: 1 }),
     ];
     expect(sortPendingFirst(ws).map((w) => w.name)).toEqual([
       "pending1",
       "error1",
-      "running1",
-      "done1",
-      "idle1",
+      "running1", // index 1 — tied with done1/idle1 in rank, beats them on index
+      "done1", // index 3
+      "idle1", // index 4
     ]);
+  });
+
+  it("does not reorder when a single pane flips running ↔ idle", () => {
+    // The flicker the bug is about: same panes, only the middle one's status
+    // changes between polls. Output positions must be identical.
+    const running = [
+      mkWindow({ name: "a", status: "running", index: 1 }),
+      mkWindow({ name: "b", status: "running", index: 2 }),
+      mkWindow({ name: "c", status: "running", index: 3 }),
+    ];
+    const idleMiddle = [
+      mkWindow({ name: "a", status: "running", index: 1 }),
+      mkWindow({ name: "b", status: "idle", index: 2 }),
+      mkWindow({ name: "c", status: "running", index: 3 }),
+    ];
+    expect(sortPendingFirst(running).map((w) => w.name)).toEqual(["a", "b", "c"]);
+    expect(sortPendingFirst(idleMiddle).map((w) => w.name)).toEqual(["a", "b", "c"]);
   });
 
   it("does not mutate the input array", () => {
