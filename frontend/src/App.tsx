@@ -133,6 +133,12 @@ export function App() {
 
   const closeModal = useCallback(() => setOpenId(""), [setOpenId]);
 
+  const messageToast = useCallback(
+    (message: string) =>
+      pushToast({ id: Math.random().toString(36).slice(2), kind: "message", message }),
+    [pushToast],
+  );
+
   const handleFocus = useCallback(
     (w: Window) => {
       setFocusedId(w.paneId);
@@ -140,18 +146,23 @@ export function App() {
         () => setFocusedId((id) => (id === w.paneId ? null : id)),
         900,
       );
-      pushToast({
-        id: Math.random().toString(36).slice(2),
-        kind: "focus",
-        session: w.session,
-        index: w.index,
-        name: w.name,
-        term: hostTerm,
+      void focusWindow(w.session, w.index).then((focused) => {
+        if (focused) {
+          pushToast({
+            id: Math.random().toString(36).slice(2),
+            kind: "focus",
+            session: w.session,
+            index: w.index,
+            name: w.name,
+            term: hostTerm,
+          });
+        } else {
+          messageToast(`No attached client for ${w.session} — opening modal instead`);
+        }
+        window.setTimeout(() => setOpenId(w.paneId), 280);
       });
-      void focusWindow(w.session, w.index);
-      window.setTimeout(() => setOpenId(w.paneId), 280);
     },
-    [hostTerm, pushToast, setOpenId],
+    [hostTerm, pushToast, messageToast, setOpenId],
   );
 
   const handleRename = useCallback((w: Window) => setRenameTargetId(w.paneId), []);
@@ -173,12 +184,6 @@ export function App() {
   // the modal on success without baking openId into its dep list (THI-111).
   const openIdRef = useRef(openId);
   openIdRef.current = openId;
-
-  const messageToast = useCallback(
-    (message: string) =>
-      pushToast({ id: Math.random().toString(36).slice(2), kind: "message", message }),
-    [pushToast],
-  );
 
   const handleKill = useCallback(
     (w: Window, skipConfirm: boolean) => {
