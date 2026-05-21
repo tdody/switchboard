@@ -169,6 +169,10 @@ export function App() {
   refreshRef.current = refresh;
   const windowsRef = useRef(windows);
   windowsRef.current = windows;
+  // Track openId in a ref too so the kill handler can decide whether to dismiss
+  // the modal on success without baking openId into its dep list (THI-111).
+  const openIdRef = useRef(openId);
+  openIdRef.current = openId;
 
   const messageToast = useCallback(
     (message: string) =>
@@ -181,8 +185,15 @@ export function App() {
       const onlyWindow =
         windowsRef.current.filter((x) => x.session === w.session).length === 1;
       const doKill = async () => {
-        if (await killWindow(w.session, w.index)) refreshRef.current();
-        else messageToast(`Couldn't kill ${w.session}:${w.index}`);
+        if (await killWindow(w.session, w.index)) {
+          refreshRef.current();
+          // If the killed pane is the one currently open in the terminal modal,
+          // dismiss the modal immediately — don't wait for the next state poll
+          // to drop the window from `windows` and unmount it via `openWindow`
+          // (THI-111). Covers kill-from-modal and kill-from-card-while-modal-
+          // open-on-same-pane.
+          if (openIdRef.current === w.paneId) setOpenId("");
+        } else messageToast(`Couldn't kill ${w.session}:${w.index}`);
       };
       if (skipConfirm) {
         void doKill();
@@ -200,14 +211,19 @@ export function App() {
         },
       });
     },
-    [messageToast],
+    [messageToast, setOpenId],
   );
 
   const handleKillSession = useCallback(
     (session: string, skipConfirm: boolean) => {
       const doKill = async () => {
-        if (await killSession(session)) refreshRef.current();
-        else messageToast(`Couldn't kill session ${session}`);
+        if (await killSession(session)) {
+          refreshRef.current();
+          // If the modal is open on any pane that belongs to the killed
+          // session, dismiss it for the same reason as handleKill (THI-111).
+          const openPane = windowsRef.current.find((x) => x.paneId === openIdRef.current);
+          if (openPane && openPane.session === session) setOpenId("");
+        } else messageToast(`Couldn't kill session ${session}`);
       };
       if (skipConfirm) {
         void doKill();
@@ -223,7 +239,7 @@ export function App() {
         },
       });
     },
-    [messageToast],
+    [messageToast, setOpenId],
   );
 
   // Apply persisted appearance settings to <html>. The theme/density/
