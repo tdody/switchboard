@@ -450,7 +450,12 @@ def new_window(session: str, name: str) -> int | None:
     if srv is None:
         return None
     try:
-        result = srv.cmd("new-window", "-t", session, "-n", name, "-P", "-F", "#{window_index}")  # ty: ignore
+        # Trailing colon forces tmux to parse the target as `session:` (no
+        # window-index), not as a bare `target-window`. Without it, a numeric
+        # session name like "83" is taken as window-index 83 of the current
+        # session — landing the new window in the wrong session (THI-119).
+        target = f"{session}:"
+        result = srv.cmd("new-window", "-t", target, "-n", name, "-P", "-F", "#{window_index}")  # ty: ignore
         if result.stderr and any(result.stderr):
             return None
         out = [line for line in (result.stdout or []) if line.strip()]

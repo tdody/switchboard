@@ -239,3 +239,29 @@ def test_get_window_size_none_when_dims_unparseable(monkeypatch) -> None:
 def test_get_window_size_none_without_server(monkeypatch) -> None:
     monkeypatch.setattr(tmux, "get_server", lambda: None)
     assert tmux.get_window_size("dev", 2) is None
+
+
+def test_new_window_targets_session_with_trailing_colon(monkeypatch) -> None:
+    # Regression for THI-119: bare `-t 83` is parsed as window-index 83 of the
+    # current session, not as session "83". Force the session slot by appending
+    # a colon so tmux picks the next free window-index in the named session.
+    srv, calls = _recording_server({"new-window": ["1"]})
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+
+    assert tmux.new_window("83", "logs") == 1
+    assert calls == [
+        ("new-window", "-t", "83:", "-n", "logs", "-P", "-F", "#{window_index}"),
+    ]
+
+
+def test_new_window_returns_none_on_stderr(monkeypatch) -> None:
+    def cmd(*args: str, **_kwargs):
+        return SimpleNamespace(stdout=[], stderr=["create window failed: index in use"])
+
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=cmd))
+    assert tmux.new_window("dev", "logs") is None
+
+
+def test_new_window_none_without_server(monkeypatch) -> None:
+    monkeypatch.setattr(tmux, "get_server", lambda: None)
+    assert tmux.new_window("dev", "logs") is None
