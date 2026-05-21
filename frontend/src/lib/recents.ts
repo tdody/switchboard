@@ -3,6 +3,11 @@
  * localStorage. Capped at MAX entries, MRU-first, deduped by exact payload.
  *
  * Payload is the exact send-shape so the palette can replay without guessing.
+ *
+ * Multi-tab caveat: writes are read-modify-write with no `storage` event
+ * listener, so two dashboard tabs on the same session have last-writer-wins
+ * semantics (the second tab's write can clobber recents added by the first).
+ * Acceptable for a personal tool — documented so it doesn't surprise readers.
  */
 
 export interface RecentEntry {

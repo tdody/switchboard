@@ -98,7 +98,16 @@ export function CommandPalette({ target, onClose }: Props) {
       body = { paste: query, keys: ["Enter"] };
       recentEntry = { label: query, paste: query, enter: true };
     }
-    const ok = await sendKeys(target.session, target.index, body);
+    // sendKeys returns false on non-2xx but throws on network / abort errors.
+    // Treat the throw the same as ok=false: skip the recents write and close
+    // the palette so the user isn't left staring at a frozen UI with no
+    // feedback. Matches the existing UX where ok=false also just closes.
+    let ok = false;
+    try {
+      ok = await sendKeys(target.session, target.index, body);
+    } catch {
+      ok = false;
+    }
     if (ok) {
       const next = addRecent(target.session, recentEntry);
       setRecents(next.map(recentToItem));
