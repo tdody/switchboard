@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { CommandPalette } from "./CommandPalette";
 import type { Window } from "../types";
@@ -26,6 +26,11 @@ const TARGET: Window = {
   agent: null,
   preview: [],
 };
+
+beforeEach(() => {
+  localStorage.clear();
+  sendKeysMock.mockImplementation(async () => true);
+});
 
 afterEach(() => {
   cleanup();
@@ -77,6 +82,50 @@ describe("CommandPalette", () => {
       paste: "line 1\nline 2\nline 3",
       keys: ["Enter"],
     });
+  });
+
+  it("records a sent command in per-session recents on next open", async () => {
+    const onClose = vi.fn();
+    const { unmount } = render(<CommandPalette target={TARGET} onClose={onClose} />);
+    const input = screen.getByPlaceholderText(/Send to dev:0/);
+    fireEvent.change(input, { target: { value: "echo persisted" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await Promise.resolve();
+    await Promise.resolve();
+    unmount();
+    // Re-open: the recents section should now lead with the sent command.
+    render(<CommandPalette target={TARGET} onClose={vi.fn()} />);
+    expect(screen.getByText("echo persisted")).toBeTruthy();
+  });
+
+  it("does NOT record a recent when sendKeys fails", async () => {
+    sendKeysMock.mockImplementationOnce(async () => false);
+    const { unmount } = render(<CommandPalette target={TARGET} onClose={vi.fn()} />);
+    const input = screen.getByPlaceholderText(/Send to dev:0/);
+    fireEvent.change(input, { target: { value: "echo nope" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await Promise.resolve();
+    await Promise.resolve();
+    unmount();
+    render(<CommandPalette target={TARGET} onClose={vi.fn()} />);
+    expect(screen.queryByText("echo nope")).toBeNull();
+  });
+
+  it("removes a recent via the ✕ button without sending it", async () => {
+    const { unmount } = render(<CommandPalette target={TARGET} onClose={vi.fn()} />);
+    const input = screen.getByPlaceholderText(/Send to dev:0/);
+    fireEvent.change(input, { target: { value: "echo doomed" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await Promise.resolve();
+    await Promise.resolve();
+    sendKeysMock.mockClear();
+    unmount();
+    render(<CommandPalette target={TARGET} onClose={vi.fn()} />);
+    const row = screen.getByText("echo doomed").closest("button") as HTMLElement;
+    const rm = within(row).getByRole("button", { name: /Remove echo doomed/ });
+    fireEvent.click(rm);
+    expect(screen.queryByText("echo doomed")).toBeNull();
+    expect(sendKeysMock).not.toHaveBeenCalled();
   });
 
   it("uses a textarea so the browser inserts newlines on Shift+Enter", () => {
