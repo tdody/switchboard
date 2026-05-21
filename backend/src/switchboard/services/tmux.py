@@ -440,6 +440,20 @@ def kill_session(session: str) -> bool:
     return _cmd_ok(srv, "kill-session", "-t", session)
 
 
+def rename_session(old: str, new: str) -> bool:
+    """rename-session `old` -> `new`. False on tmux error (missing source or
+    duplicate target name).
+
+    `-t` here is a target-session, not target-window, so a bare numeric name
+    is safely resolved as a session — no need for the trailing-colon dance
+    that new_window uses (THI-119).
+    """
+    srv = get_server()
+    if srv is None:
+        return False
+    return _cmd_ok(srv, "rename-session", "-t", old, new)
+
+
 def new_window(session: str, name: str) -> int | None:
     """new-window in `session`; return the new window index, or None on failure.
 

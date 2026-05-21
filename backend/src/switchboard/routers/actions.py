@@ -63,6 +63,16 @@ def delete_session(session: str) -> dict[str, bool]:
     return {"ok": True}
 
 
+@router.post("/rename-session")
+def post_rename_session(session: str, body: RenameBody) -> dict[str, object]:
+    ok = tmux.rename_session(session, body.name)
+    if not ok:
+        # Could be missing source or duplicate target name; either way tmux
+        # rejected the rename and there's no separate code worth distinguishing.
+        raise HTTPException(status_code=404, detail="session not found or name in use")
+    return {"ok": True, "name": body.name}
+
+
 @router.post("/window")
 def post_window(session: str, name: str) -> dict[str, object]:
     index = tmux.new_window(session, name)

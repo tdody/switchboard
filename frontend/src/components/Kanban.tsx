@@ -17,6 +17,7 @@ interface Props {
   onKill: (w: Window, skipConfirm: boolean) => void;
   onNewWindow: (session: string) => void;
   onKillSession: (session: string, skipConfirm: boolean) => void;
+  onRenameSession: (session: string) => void;
 }
 
 export function Kanban({
@@ -31,6 +32,7 @@ export function Kanban({
   onKill,
   onNewWindow,
   onKillSession,
+  onRenameSession,
 }: Props) {
   return (
     <div className="kanban">
@@ -64,6 +66,11 @@ export function Kanban({
                 <DropdownMenu
                   label={`Actions for ${s.name}`}
                   items={[
+                    {
+                      label: "Rename session",
+                      icon: "rename",
+                      onClick: () => onRenameSession(s.id),
+                    },
                     {
                       label: "Kill session",
                       icon: "trash",

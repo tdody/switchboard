@@ -47,6 +47,7 @@ def _csrf(client: TestClient) -> dict[str, str]:
         ("post", "/api/detach?tty=/dev/ttys000"),
         ("post", "/api/send?session=x&index=0"),
         ("post", "/api/paste-image?session=x&index=0"),
+        ("post", "/api/rename-session?session=x"),
     ],
 )
 def test_mutations_require_csrf(client: TestClient, method: str, path: str) -> None:
@@ -73,6 +74,15 @@ def test_post_window_404_on_missing_session(client: TestClient) -> None:
 
 def test_post_detach_404_on_missing_client(client: TestClient) -> None:
     r = client.post("/api/detach?tty=/dev/ttys999", headers=_csrf(client))
+    assert r.status_code == 404
+
+
+def test_post_rename_session_404_on_missing(client: TestClient) -> None:
+    r = client.post(
+        "/api/rename-session?session=__nope__",
+        headers={**_csrf(client), "content-type": "application/json"},
+        json={"name": "new"},
+    )
     assert r.status_code == 404
 
 
@@ -105,6 +115,22 @@ def test_post_detach_ok(client: TestClient, monkeypatch) -> None:
     r = client.post("/api/detach?tty=/dev/ttys001", headers=_csrf(client))
     assert r.status_code == 200
     assert r.json() == {"ok": True}
+
+
+def test_post_rename_session_ok(client: TestClient, monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "switchboard.services.tmux.rename_session",
+        lambda old, new: seen.append((old, new)) or True,
+    )
+    r = client.post(
+        "/api/rename-session?session=dev",
+        headers={**_csrf(client), "content-type": "application/json"},
+        json={"name": "feat"},
+    )
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "name": "feat"}
+    assert seen == [("dev", "feat")]
 
 
 def test_post_send_uses_bracketed_paste(client: TestClient, monkeypatch) -> None:
