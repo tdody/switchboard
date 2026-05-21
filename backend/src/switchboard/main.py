@@ -10,6 +10,7 @@ from switchboard.config import settings
 from switchboard.logconfig import RequestContextMiddleware, setup_logging
 from switchboard.routers import actions, auth, pane, state, ws
 from switchboard.security import SecurityMiddleware
+from switchboard.services import pane_stream
 
 log = logging.getLogger(__name__)
 
@@ -18,6 +19,13 @@ log = logging.getLogger(__name__)
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     setup_logging()
     auth_state.init()
+    # Sweep stale `sb-pane-*.fifo` from any prior crashed run, then arm an
+    # atexit hook for clean SIGTERM shutdowns (THI-85). The startup sweep is
+    # what catches SIGKILL cases where atexit never ran.
+    swept = pane_stream.cleanup_orphaned_fifos()
+    if swept:
+        log.info("Cleared %d orphaned pane FIFO(s) from a prior run.", swept)
+    pane_stream.install_fifo_cleanup_hook()
     if settings.auth_enabled:
         log.warning(
             "Switchboard auth ENABLED (host=%s). Bootstrap URL: http://%s:%s/?token=%s",

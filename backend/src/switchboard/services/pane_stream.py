@@ -13,7 +13,9 @@ toggles the pipe off), close the FIFO read side, and unlink the FIFO.
 from __future__ import annotations
 
 import asyncio
+import atexit
 import contextlib
+import glob
 import json
 import logging
 import os
@@ -32,6 +34,40 @@ log = logging.getLogger(__name__)
 # tracks live arrow presses), slow otherwise (just watching for one to appear).
 _PROMPT_POLL_ACTIVE = 0.15
 _PROMPT_POLL_IDLE = 1.0
+
+# FIFO naming: `sb-pane-<uuid>.fifo` under the system tmp dir. Exposed as
+# module attributes so the orphan-sweep below (THI-85) can locate them and so
+# tests can redirect the directory via monkeypatch.
+_FIFO_DIR = tempfile.gettempdir()
+_FIFO_PREFIX = "sb-pane-"
+_FIFO_SUFFIX = ".fifo"
+_atexit_hooked = False
+
+
+def cleanup_orphaned_fifos() -> int:
+    """Remove every `sb-pane-*.fifo` under the FIFO dir. Returns the count
+    actually unlinked. Errors per entry are swallowed: a file that vanished
+    between glob and unlink (another process, our own finally block firing
+    concurrently) is the desired end state anyway."""
+    pattern = os.path.join(_FIFO_DIR, f"{_FIFO_PREFIX}*{_FIFO_SUFFIX}")
+    removed = 0
+    for path in glob.glob(pattern):
+        try:
+            os.unlink(path)
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def install_fifo_cleanup_hook() -> None:
+    """Idempotent atexit hook registration. Safe across repeated `create_app`
+    calls in tests; the flag guards against accumulating duplicates."""
+    global _atexit_hooked
+    if _atexit_hooked:
+        return
+    atexit.register(cleanup_orphaned_fifos)
+    _atexit_hooked = True
 
 
 class PaneStreamer:
@@ -79,7 +115,14 @@ class PaneStreamer:
                 return
 
         # 2. Set up FIFO + pipe-pane.
-        fifo_path = os.path.join(tempfile.gettempdir(), f"sb-pane-{uuid.uuid4().hex}.fifo")
+        # Known small race: between `srv.cmd("pipe-pane", ...)` below and tmux
+        # actually spawning the `cat > fifo` writer (~ms shell fork), any
+        # bytes the pane emits are dropped. The snapshot above covers
+        # everything up to "now"; the gap is typically prompt redraw that
+        # the next keystroke or refresh will re-emit. Not worth the
+        # complexity of a pre-snapshot pipe-pane install, which would
+        # require re-syncing against the snapshot to deduplicate (THI-85).
+        fifo_path = os.path.join(_FIFO_DIR, f"{_FIFO_PREFIX}{uuid.uuid4().hex}{_FIFO_SUFFIX}")
         target = f"{self.session}:{self.index}"
         srv = tmux.get_server()
         if srv is None:

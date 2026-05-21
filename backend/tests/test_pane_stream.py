@@ -6,9 +6,12 @@ The FIFO/pipe-pane plumbing around it is exercised manually, not here.
 """
 
 import asyncio
+import atexit
 import json
+import os
 from pathlib import Path
 
+from switchboard.services import pane_stream
 from switchboard.services.pane_stream import PaneStreamer
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -88,3 +91,57 @@ def test_emit_prompt_if_changed_send_failure_does_not_advance() -> None:
         assert result is None
 
     asyncio.run(_run())
+
+
+# --- FIFO orphan cleanup (THI-85) -------------------------------------------
+
+
+def test_cleanup_orphaned_fifos_removes_matching_files_only(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(pane_stream, "_FIFO_DIR", str(tmp_path))
+    # Three orphaned switchboard FIFOs from a crashed prior run...
+    orphans = [tmp_path / f"sb-pane-aaa{i}.fifo" for i in range(3)]
+    for p in orphans:
+        os.mkfifo(p, mode=0o600)
+    # ...and two unrelated files that must survive the sweep.
+    keep = [tmp_path / "unrelated.txt", tmp_path / "sb-other-prefix.fifo"]
+    for p in keep:
+        p.write_text("")
+
+    removed = pane_stream.cleanup_orphaned_fifos()
+
+    assert removed == 3
+    assert all(not p.exists() for p in orphans)
+    assert all(p.exists() for p in keep)
+
+
+def test_cleanup_orphaned_fifos_swallows_oserror_per_entry(monkeypatch, tmp_path) -> None:
+    # If a file is unlinked by another process between glob and our unlink, the
+    # OSError must not abort the rest of the sweep.
+    monkeypatch.setattr(pane_stream, "_FIFO_DIR", str(tmp_path))
+    real = tmp_path / "sb-pane-real.fifo"
+    os.mkfifo(real, mode=0o600)
+    ghost = tmp_path / "sb-pane-ghost.fifo"
+
+    original_glob = pane_stream.glob.glob
+    monkeypatch.setattr(
+        pane_stream.glob,
+        "glob",
+        lambda pattern: [str(ghost), *original_glob(pattern)],
+    )
+    # `ghost` doesn't exist → unlink raises FileNotFoundError → swallowed.
+    removed = pane_stream.cleanup_orphaned_fifos()
+
+    assert removed == 1  # only the real one
+    assert not real.exists()
+
+
+def test_install_fifo_cleanup_hook_is_idempotent(monkeypatch) -> None:
+    # Reset module-level flag for the test, then ensure two install calls
+    # register exactly one atexit handler.
+    monkeypatch.setattr(pane_stream, "_atexit_hooked", False)
+    seen: list[object] = []
+    monkeypatch.setattr(atexit, "register", lambda fn: seen.append(fn))
+    pane_stream.install_fifo_cleanup_hook()
+    pane_stream.install_fifo_cleanup_hook()
+    assert seen == [pane_stream.cleanup_orphaned_fifos]
+    assert pane_stream._atexit_hooked is True
