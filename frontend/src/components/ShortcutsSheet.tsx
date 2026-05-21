@@ -39,12 +39,15 @@ const SECTIONS: Section[] = [
     title: "Modal",
     rows: [
       { label: "Close overlay", keys: ["Esc"] },
-      { label: "Kill window without confirm", keys: ["Shift", "click Kill"] },
+      {
+        label: "Skip confirm (window or session)",
+        keys: ["Shift", "click Kill"],
+      },
     ],
   },
   {
     title: "Help",
-    rows: [{ label: "Toggle this sheet", keys: ["?"] }],
+    rows: [{ label: "Open this sheet", keys: ["?"] }],
   },
 ];
 
@@ -78,6 +81,7 @@ export function ShortcutsSheet({ onClose }: Props) {
         className="shortcuts"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
+        aria-modal="true"
         aria-label="Keyboard shortcuts"
       >
         <div className="shortcuts-hd">

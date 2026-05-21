@@ -295,7 +295,7 @@ export function App() {
         return;
       }
 
-      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !inField) {
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.shiftKey && !inField) {
         e.preventDefault();
         document.getElementById("search-input")?.focus();
         return;
