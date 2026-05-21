@@ -18,21 +18,19 @@ from typing import Final
 
 from switchboard.schemas import Agent, CIState, Prompt, PromptChoice, Status
 
-# Spinner: any non-trivial line beginning with brail glyphs OR the ✻ glyph.
+# Spinner: line starting with one of Claude's spinner glyphs (braille, the
+# original ✻●, plus the star/middle-dot family Claude rotates through in
+# modern builds: ✽ ✶ ✷ ✸ ✺ ✼ ·). Active vs. done is decided by the trailing
+# "(time · tokens · …)" payload below — not by a verb allowlist, which can't
+# keep up with Claude's whimsical verb pool (Kneading, Asking, …).
 _BRAIL_GLYPHS: Final = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⡿⣟⣯⣷⣾⣽⣻⢿"
+_SPINNER_GLYPHS: Final = f"{_BRAIL_GLYPHS}✻●✽✶✷✸✺✼·"
 _SPINNER_RE = re.compile(
-    rf"^\s*[{_BRAIL_GLYPHS}✻●][\s ]+(.+?)\s*$",
+    rf"^\s*[{_SPINNER_GLYPHS}][\s ]+(.+?)\s*$",
 )
 # Within a spinner line, peel out the "(X · …)" parenthesized payload
 _SPINNER_PAYLOAD_RE = re.compile(r"\(([^)]+)\)")
 _DURATION_RE = re.compile(r"\b(\d+\s*[smhd])\b", re.IGNORECASE)
-# Verbs that indicate active work — distinguishes "● Reviewing…" (done)
-# from "✻ Synthesizing…" (active).
-_ACTIVE_VERB_RE = re.compile(
-    r"^\s*(synthesizing|thinking|working|running|analyzing|reviewing"
-    r"|generating|composing|writing|reading|searching|loading)\b",
-    re.IGNORECASE,
-)
 
 # Pending-input patterns. Must match a recent line (last ~25 lines).
 # The trailing `(?=[\s│|┃▏╎]*$)` anchors the marker to the end of the line
@@ -70,25 +68,28 @@ def _strip_ansi(line: str) -> str:
 
 
 def _scan_spinner(lines: list[str]) -> tuple[str | None, str | None]:
-    """Find the most recent active-spinner line; return (label, duration)."""
+    """Find the most recent active-spinner line; return (label, duration).
+
+    Active spinners always carry a `(duration · tokens · …)` payload; lines
+    without it are recap markers (`● Done.`) or one-off notes (`✻ Churned for
+    14s`) and must not flip status to "running".
+    """
     for raw in reversed(lines[-15:]):
         line = _strip_ansi(raw).rstrip()
         m = _SPINNER_RE.match(line)
         if not m:
             continue
         body = m.group(1)
+        paren = _SPINNER_PAYLOAD_RE.search(body)
+        if paren is None:
+            continue
         # Strip the parenthesized payload from the visible label.
         label_match = _SPINNER_PAYLOAD_RE.split(body, maxsplit=1)
         label = (label_match[0] if label_match else body).strip(" …·")
-        # Only treat as active spinner if it begins with one of the "doing" verbs.
-        if not _ACTIVE_VERB_RE.match(label):
-            continue
         duration = None
-        paren = _SPINNER_PAYLOAD_RE.search(body)
-        if paren:
-            d = _DURATION_RE.search(paren.group(1))
-            if d:
-                duration = d.group(1).replace(" ", "").lower()
+        d = _DURATION_RE.search(paren.group(1))
+        if d:
+            duration = d.group(1).replace(" ", "").lower()
         return label, duration
     return None, None
 
@@ -133,27 +134,31 @@ def _scan_yn_enter(lines: list[str]) -> Prompt | None:
 def _scan_menu(lines: list[str]) -> Prompt | None:
     """Detect Claude Code's modern numbered arrow-key menu in the recent tail.
 
-    Walks up from the bottom, skipping all non-matching lines until the first
-    choice line is found, then collects the contiguous run of numbered choice
-    lines. The run is only accepted as a menu when (a) the numbers are
-    sequential starting at 1 — rejects captures caught mid-redraw — AND (b) at
-    least one collected choice carries the `❯` cursor — rejects numbered prose
-    (chat messages, README excerpts) that happens to look like a menu. A real
-    Claude Code menu always renders a cursor on the selected choice.
+    Walks up from the bottom, collecting every numbered-choice line within the
+    40-line window and stopping once we've recorded choice 1. Non-matching
+    lines between choices are skipped — modern menus carry multi-line indented
+    descriptions per choice plus a blank-line gap before trailing options like
+    "Chat about this", and an earlier strict contiguous-run scan missed all
+    but the bottom-most choice.
+
+    The run is only accepted as a menu when (a) the numbers are sequential
+    starting at 1 — rejects captures caught mid-redraw — AND (b) at least one
+    collected choice carries the `❯` cursor — rejects numbered prose (chat
+    messages, README excerpts) that happens to look like a menu. A real Claude
+    Code menu always renders a cursor on the selected choice.
     """
     tail = [_strip_ansi(r) for r in lines[-40:]]
     rev: list[tuple[int, str, bool]] = []  # (number, label, selected) bottom-up
-    started = False
     first_choice_idx: int | None = None
     for i in range(len(tail) - 1, -1, -1):
         m = _MENU_CHOICE_RE.match(tail[i])
-        if m:
-            started = True
-            cursor, num, label = m.group(1), int(m.group(2)), m.group(3)
-            rev.append((num, label.strip(_BOX_CHARS), cursor is not None))
-            first_choice_idx = i
-        elif started:
-            break  # end of the choice run
+        if not m:
+            continue
+        cursor, num, label = m.group(1), int(m.group(2)), m.group(3)
+        rev.append((num, label.strip(_BOX_CHARS), cursor is not None))
+        first_choice_idx = i
+        if num == 1:
+            break  # complete run anchored at 1; further matches would be a prior menu
     if not rev:
         return None
     rev.reverse()
