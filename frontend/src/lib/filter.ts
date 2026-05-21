@@ -46,14 +46,17 @@ export function applyFilter(
   });
 }
 
+// Coarse buckets keep Claude panes from shuffling mid-poll: a window
+// oscillating between running and idle stayed in two different ranks under
+// the old 5-bucket scheme, swapping positions every tick (THI-122).
 const rank = (w: Window): number => {
   if (w.pendingInput) return 0;
   if (w.status === "error") return 1;
-  if (w.status === "running") return 2;
-  if (w.status === "done") return 3;
-  return 4;
+  return 2;
 };
 
 export function sortPendingFirst(ws: Window[]): Window[] {
-  return [...ws].sort((a, b) => rank(a) - rank(b));
+  // Secondary sort by tmux window-index pins within-bucket position to the
+  // same order the user sees in tmux — predictable for clicks + keyboard nav.
+  return [...ws].sort((a, b) => rank(a) - rank(b) || a.index - b.index);
 }
