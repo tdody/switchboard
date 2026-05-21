@@ -260,6 +260,30 @@ export function App() {
     document.title = settings.notifyBadge && n > 0 ? `(${n}) Switchboard` : "Switchboard";
   }, [settings.notifyBadge, pendingWindows.length]);
 
+  // Auto-dismiss the terminal modal when its pane disappears from /api/state —
+  // the pane was killed externally (someone ran `tmux kill-pane` from a
+  // terminal, or tmux itself died). The ref tracks the last-known open window
+  // so we can still toast its name after `openWindow` flips to null. The
+  // `openId` guard suppresses the toast on the user's own close path (where
+  // openId is "" by the time openWindow goes null). The `state` guard avoids
+  // false positives on first hydration when a stale `?open=` URL points at a
+  // pane that never existed (THI-94).
+  const lastOpenWindowRef = useRef<Window | null>(null);
+  useEffect(() => {
+    if (!state) return;
+    if (openWindow) {
+      lastOpenWindowRef.current = openWindow;
+      return;
+    }
+    if (lastOpenWindowRef.current && openId) {
+      const name = lastOpenWindowRef.current.name;
+      lastOpenWindowRef.current = null;
+      setOpenId("");
+      const reason = serverRunning === false ? "tmux server stopped" : `Window "${name}" closed`;
+      messageToast(reason);
+    }
+  }, [state, openWindow, openId, serverRunning, setOpenId, messageToast]);
+
   // Global hotkeys: ⌘K palette, arrows + j/k/h/l for card nav, / for search,
   // Esc closes modal, Enter opens highlighted card.
   useEffect(() => {

@@ -287,6 +287,25 @@ def test_ws_closes_with_4410_when_streamer_ends_first(monkeypatch, ws_client: Te
     assert code == 4410, f"expected close code 4410, got {code!r} ({err!r})"
 
 
+def test_ws_closes_with_4408_when_tmux_server_gone(monkeypatch, ws_client: TestClient) -> None:
+    """When the streamer task completes and `tmux.get_server()` reports the
+    server is gone, the handler must close with the distinct 4408 code so the
+    frontend can tell `tmux died` apart from `pane killed` (THI-94)."""
+    _ImmediateExitStreamer.instances.clear()
+    monkeypatch.setattr(pane_stream, "PaneStreamer", _ImmediateExitStreamer)
+    # Server is alive at connect (the get_pane gate passes via ws_client's
+    # fixture monkeypatch), then "dies" mid-stream — get_server returns None
+    # by the time the handler probes for the close reason.
+    monkeypatch.setattr(tmux, "get_server", lambda: None)
+
+    with pytest.raises(Exception) as exc_info:
+        with ws_client.websocket_connect("/ws/pane?session=dev&index=2", headers=_HOST) as ws:
+            ws.receive_text()
+    err = exc_info.value
+    code = getattr(err, "code", None)
+    assert code == 4408, f"expected close code 4408, got {code!r} ({err!r})"
+
+
 def test_ws_no_4410_when_client_disconnects_first(monkeypatch, ws_client: TestClient) -> None:
     """If the client closes first (normal modal-close), the handler must NOT
     emit a 4410 — the streamer is cancelled cleanly and the WS shuts down
