@@ -11,6 +11,7 @@ import { NewWindowOverlay } from "./components/NewWindowOverlay";
 import { RenameOverlay } from "./components/RenameOverlay";
 import { RenameSessionOverlay } from "./components/RenameSessionOverlay";
 import { SettingsModal } from "./components/SettingsModal";
+import { ShortcutsSheet } from "./components/ShortcutsSheet";
 import { Subhead } from "./components/Subhead";
 import { TerminalModal } from "./components/TerminalModal";
 import { ToastStack } from "./components/ToastStack";
@@ -59,6 +60,7 @@ export function App() {
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const [showNeedsStrip, setShowNeedsStrip] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [paletteTargetId, setPaletteTargetId] = useState<string | null>(null);
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
   const [newWindowSession, setNewWindowSession] = useState<string | null>(null);
@@ -271,6 +273,7 @@ export function App() {
         paletteTargetId ||
         renameTargetId ||
         showSettings ||
+        showShortcuts ||
         newWindowSession ||
         renameSessionTarget ||
         confirm;
@@ -295,6 +298,19 @@ export function App() {
       if (e.key === "/" && !e.metaKey && !e.ctrlKey && !inField) {
         e.preventDefault();
         document.getElementById("search-input")?.focus();
+        return;
+      }
+      // `?` opens the shortcuts sheet. Most browsers report `?` directly on
+      // Shift+/ via `e.key`; we also honor the explicit Shift+/ form for safety
+      // on layouts/browsers that don't (THI-69).
+      if (
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !inField &&
+        (e.key === "?" || (e.shiftKey && e.key === "/"))
+      ) {
+        e.preventDefault();
+        setShowShortcuts(true);
         return;
       }
       if (inField) return;
@@ -340,6 +356,7 @@ export function App() {
     paletteTargetId,
     renameTargetId,
     showSettings,
+    showShortcuts,
     newWindowSession,
     renameSessionTarget,
     confirm,
@@ -358,6 +375,10 @@ export function App() {
     />
   ) : null;
 
+  const shortcutsSheet = showShortcuts ? (
+    <ShortcutsSheet onClose={() => setShowShortcuts(false)} />
+  ) : null;
+
   if (inEmpty) {
     return (
       <div className="app">
@@ -365,7 +386,7 @@ export function App() {
           counts={counts}
           serverAddr={SERVER_ADDR}
           inEmpty
-          onHelp={() => {}}
+          onHelp={() => setShowShortcuts(true)}
           onSettings={() => setShowSettings(true)}
           onRetry={refresh}
         />
@@ -373,6 +394,7 @@ export function App() {
           <EmptyState onRetry={refresh} />
         </main>
         {settingsModal}
+        {shortcutsSheet}
       </div>
     );
   }
@@ -383,7 +405,7 @@ export function App() {
         counts={counts}
         serverAddr={SERVER_ADDR}
         inEmpty={false}
-        onHelp={() => {}}
+        onHelp={() => setShowShortcuts(true)}
         onSettings={() => setShowSettings(true)}
       />
       {pendingWindows.length > 0 && showNeedsStrip && (
@@ -461,6 +483,7 @@ export function App() {
         />
       )}
       {settingsModal}
+      {shortcutsSheet}
       <ToastStack toasts={toasts} />
     </div>
   );
