@@ -144,3 +144,63 @@ def test_menu_prompt_makes_parse_pane_waiting() -> None:
     assert pending is True
     assert agent is not None
     assert agent.action == "Do you want to proceed?"
+
+
+# THI-121: spinner detection missed star glyphs (✽ ✶ ✷ …) and any verb outside
+# the hardcoded allowlist (Kneading, Asking, Philosophising, …). Real Claude
+# panes were sliding through to status=idle. Discriminator is the trailing
+# `(duration · tokens · …)` payload, which only active spinners carry.
+def test_running_spinner_heavy_star_glyph_kneading() -> None:
+    status, pending, agent = claude_parser.parse_pane(
+        _load("claude_running_kneading.txt"), cwd=None
+    )
+    assert status == "running"
+    assert pending is False
+    assert agent is not None
+    assert agent.spinner is not None and "kneading" in agent.spinner.lower()
+    assert agent.duration == "1m"
+
+
+def test_running_spinner_middle_dot_glyph_philosophising() -> None:
+    status, pending, agent = claude_parser.parse_pane(
+        _load("claude_running_philosophising.txt"), cwd=None
+    )
+    assert status == "running"
+    assert pending is False
+    assert agent is not None
+    assert agent.spinner is not None and "philosophising" in agent.spinner.lower()
+    assert agent.duration == "21s"
+
+
+def test_spinner_without_payload_is_not_active() -> None:
+    # `✻ Churned for 14s` is a one-off status note Claude shows after a tool
+    # call completes — no `(time · tokens)` payload, so not an active spinner.
+    lines = ["● Done. Refactor complete.", "", "✻ Churned for 14s", ""]
+    status, pending, agent = claude_parser.parse_pane(lines, cwd=None)
+    assert status == "idle"
+    assert pending is False
+    assert agent is not None
+    assert agent.spinner is None
+
+
+# THI-121: modern Claude menus have multi-line per-choice descriptions and a
+# blank-line gap before the final choices ("Type something." / "Chat about
+# this"). The contiguous-run scan collected only the bottom-most choice and
+# rejected the menu, so status stayed at idle (no highlight on interaction).
+def test_menu_with_multiline_descriptions_and_gaps() -> None:
+    prompt = claude_parser.parse_prompt(_load("claude_menu_multiline.txt"))
+    assert prompt is not None
+    assert prompt.kind == "menu"
+    assert [c.index for c in prompt.choices] == [1, 2, 3, 4]
+    assert [c.selected for c in prompt.choices] == [True, False, False, False]
+    # Choice 1's label is the first line; the indented description below is
+    # NOT folded into the label.
+    assert prompt.choices[0].label.startswith("Skip the partition gate entirely")
+    assert prompt.choices[3].label == "Chat about this"
+
+
+def test_menu_multiline_makes_parse_pane_waiting() -> None:
+    status, pending, agent = claude_parser.parse_pane(_load("claude_menu_multiline.txt"), cwd=None)
+    assert status == "waiting"
+    assert pending is True
+    assert agent is not None

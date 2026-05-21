@@ -1,0 +1,19 @@
+☐ Anthology check
+
+  Currently the vendor-data path requires `attainment_member`-flagged rows to
+  also have `attainment_date >= min_anthology_partition`. In dateless mode
+  there's no per-row date. Should we still sanity-check anthology coverage at
+  all, or just trust that the most recent partition exists?
+
+❯ 1. Skip the partition gate entirely (Recommended)
+     Dateless mode means "use whatever anthology partition is most recent." If
+     the account has anthology data at all, the partition lookup in
+     `build_outcome_dataset_from_anthology` (`MAX(partition_id)`) will find it.
+  2. Require at least one anthology partition exists per precision
+     Add an explicit assertion before training that `MAX(partition_id)` returns
+     a non-null value for each requested precision. Belt-and-suspenders.
+  3. Type something.
+
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

@@ -1,0 +1,10 @@
+● Reviewing the parser tests.
+
+  Read(backend/tests/test_claude_parser.py)
+  ⎿  read 146 lines
+
+✽ Kneading… (1m 16s · ↓ 3.4k tokens · almost done thinking)
+
+───────────────────────────────────────────────────────────────────────────────
+❯
+───────────────────────────────────────────────────────────────────────────────
