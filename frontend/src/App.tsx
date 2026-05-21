@@ -23,6 +23,11 @@ import type { Window } from "./types";
 const FAIL_THRESHOLD = 3;
 const SERVER_ADDR = "127.0.0.1:8765";
 const STATUS_FILTERS: StatusFilter[] = ["all", "waiting", "running", "idle"];
+// While the terminal modal is open we want the header / status pill / pending
+// flag to reflect the open pane within ~one xterm frame, not the user-chosen
+// dashboard cadence. Pane bytes already stream over the WS; this only affects
+// the metadata sourced from /api/state (THI-105).
+const MODAL_OPEN_POLL_MS = 100;
 
 /** A pending destructive action awaiting confirmation in the ConfirmDialog. */
 interface ConfirmState {
@@ -34,10 +39,6 @@ interface ConfirmState {
 
 export function App() {
   const settings = useSettings();
-  const { data: state, consecutiveErrors, refresh } = usePolling(
-    fetchState,
-    settings.pollIntervalMs,
-  );
 
   // URL-synced state — survives reload + supports back/forward.
   const [filterParam, setFilterParam] = useURLParam("filter", "all");
@@ -48,6 +49,9 @@ export function App() {
 
   const [query, setQuery] = useURLParam("q", "");
   const [openId, setOpenId] = useURLParam("open", "");
+
+  const pollIntervalMs = openId ? MODAL_OPEN_POLL_MS : settings.pollIntervalMs;
+  const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, pollIntervalMs);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
