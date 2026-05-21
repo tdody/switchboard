@@ -24,6 +24,9 @@ interface Props {
   window: Window;
   onClose: () => void;
   onToast: (message: string) => void;
+  /** Optional — when present, renders a Kill button in the foot that delegates
+   *  to the parent's handler (same shift-skip-confirm contract as WindowCard). */
+  onKill?: (w: Window, skipConfirm: boolean) => void;
 }
 
 type Connection =
@@ -50,7 +53,7 @@ function clampFont(n: number): number {
   return Math.min(TERM_FONT_MAX, Math.max(TERM_FONT_MIN, n));
 }
 
-export function TerminalModal({ window: win, onClose, onToast }: Props) {
+export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -532,6 +535,16 @@ export function TerminalModal({ window: win, onClose, onToast }: Props) {
           )}
           <span className="term-cwd">{win.cwd || "—"}</span>
           <span className="term-spacer" style={{ flex: 1 }} />
+          {onKill && (
+            <button
+              className="btn btn-danger"
+              onClick={(e) => onKill(win, e.shiftKey)}
+              title="Kill this window (shift-click to skip confirm)"
+            >
+              <Icon name="trash" size={12} />
+              <span>Kill window</span>
+            </button>
+          )}
           <span className="term-zoom">
             <button
               className="btn btn-icon btn-ghost"
