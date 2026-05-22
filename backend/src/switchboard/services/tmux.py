@@ -262,12 +262,24 @@ def deliver_text(session: str, index: int, text: str, *, bracketed: bool) -> boo
 
 
 def _is_send_keys_l_safe(text: str) -> bool:
-    """True iff `tmux send-keys -l text` will deliver `text` verbatim.
+    """True iff `tmux send-keys -l text` is the right delivery path.
 
-    `;` is a tmux command separator and gets dropped even from a quoted argv
-    slot; `\\n` / `\\r` are stripped. Anything else is safe at any length and
-    can skip the two-subprocess deliver_text path — this is the typing-latency
-    fast path (THI-124).
+    Two fall-back triggers — both about end-user semantics, not tmux parser
+    quirks (`send-keys -l` actually delivers `;` / `\\n` / `\\r` verbatim on
+    tmux 3.6+):
+
+    - `;` — conservative reject: a trailing `;` is still eaten by tmux's
+      command parser as a command separator. Easier to reject any `;` than
+      probe for position; the slow path is correct in either case.
+    - `\\n` / `\\r` — an embedded LF/CR delivered as a literal keystroke is
+      interpreted as Enter by most shells/TUIs, which would submit a
+      multi-line paste line-by-line. Route to load-buffer/paste-buffer so
+      the bytes land atomically and any bracketed-paste wrapping (THI-116)
+      can preserve multi-line intent.
+
+    The fast path saves ~20-40ms per keystroke vs. deliver_text's two
+    subprocess.run forks — the win that makes typing in the modal feel
+    responsive (THI-124).
     """
     return ";" not in text and "\n" not in text and "\r" not in text
 

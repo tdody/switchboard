@@ -201,6 +201,38 @@ def test_send_keys_paste_with_newline_falls_back_to_deliver_text(monkeypatch) ->
     assert seen == [("dev", 1, "line1\nline2", False)]
 
 
+def test_send_keys_empty_paste_takes_fast_path(monkeypatch) -> None:
+    # Empty paste has no forbidden chars → fast path. The resulting
+    # `send-keys -l ""` is a tmux no-op; we just pin the routing decision
+    # so a future caller can rely on this not silently forking subprocesses.
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    cmds = []
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: cmds.append(a)))
+
+    def _explode(*a, **k):
+        raise AssertionError("deliver_text must NOT be called on the fast path")
+
+    monkeypatch.setattr(tmux, "deliver_text", _explode)
+    assert tmux.send_keys("dev", 1, paste="") is True
+    assert cmds == [("send-keys", "-t", "dev:1", "-l", "")]
+
+
+def test_send_keys_paste_with_crlf_falls_back_to_deliver_text(monkeypatch) -> None:
+    # `\r\n` (Windows EOL) contains both forbidden chars; either alone
+    # triggers the slow path. Explicit pin so the routing stays stable if
+    # the predicate is ever rewritten to be cleverer about line endings.
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: None))
+    seen = []
+    monkeypatch.setattr(
+        tmux,
+        "deliver_text",
+        lambda s, i, text, *, bracketed: seen.append((s, i, text, bracketed)) or True,
+    )
+    assert tmux.send_keys("dev", 1, paste="line1\r\nline2") is True
+    assert seen == [("dev", 1, "line1\r\nline2", False)]
+
+
 def test_send_keys_bracketed_paste_skips_fast_path(monkeypatch) -> None:
     # bracketed=True means a TUI expects the paste markers wrapping the whole
     # block — splitting per-char would defeat the purpose. Always deliver_text.
