@@ -104,13 +104,16 @@ def test_send_keys_paste_routes_through_deliver_text(monkeypatch) -> None:
 
 
 def test_send_keys_sleeps_between_paste_and_keys(monkeypatch) -> None:
+    # Paste contains `;` so the safe-text fast path bails out and deliver_text
+    # runs — keeps the sleep+keys behavior under test independent of the
+    # routing decision (THI-124).
     monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
     cmds = []
     monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: cmds.append(a)))
     monkeypatch.setattr(tmux, "deliver_text", lambda *a, **k: True)
     slept = []
     monkeypatch.setattr(tmux.time, "sleep", lambda s: slept.append(s))
-    assert tmux.send_keys("dev", 1, paste="x", keys=["Enter"]) is True
+    assert tmux.send_keys("dev", 1, paste="a;b", keys=["Enter"]) is True
     assert slept == [0.10]
     assert cmds == [("send-keys", "-t", "dev:1", "Enter")]
 
@@ -130,10 +133,119 @@ def test_send_keys_keys_only_skips_deliver_and_sleep(monkeypatch) -> None:
 
 
 def test_send_keys_false_when_deliver_text_fails(monkeypatch) -> None:
+    # Use a paste that forces the deliver_text path (contains `;`).
     monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
     monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: None))
     monkeypatch.setattr(tmux, "deliver_text", lambda *a, **k: False)
-    assert tmux.send_keys("dev", 1, paste="x") is False
+    assert tmux.send_keys("dev", 1, paste="a;b") is False
+
+
+# THI-124: typing-latency fast path. Single chars (and any text free of `;` /
+# newlines) go through one libtmux `send-keys -l` call instead of two
+# subprocess forks via `deliver_text` — ~20-40ms saved per keystroke.
+def test_send_keys_safe_paste_uses_send_keys_l_fast_path(monkeypatch) -> None:
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    cmds = []
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: cmds.append(a)))
+
+    def _explode(*a, **k):
+        raise AssertionError("deliver_text must NOT be called on the fast path")
+
+    monkeypatch.setattr(tmux, "deliver_text", _explode)
+    assert tmux.send_keys("dev", 1, paste="a") is True
+    assert cmds == [("send-keys", "-t", "dev:1", "-l", "a")]
+
+
+def test_send_keys_safe_paste_with_multi_chars_uses_fast_path(monkeypatch) -> None:
+    # No length cap; only forbidden chars (`;` / `\n` / `\r`) gate the fast
+    # path. A pasted word with no specials must still take it.
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    cmds = []
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: cmds.append(a)))
+
+    def _explode(*a, **k):
+        raise AssertionError("deliver_text must NOT be called on the fast path")
+
+    monkeypatch.setattr(tmux, "deliver_text", _explode)
+    assert tmux.send_keys("dev", 1, paste="hello world") is True
+    assert cmds == [("send-keys", "-t", "dev:1", "-l", "hello world")]
+
+
+def test_send_keys_paste_with_semicolon_falls_back_to_deliver_text(monkeypatch) -> None:
+    # `;` is a tmux command separator — `send-keys -l ";"` silently drops it.
+    # The fallback is the THI-116 correctness path.
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: None))
+    seen = []
+    monkeypatch.setattr(
+        tmux,
+        "deliver_text",
+        lambda s, i, text, *, bracketed: seen.append((s, i, text, bracketed)) or True,
+    )
+    assert tmux.send_keys("dev", 1, paste="ls; pwd") is True
+    assert seen == [("dev", 1, "ls; pwd", False)]
+
+
+def test_send_keys_paste_with_newline_falls_back_to_deliver_text(monkeypatch) -> None:
+    # Embedded newlines are stripped by `send-keys -l`; fall back to
+    # deliver_text so multi-line input survives.
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: None))
+    seen = []
+    monkeypatch.setattr(
+        tmux,
+        "deliver_text",
+        lambda s, i, text, *, bracketed: seen.append((s, i, text, bracketed)) or True,
+    )
+    assert tmux.send_keys("dev", 1, paste="line1\nline2") is True
+    assert seen == [("dev", 1, "line1\nline2", False)]
+
+
+def test_send_keys_empty_paste_takes_fast_path(monkeypatch) -> None:
+    # Empty paste has no forbidden chars → fast path. The resulting
+    # `send-keys -l ""` is a tmux no-op; we just pin the routing decision
+    # so a future caller can rely on this not silently forking subprocesses.
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    cmds = []
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: cmds.append(a)))
+
+    def _explode(*a, **k):
+        raise AssertionError("deliver_text must NOT be called on the fast path")
+
+    monkeypatch.setattr(tmux, "deliver_text", _explode)
+    assert tmux.send_keys("dev", 1, paste="") is True
+    assert cmds == [("send-keys", "-t", "dev:1", "-l", "")]
+
+
+def test_send_keys_paste_with_crlf_falls_back_to_deliver_text(monkeypatch) -> None:
+    # `\r\n` (Windows EOL) contains both forbidden chars; either alone
+    # triggers the slow path. Explicit pin so the routing stays stable if
+    # the predicate is ever rewritten to be cleverer about line endings.
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: None))
+    seen = []
+    monkeypatch.setattr(
+        tmux,
+        "deliver_text",
+        lambda s, i, text, *, bracketed: seen.append((s, i, text, bracketed)) or True,
+    )
+    assert tmux.send_keys("dev", 1, paste="line1\r\nline2") is True
+    assert seen == [("dev", 1, "line1\r\nline2", False)]
+
+
+def test_send_keys_bracketed_paste_skips_fast_path(monkeypatch) -> None:
+    # bracketed=True means a TUI expects the paste markers wrapping the whole
+    # block — splitting per-char would defeat the purpose. Always deliver_text.
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: object())
+    monkeypatch.setattr(tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: None))
+    seen = []
+    monkeypatch.setattr(
+        tmux,
+        "deliver_text",
+        lambda s, i, text, *, bracketed: seen.append((s, i, text, bracketed)) or True,
+    )
+    assert tmux.send_keys("dev", 1, paste="a", bracketed=True) is True
+    assert seen == [("dev", 1, "a", True)]
 
 
 def _fake_server_with_pane(cmd: str, window_name: str, index: str = "1"):
