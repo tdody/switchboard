@@ -260,6 +260,21 @@ export function App() {
     document.title = settings.notifyBadge && n > 0 ? `(${n}) Switchboard` : "Switchboard";
   }, [settings.notifyBadge, pendingWindows.length]);
 
+  // Pre-highlight the first visible card on the first non-null state so arrow
+  // nav is discoverable (THI-87). The ref guard ensures subsequent polls never
+  // re-pick — after first hydration the user owns highlightedId.
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    if (!state) return;
+    if (highlightedId !== null) return;
+    const first = openId || navCols[0]?.windows[0]?.paneId || visible[0]?.paneId || null;
+    if (first) {
+      hydratedRef.current = true;
+      setHighlightedId(first);
+    }
+  }, [state, navCols, visible, highlightedId, openId]);
+
   // Global hotkeys: ⌘K palette, arrows + j/k/h/l for card nav, / for search,
   // Esc closes modal, Enter opens highlighted card.
   useEffect(() => {
