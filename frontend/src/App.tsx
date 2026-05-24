@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchState, focusWindow, killSession, killWindow } from "./api/client";
+import {
+  createWindowWithBoot,
+  fetchState,
+  focusWindow,
+  killSession,
+  killWindow,
+} from "./api/client";
 import { usePolling } from "./api/usePolling";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -66,6 +72,10 @@ export function App() {
   const [newWindowSession, setNewWindowSession] = useState<string | null>(null);
   const [renameSessionTarget, setRenameSessionTarget] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  // Sessions with an in-flight quick-create (THI-115). Disables the +claude /
+  // +shell buttons until the round-trip completes so a double-click can't
+  // spawn two windows by mistake.
+  const [quickCreating, setQuickCreating] = useState<Set<string>>(() => new Set());
 
   const sessions = state?.sessions ?? [];
   const windows = state?.windows ?? [];
@@ -190,6 +200,33 @@ export function App() {
   const handleRenameSession = useCallback(
     (session: string) => setRenameSessionTarget(session),
     [],
+  );
+  // One-click new window. Mode="claude" autotypes `claude\n` so Claude Code
+  // boots; mode="shell" leaves the new window at a bare shell prompt
+  // (THI-115). Per-session in-flight tracking guards double-clicks.
+  const handleQuickCreate = useCallback(
+    async (session: string, mode: "claude" | "shell") => {
+      setQuickCreating((prev) => {
+        const next = new Set(prev);
+        next.add(session);
+        return next;
+      });
+      try {
+        await createWindowWithBoot(session, mode);
+        // Don't wait on the next poll tick — pop the new card immediately so
+        // the user sees their click took. The poll's etag will treat the
+        // refresh as a 200 (state changed); a duplicate request is fine.
+        refresh();
+      } finally {
+        setQuickCreating((prev) => {
+          if (!prev.has(session)) return prev;
+          const next = new Set(prev);
+          next.delete(session);
+          return next;
+        });
+      }
+    },
+    [refresh],
   );
 
   // `refresh` and `windows` are replaced on every poll. Read them through refs
@@ -473,6 +510,8 @@ export function App() {
           onNewWindow={handleNewWindow}
           onKillSession={handleKillSession}
           onRenameSession={handleRenameSession}
+          onQuickCreate={handleQuickCreate}
+          quickCreating={quickCreating}
         />
       </main>
       {openWindow && (

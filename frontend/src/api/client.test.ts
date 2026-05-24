@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { openPaneWS, pasteImage } from "./client";
+import { createWindowWithBoot, openPaneWS, pasteImage } from "./client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -29,6 +29,68 @@ describe("pasteImage", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
     const blob = new Blob([new Uint8Array([1])], { type: "image/png" });
     expect(await pasteImage("dev", 2, blob)).toBe(false);
+  });
+});
+
+describe("createWindowWithBoot", () => {
+  it("creates the window and autotypes `claude\\n` in claude mode", async () => {
+    document.cookie = "sb_csrf=tok-abc";
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.startsWith("/api/window")) {
+        return {
+          ok: true,
+          json: async () => ({ index: 7, id: "dev:7" }),
+        } as Response;
+      }
+      if (url.startsWith("/api/send")) {
+        return { ok: true } as Response;
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const win = await createWindowWithBoot("dev", "claude");
+    expect(win).toEqual({ index: 7, id: "dev:7" });
+
+    // The two fetches: POST /api/window?…&name=claude then POST /api/send.
+    const calls = fetchMock.mock.calls.map(([u]) => u as string);
+    expect(calls[0]).toBe("/api/window?session=dev&name=claude");
+    // sendKeys is fire-and-forget but should have been issued synchronously.
+    // Allow the microtask to drain so the void-awaited send resolves.
+    await Promise.resolve();
+    expect(calls).toContain("/api/send?session=dev&index=7");
+    const sendCall = fetchMock.mock.calls.find(
+      ([u]) => (u as string).startsWith("/api/send"),
+    );
+    expect(JSON.parse(sendCall![1].body as string)).toEqual({
+      paste: "claude",
+      keys: ["Enter"],
+    });
+  });
+
+  it("creates the window WITHOUT a follow-up sendKeys in shell mode", async () => {
+    document.cookie = "sb_csrf=tok-abc";
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true,
+      json: async () => ({ index: 9, id: "dev:9" }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const win = await createWindowWithBoot("dev", "shell");
+    expect(win).toEqual({ index: 9, id: "dev:9" });
+    // Only the createWindow call — no auto-type for shells.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/window?session=dev&name=shell");
+  });
+
+  it("returns null when the createWindow call fails (and never sends keys)", async () => {
+    document.cookie = "sb_csrf=tok-abc";
+    const fetchMock = vi.fn(async (_url: string) => ({ ok: false }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const win = await createWindowWithBoot("dev", "claude");
+    expect(win).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // only the failed createWindow
   });
 });
 
