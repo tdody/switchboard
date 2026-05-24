@@ -35,7 +35,10 @@ describe("pasteImage", () => {
 describe("createWindowWithBoot", () => {
   it("creates the window and autotypes `claude\\n` in claude mode", async () => {
     document.cookie = "sb_csrf=tok-abc";
-    const fetchMock = vi.fn(async (url: string) => {
+    // Two-arg signature so `mock.calls` is typed `[url, init?]` — needed
+    // for the `sendCall[1].body` assertion below. CI's stricter tsc rejects
+    // a 1-arg signature here (TS2493 / TS2532).
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
       if (url.startsWith("/api/window")) {
         return {
           ok: true,
@@ -53,16 +56,15 @@ describe("createWindowWithBoot", () => {
     expect(win).toEqual({ index: 7, id: "dev:7" });
 
     // The two fetches: POST /api/window?…&name=claude then POST /api/send.
-    const calls = fetchMock.mock.calls.map(([u]) => u as string);
+    const calls = fetchMock.mock.calls.map(([u]) => u);
     expect(calls[0]).toBe("/api/window?session=dev&name=claude");
     // sendKeys is fire-and-forget but should have been issued synchronously.
     // Allow the microtask to drain so the void-awaited send resolves.
     await Promise.resolve();
     expect(calls).toContain("/api/send?session=dev&index=7");
-    const sendCall = fetchMock.mock.calls.find(
-      ([u]) => (u as string).startsWith("/api/send"),
-    );
-    expect(JSON.parse(sendCall![1].body as string)).toEqual({
+    const sendCall = fetchMock.mock.calls.find(([u]) => u.startsWith("/api/send"));
+    expect(sendCall).toBeDefined();
+    expect(JSON.parse(sendCall![1]!.body as string)).toEqual({
       paste: "claude",
       keys: ["Enter"],
     });
