@@ -261,6 +261,29 @@ def deliver_text(session: str, index: int, text: str, *, bracketed: bool) -> boo
         return False
 
 
+def _is_send_keys_l_safe(text: str) -> bool:
+    """True iff `tmux send-keys -l text` is the right delivery path.
+
+    Two fall-back triggers — both about end-user semantics, not tmux parser
+    quirks (`send-keys -l` actually delivers `;` / `\\n` / `\\r` verbatim on
+    tmux 3.6+):
+
+    - `;` — conservative reject: a trailing `;` is still eaten by tmux's
+      command parser as a command separator. Easier to reject any `;` than
+      probe for position; the slow path is correct in either case.
+    - `\\n` / `\\r` — an embedded LF/CR delivered as a literal keystroke is
+      interpreted as Enter by most shells/TUIs, which would submit a
+      multi-line paste line-by-line. Route to load-buffer/paste-buffer so
+      the bytes land atomically and any bracketed-paste wrapping (THI-116)
+      can preserve multi-line intent.
+
+    The fast path saves ~20-40ms per keystroke vs. deliver_text's two
+    subprocess.run forks — the win that makes typing in the modal feel
+    responsive (THI-124).
+    """
+    return ";" not in text and "\n" not in text and "\r" not in text
+
+
 def send_keys(
     session: str,
     index: int,
@@ -278,10 +301,18 @@ def send_keys(
         return False
     try:
         if paste is not None:
-            # Literal text goes through deliver_text (load-buffer/paste-buffer)
-            # rather than `send-keys -l`, which silently drops a standalone `;`.
-            if not deliver_text(session, index, paste, bracketed=bracketed):
-                return False
+            # Fast path for per-keystroke typing: a safe single libtmux command
+            # is ~50x cheaper than the two subprocess forks in deliver_text and
+            # cuts ~20-40ms of latency per keystroke (THI-124). bracketed=True
+            # forces the slow path because the paste markers must wrap the
+            # whole block, not be split per char.
+            if not bracketed and _is_send_keys_l_safe(paste):
+                srv.cmd("send-keys", "-t", target, "-l", paste)  # ty: ignore
+            else:
+                # THI-116 correctness path: load-buffer/paste-buffer survives
+                # bare `;` and embedded newlines that `send-keys -l` drops.
+                if not deliver_text(session, index, paste, bracketed=bracketed):
+                    return False
             if keys:
                 # Grace so a TUI applies the pasted block before Enter lands.
                 time.sleep(0.10)

@@ -1,6 +1,6 @@
 """Pane → WebSocket streamer via `tmux pipe-pane`.
 
-`tmux pipe-pane -O -t TARGET 'cat > /tmp/sb-<uuid>.fifo'` redirects the pane's
+`tmux pipe-pane -O -t TARGET 'cat > /tmp/sb-pane-<pid>-<uuid>.fifo'` redirects the pane's
 raw output to a FIFO that we read asynchronously and forward over the
 WebSocket. tmux strips terminal escape sequences for the rendered buffer but
 preserves the input/output stream verbatim — so xterm receives real ANSI and
@@ -13,10 +13,13 @@ toggles the pipe off), close the FIFO read side, and unlink the FIFO.
 from __future__ import annotations
 
 import asyncio
+import atexit
 import contextlib
+import glob
 import json
 import logging
 import os
+import stat
 import tempfile
 import uuid
 from typing import TYPE_CHECKING
@@ -32,6 +35,58 @@ log = logging.getLogger(__name__)
 # tracks live arrow presses), slow otherwise (just watching for one to appear).
 _PROMPT_POLL_ACTIVE = 0.15
 _PROMPT_POLL_IDLE = 1.0
+
+# FIFO naming: `sb-pane-<pid>-<uuid>.fifo` under the system tmp dir. The PID
+# scope is what makes the orphan sweep safe under `uvicorn --workers >1`: each
+# worker only sweeps its own FIFOs, never a sibling's live ones. Exposed as
+# module attributes so the sweep below (THI-85) can locate them and so tests
+# can redirect the directory via monkeypatch.
+_FIFO_DIR = tempfile.gettempdir()
+_FIFO_PREFIX = "sb-pane-"
+_FIFO_SUFFIX = ".fifo"
+_atexit_hooked = False
+
+
+def cleanup_orphaned_fifos() -> int:
+    """Remove this worker's `sb-pane-<pid>-*.fifo` under the FIFO dir. Returns
+    the count actually unlinked.
+
+    Scoped to `os.getpid()` so that multi-worker deployments
+    (`uvicorn --workers >1`) don't have one worker unlink a sibling's live
+    FIFOs on startup or atexit. Same-PID restarts (PID reuse by the OS) are
+    extremely rare and harmless — the prior process is gone, so its FIFOs are
+    by definition orphans.
+
+    Only actual FIFOs (matched via `lstat`, so symlinks are rejected) are
+    unlinked — defense-in-depth against symlink shenanigans in tmp under a
+    shared-tmp threat model. Errors per entry are swallowed: a file that
+    vanished between glob and unlink (another process, our own finally block
+    firing concurrently) is the desired end state anyway."""
+    pattern = os.path.join(_FIFO_DIR, f"{_FIFO_PREFIX}{os.getpid()}-*{_FIFO_SUFFIX}")
+    removed = 0
+    for path in glob.glob(pattern):
+        try:
+            # `lstat` (not `stat`) so a symlink reads as a symlink, not its
+            # target — we never want to follow a link to unlink something else.
+            if not stat.S_ISFIFO(os.lstat(path).st_mode):
+                continue
+            os.unlink(path)
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def install_fifo_cleanup_hook() -> None:
+    """Idempotent atexit hook registration, within a single process. Safe
+    across repeated `create_app` calls in tests; the module-level flag guards
+    against accumulating duplicates. (A forked child gets its own copy of the
+    flag, so each worker still arms exactly one hook.)"""
+    global _atexit_hooked
+    if _atexit_hooked:
+        return
+    atexit.register(cleanup_orphaned_fifos)
+    _atexit_hooked = True
 
 
 class PaneStreamer:
@@ -79,7 +134,17 @@ class PaneStreamer:
                 return
 
         # 2. Set up FIFO + pipe-pane.
-        fifo_path = os.path.join(tempfile.gettempdir(), f"sb-pane-{uuid.uuid4().hex}.fifo")
+        # Known small race: between `srv.cmd("pipe-pane", ...)` below and tmux
+        # actually spawning the `cat > fifo` writer (~ms shell fork), any
+        # bytes the pane emits are dropped. The snapshot above covers
+        # everything up to "now"; the gap is typically prompt redraw that
+        # the next keystroke or refresh will re-emit. Not worth the
+        # complexity of a pre-snapshot pipe-pane install, which would
+        # require re-syncing against the snapshot to deduplicate (THI-85).
+        fifo_path = os.path.join(
+            _FIFO_DIR,
+            f"{_FIFO_PREFIX}{os.getpid()}-{uuid.uuid4().hex}{_FIFO_SUFFIX}",
+        )
         target = f"{self.session}:{self.index}"
         srv = tmux.get_server()
         if srv is None:

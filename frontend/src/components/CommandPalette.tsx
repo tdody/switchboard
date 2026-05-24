@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { sendKeys } from "../api/client";
+import { addRecent, readRecents, removeRecent, type RecentEntry } from "../lib/recents";
 import type { Window } from "../types";
 import { Icon, type IconName } from "./Icon";
 
@@ -16,15 +17,33 @@ interface Item {
   paste?: string;
   enter?: boolean;
   key?: string;
+  /** True when this item came from the per-session recents history. */
+  removable?: boolean;
 }
 
-const RECENT_COMMANDS: Item[] = [
+const FALLBACK_RECENT_COMMANDS: Item[] = [
   { label: "ls -la", hint: "list files", icon: "arrow-r", paste: "ls -la", enter: true },
   { label: "git status", hint: "git", icon: "git-branch", paste: "git status", enter: true },
   { label: "pnpm test --watch", hint: "test", icon: "play", paste: "pnpm test --watch", enter: true },
   { label: "clear", hint: "clear screen", icon: "x", paste: "clear", enter: true },
   { label: "Send Ctrl+C", hint: "interrupt", icon: "alert", key: "C-c" },
 ];
+
+function recentToItem(e: RecentEntry): Item {
+  const icon: IconName = e.key ? "alert" : "arrow-r";
+  return {
+    label: e.label,
+    icon,
+    paste: e.paste,
+    enter: e.enter,
+    key: e.key,
+    removable: true,
+  };
+}
+
+function itemToRecent(it: Item): RecentEntry {
+  return { label: it.label, paste: it.paste, enter: it.enter, key: it.key };
+}
 
 const AGENT_PROMPTS: Item[] = [
   { label: "y", hint: "accept", icon: "check", paste: "y", enter: true },
@@ -43,15 +62,19 @@ export function CommandPalette({ target, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [recents, setRecents] = useState<Item[]>(() => {
+    const stored = readRecents(target.session);
+    return stored.length > 0 ? stored.map(recentToItem) : FALLBACK_RECENT_COMMANDS;
+  });
 
   const items = useMemo<Item[]>(() => {
-    const all = [...RECENT_COMMANDS, ...AGENT_PROMPTS];
+    const all = [...recents, ...AGENT_PROMPTS];
     if (!query) return all;
     const q = query.toLowerCase();
     return all.filter(
       (it) => it.label.toLowerCase().includes(q) || it.hint?.toLowerCase().includes(q),
     );
-  }, [query]);
+  }, [query, recents]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -64,16 +87,37 @@ export function CommandPalette({ target, onClose }: Props) {
 
   const submit = async (it: Item | null) => {
     let body: { keys?: string[]; paste?: string };
+    let recentEntry: RecentEntry;
     if (it) {
       if (it.key) body = { keys: [it.key] };
       else body = { paste: it.paste ?? "", keys: it.enter ? ["Enter"] : undefined };
+      recentEntry = itemToRecent(it);
     } else {
       // Custom: send the literal query string + Enter.
       if (!query) return;
       body = { paste: query, keys: ["Enter"] };
+      recentEntry = { label: query, paste: query, enter: true };
     }
-    await sendKeys(target.session, target.index, body);
+    // sendKeys returns false on non-2xx but throws on network / abort errors.
+    // Treat the throw the same as ok=false: skip the recents write and close
+    // the palette so the user isn't left staring at a frozen UI with no
+    // feedback. Matches the existing UX where ok=false also just closes.
+    let ok = false;
+    try {
+      ok = await sendKeys(target.session, target.index, body);
+    } catch {
+      ok = false;
+    }
+    if (ok) {
+      const next = addRecent(target.session, recentEntry);
+      setRecents(next.map(recentToItem));
+    }
     onClose();
+  };
+
+  const remove = (it: Item) => {
+    const next = removeRecent(target.session, itemToRecent(it));
+    setRecents(next.length > 0 ? next.map(recentToItem) : FALLBACK_RECENT_COMMANDS);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -108,7 +152,7 @@ export function CommandPalette({ target, onClose }: Props) {
   };
 
   // Split items back into the two sections for display
-  const recentSlice = items.filter((it) => RECENT_COMMANDS.includes(it));
+  const recentSlice = items.filter((it) => recents.includes(it));
   const promptSlice = items.filter((it) => AGENT_PROMPTS.includes(it));
 
   const renderItem = (it: Item) => {
@@ -123,6 +167,19 @@ export function CommandPalette({ target, onClose }: Props) {
         <Icon name={it.icon} size={13} />
         <span className="label">{it.label}</span>
         {it.hint && <span className="hint">{it.hint}</span>}
+        {it.removable && (
+          <span
+            className="palette-rm"
+            role="button"
+            aria-label={`Remove ${it.label} from recents`}
+            onClick={(e) => {
+              e.stopPropagation();
+              remove(it);
+            }}
+          >
+            <Icon name="x" size={12} />
+          </span>
+        )}
       </button>
     );
   };

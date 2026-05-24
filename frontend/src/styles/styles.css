@@ -1080,6 +1080,17 @@ input, textarea, select { font: inherit; color: inherit; }
 .palette-item .ico { color: var(--text-dim); width: 16px; }
 .palette-item .label { flex: 1; }
 .palette-item .hint { color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; }
+.palette-rm {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 4px;
+  color: var(--text-dim);
+  opacity: 0;
+  cursor: pointer;
+}
+.palette-rm:hover { background: var(--panel-3, var(--panel-2)); color: var(--text); }
+.palette-item:hover .palette-rm,
+.palette-item.is-active .palette-rm { opacity: 1; }
 .palette-foot {
   display: flex; align-items: center; gap: 12px;
   padding: 8px 14px;

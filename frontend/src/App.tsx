@@ -11,6 +11,7 @@ import { NewWindowOverlay } from "./components/NewWindowOverlay";
 import { RenameOverlay } from "./components/RenameOverlay";
 import { RenameSessionOverlay } from "./components/RenameSessionOverlay";
 import { SettingsModal } from "./components/SettingsModal";
+import { ShortcutsSheet } from "./components/ShortcutsSheet";
 import { Subhead } from "./components/Subhead";
 import { TerminalModal } from "./components/TerminalModal";
 import { ToastStack } from "./components/ToastStack";
@@ -59,6 +60,7 @@ export function App() {
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const [showNeedsStrip, setShowNeedsStrip] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const [paletteTargetId, setPaletteTargetId] = useState<string | null>(null);
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
   const [newWindowSession, setNewWindowSession] = useState<string | null>(null);
@@ -133,6 +135,12 @@ export function App() {
 
   const closeModal = useCallback(() => setOpenId(""), [setOpenId]);
 
+  const messageToast = useCallback(
+    (message: string) =>
+      pushToast({ id: Math.random().toString(36).slice(2), kind: "message", message }),
+    [pushToast],
+  );
+
   const handleFocus = useCallback(
     (w: Window) => {
       setFocusedId(w.paneId);
@@ -140,18 +148,40 @@ export function App() {
         () => setFocusedId((id) => (id === w.paneId ? null : id)),
         900,
       );
-      pushToast({
-        id: Math.random().toString(36).slice(2),
-        kind: "focus",
-        session: w.session,
-        index: w.index,
-        name: w.name,
-        term: hostTerm,
-      });
-      void focusWindow(w.session, w.index);
+      // Fork the toast on the backend's response, but on rejection fall back
+      // to the focus toast — the click still registered the user's intent.
+      void focusWindow(w.session, w.index).then(
+        (focused) => {
+          if (focused) {
+            pushToast({
+              id: Math.random().toString(36).slice(2),
+              kind: "focus",
+              session: w.session,
+              index: w.index,
+              name: w.name,
+              term: hostTerm,
+            });
+          } else {
+            messageToast(`No attached client for ${w.session} — opening modal instead`);
+          }
+        },
+        () => {
+          pushToast({
+            id: Math.random().toString(36).slice(2),
+            kind: "focus",
+            session: w.session,
+            index: w.index,
+            name: w.name,
+            term: hostTerm,
+          });
+        },
+      );
+      // Modal-open is unconditional and synchronous-scheduled — keeps the
+      // pre-PR 280 ms contract and avoids a stale setOpenId if the user moves
+      // on during the focus-API RTT, or a silent click on backend error.
       window.setTimeout(() => setOpenId(w.paneId), 280);
     },
-    [hostTerm, pushToast, setOpenId],
+    [hostTerm, pushToast, messageToast, setOpenId],
   );
 
   const handleRename = useCallback((w: Window) => setRenameTargetId(w.paneId), []);
@@ -173,12 +203,6 @@ export function App() {
   // the modal on success without baking openId into its dep list (THI-111).
   const openIdRef = useRef(openId);
   openIdRef.current = openId;
-
-  const messageToast = useCallback(
-    (message: string) =>
-      pushToast({ id: Math.random().toString(36).slice(2), kind: "message", message }),
-    [pushToast],
-  );
 
   const handleKill = useCallback(
     (w: Window, skipConfirm: boolean) => {
@@ -284,6 +308,21 @@ export function App() {
     }
   }, [state, openWindow, openId, serverRunning, setOpenId, messageToast]);
 
+  // Pre-highlight the first visible card on the first non-null state so arrow
+  // nav is discoverable (THI-87). The ref guard ensures subsequent polls never
+  // re-pick — after first hydration the user owns highlightedId.
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    if (!state) return;
+    if (highlightedId !== null) return;
+    const first = openId || navCols[0]?.windows[0]?.paneId || visible[0]?.paneId || null;
+    if (first) {
+      hydratedRef.current = true;
+      setHighlightedId(first);
+    }
+  }, [state, navCols, visible, highlightedId, openId]);
+
   // Global hotkeys: ⌘K palette, arrows + j/k/h/l for card nav, / for search,
   // Esc closes modal, Enter opens highlighted card.
   useEffect(() => {
@@ -295,6 +334,7 @@ export function App() {
         paletteTargetId ||
         renameTargetId ||
         showSettings ||
+        showShortcuts ||
         newWindowSession ||
         renameSessionTarget ||
         confirm;
@@ -316,9 +356,22 @@ export function App() {
         return;
       }
 
-      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !inField) {
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.shiftKey && !inField) {
         e.preventDefault();
         document.getElementById("search-input")?.focus();
+        return;
+      }
+      // `?` opens the shortcuts sheet. Most browsers report `?` directly on
+      // Shift+/ via `e.key`; we also honor the explicit Shift+/ form for safety
+      // on layouts/browsers that don't (THI-69).
+      if (
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !inField &&
+        (e.key === "?" || (e.shiftKey && e.key === "/"))
+      ) {
+        e.preventDefault();
+        setShowShortcuts(true);
         return;
       }
       if (inField) return;
@@ -364,6 +417,7 @@ export function App() {
     paletteTargetId,
     renameTargetId,
     showSettings,
+    showShortcuts,
     newWindowSession,
     renameSessionTarget,
     confirm,
@@ -382,6 +436,10 @@ export function App() {
     />
   ) : null;
 
+  const shortcutsSheet = showShortcuts ? (
+    <ShortcutsSheet onClose={() => setShowShortcuts(false)} />
+  ) : null;
+
   if (inEmpty) {
     return (
       <div className="app">
@@ -389,7 +447,7 @@ export function App() {
           counts={counts}
           serverAddr={SERVER_ADDR}
           inEmpty
-          onHelp={() => {}}
+          onHelp={() => setShowShortcuts(true)}
           onSettings={() => setShowSettings(true)}
           onRetry={refresh}
         />
@@ -397,6 +455,7 @@ export function App() {
           <EmptyState onRetry={refresh} />
         </main>
         {settingsModal}
+        {shortcutsSheet}
         <ToastStack toasts={toasts} />
       </div>
     );
@@ -408,7 +467,7 @@ export function App() {
         counts={counts}
         serverAddr={SERVER_ADDR}
         inEmpty={false}
-        onHelp={() => {}}
+        onHelp={() => setShowShortcuts(true)}
         onSettings={() => setShowSettings(true)}
       />
       {pendingWindows.length > 0 && showNeedsStrip && (
@@ -486,6 +545,7 @@ export function App() {
         />
       )}
       {settingsModal}
+      {shortcutsSheet}
       <ToastStack toasts={toasts} />
     </div>
   );
