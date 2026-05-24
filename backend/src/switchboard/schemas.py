@@ -100,10 +100,18 @@ class AutoRenameResponse(_CamelModel):
     usage: Usage
 
 
+AiKeySource = Literal["env", "config", "none"]
+
+
 class AiStatus(_CamelModel):
     """Lightweight capability probe for the frontend: `enabled=false` hides
-    the ✨ button entirely; `enabled=true` shows it. `model` is informational
-    (rendered in the Settings panel)."""
+    the ✨ button entirely; `enabled=true` shows it.
+
+    `source` tells the Settings panel where the key was picked up from so
+    the user knows which file to edit. `masked` is a short safe-to-show
+    fingerprint (first prefix + last 4 chars) — never the full key."""
 
     enabled: bool
     model: str
+    source: AiKeySource = "none"
+    masked: str | None = None

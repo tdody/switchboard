@@ -43,8 +43,15 @@ _SNIPPET_LAST_CHARS = 1200
 @router.get("/auto-rename/status", response_model=AiStatus)
 def auto_rename_status() -> AiStatus:
     """Lightweight capability probe — the frontend uses this to hide the ✨
-    button before clicking would discover the key is missing."""
-    return AiStatus(enabled=settings.anthropic_enabled, model=settings.anthropic_model)
+    button before clicking would discover the key is missing, and to render
+    the masked key + source in the Settings panel (THI-67)."""
+    key, source = anthropic_client.resolve_key()
+    return AiStatus(
+        enabled=settings.anthropic_enabled,
+        model=settings.anthropic_model,
+        source=source,
+        masked=anthropic_client.mask_key(key) if key else None,
+    )
 
 
 @router.post("/auto-rename-session", response_model=AutoRenameResponse)

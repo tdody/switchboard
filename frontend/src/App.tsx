@@ -80,6 +80,9 @@ export function App() {
   // (the key doesn't change at runtime); refetched after Settings closes in
   // case the user pasted a key while there.
   const [aiEnabled, setAiEnabled] = useState<boolean>(false);
+  // Re-fetch on mount AND every time Settings closes — that's the window in
+  // which the user might have set a key in their shell + restarted the
+  // backend (and so the ✨ button should newly appear without a page reload).
   useEffect(() => {
     let cancelled = false;
     void fetchAiStatus().then(
@@ -93,7 +96,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [showSettings]);
 
   const sessions = state?.sessions ?? [];
   const windows = state?.windows ?? [];
