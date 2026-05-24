@@ -256,3 +256,31 @@ def test_git_branch_cache_re_queries_after_ttl(monkeypatch) -> None:
     fake_clock["t"] = claude_parser._BRANCH_TTL_SECONDS + 0.01
     assert claude_parser._git_branch(cwd) == "second"
     assert len(calls) == 2
+
+
+# THI-126 follow-up: Window.branch is a top-level field so shell panes — not
+# just agents — can show a branch chip. The schema lets the field carry
+# independently of `agent`, which is None for shell panes.
+def test_window_branch_can_carry_without_agent() -> None:
+    from switchboard.schemas import Window
+
+    w = Window(
+        id="main:0",
+        session="main",
+        index=0,
+        name="zsh",
+        kind="shell",
+        status="idle",
+        last_activity=0,
+        branch="thibaultdody/feature-x",
+        agent=None,
+    )
+    assert w.branch == "thibaultdody/feature-x"
+    assert w.agent is None
+
+
+def test_git_branch_returns_none_for_empty_cwd() -> None:
+    # The tmux.py loop passes `cwd` straight through; an empty pane cwd must
+    # short-circuit to None rather than shelling out with no -C.
+    assert claude_parser._git_branch(None) is None
+    assert claude_parser._git_branch("") is None
