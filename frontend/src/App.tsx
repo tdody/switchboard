@@ -285,6 +285,30 @@ export function App() {
     document.title = settings.notifyBadge && n > 0 ? `(${n}) Switchboard` : "Switchboard";
   }, [settings.notifyBadge, pendingWindows.length]);
 
+  // Auto-dismiss the terminal modal when its pane disappears from /api/state —
+  // the pane was killed externally (someone ran `tmux kill-pane` from a
+  // terminal, or tmux itself died). The ref tracks the last-known open window
+  // so we can still toast its name after `openWindow` flips to null. The
+  // `openId` guard suppresses the toast on the user's own close path (where
+  // openId is "" by the time openWindow goes null). The `state` guard avoids
+  // false positives on first hydration when a stale `?open=` URL points at a
+  // pane that never existed (THI-94).
+  const lastOpenWindowRef = useRef<Window | null>(null);
+  useEffect(() => {
+    if (!state) return;
+    if (openWindow) {
+      lastOpenWindowRef.current = openWindow;
+      return;
+    }
+    if (lastOpenWindowRef.current && openId) {
+      const name = lastOpenWindowRef.current.name;
+      lastOpenWindowRef.current = null;
+      setOpenId("");
+      const reason = serverRunning === false ? "tmux server stopped" : `Window "${name}" closed`;
+      messageToast(reason);
+    }
+  }, [state, openWindow, openId, serverRunning, setOpenId, messageToast]);
+
   // Pre-highlight the first visible card on the first non-null state so arrow
   // nav is discoverable (THI-87). The ref guard ensures subsequent polls never
   // re-pick — after first hydration the user owns highlightedId.
@@ -433,6 +457,7 @@ export function App() {
         </main>
         {settingsModal}
         {shortcutsSheet}
+        <ToastStack toasts={toasts} />
       </div>
     );
   }
