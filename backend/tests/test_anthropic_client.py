@@ -56,9 +56,7 @@ def test_build_rename_prompt_includes_branch_and_pr() -> None:
 
 
 def test_build_rename_prompt_omits_pr_label_when_no_pr() -> None:
-    prompt = build_rename_prompt(
-        [{"index": 2, "current_name": "c", "branch": "feature/x"}]
-    )
+    prompt = build_rename_prompt([{"index": 2, "current_name": "c", "branch": "feature/x"}])
     assert "branch: feature/x" in prompt
     # No `, PR #` suffix when PR is missing.
     assert "PR #" not in prompt
@@ -82,9 +80,7 @@ def test_build_rename_prompt_includes_excerpt_and_recap_when_present() -> None:
 
 def test_build_rename_prompt_truncates_long_recap() -> None:
     long = "x" * 1000
-    prompt = build_rename_prompt(
-        [{"index": 1, "current_name": "a", "recap": long}]
-    )
+    prompt = build_rename_prompt([{"index": 1, "current_name": "a", "recap": long}])
     # The 300-char clamp is per-window; full string must NOT appear.
     assert "x" * 1000 not in prompt
     # But the truncated head SHOULD.
