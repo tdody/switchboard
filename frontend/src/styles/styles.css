@@ -276,6 +276,16 @@ input, textarea, select { font: inherit; color: inherit; }
   pointer-events: none;
   z-index: 2;
 }
+/* Drag-to-reorder visuals (THI-115). The header is the drag handle; the
+ * section catches drops anywhere within it. `col-drop-left/right` paints a
+ * thick accent edge to telegraph the insertion point — using `box-shadow`
+ * rather than a real border so it doesn't shift the column width during the
+ * hover. */
+.col-dragging { opacity: 0.55; }
+.col-drop-left  { box-shadow: inset 3px 0 0 0 var(--accent); }
+.col-drop-right { box-shadow: inset -3px 0 0 0 var(--accent); }
+.col-hd[draggable="true"] { cursor: grab; }
+.col-hd[draggable="true"]:active { cursor: grabbing; }
 .col-hd {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 12px;
