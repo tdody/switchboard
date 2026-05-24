@@ -40,6 +40,9 @@ export interface Window {
   cmd: string;
   cwd: string;
   pendingInput: boolean;
+  // Git branch of the pane's cwd, if any — populated for shell panes too, not
+  // just agents. For agents this is the same value as `agent.branch`.
+  branch: string | null;
   agent: Agent | null;
   preview: string[];
 }

@@ -18,6 +18,10 @@ describe("decideCloseAction — permanent failures", () => {
     expect(decideCloseAction(4404, 0, false, false)).toEqual({ kind: "gone" });
   });
 
+  it("maps 4408 (tmux server gone) to gone (THI-94)", () => {
+    expect(decideCloseAction(4408, 0, false, false)).toEqual({ kind: "gone" });
+  });
+
   it("maps 4410 (stream ended) to gone", () => {
     expect(decideCloseAction(4410, 3, false, false)).toEqual({ kind: "gone" });
   });

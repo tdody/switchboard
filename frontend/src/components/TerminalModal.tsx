@@ -19,6 +19,7 @@ import { StatusPill } from "./StatusPill";
 import { PromptOverlay } from "./PromptOverlay";
 import { parsePromptMessage } from "../lib/prompt";
 import type { Prompt } from "../lib/prompt";
+import { useScrimClose } from "../lib/useScrimClose";
 import { decideCloseAction } from "../lib/wsReconnect";
 
 interface Props {
@@ -55,6 +56,7 @@ function clampFont(n: number): number {
 }
 
 export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) {
+  const scrimProps = useScrimClose(onClose);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -479,7 +481,7 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   const zoomPct = Math.round((terminalFontSize / TERM_FONT_DEFAULT) * 100);
 
   return (
-    <div className="scrim" onClick={onClose}>
+    <div className="scrim" {...scrimProps}>
       <div className="term-modal" onClick={(e) => e.stopPropagation()}>
         <div className="term-hd">
           <span className="traffic">
@@ -494,22 +496,23 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
             <b>{win.name}</b>
             {/* Branch / PR / CI / spinner chips mirror the WindowCard layout
                 so the modal header carries the same at-a-glance signal as the
-                kanban card. Data already flows through `win.agent` on every
-                `/api/state` poll (100ms while modal-open per THI-105 — see
-                MODAL_OPEN_POLL_MS in App.tsx), so React re-renders the chips
-                live without any extra poller. */}
-            {win.agent && (win.agent.branch || win.agent.pr) && (
+                kanban card. Data flows through `win.branch` (top-level field
+                so shell panes get the chip too, per THI-126) and `win.agent`
+                on every `/api/state` poll (100ms while modal-open per
+                THI-105 — see MODAL_OPEN_POLL_MS in App.tsx), so React
+                re-renders the chips live without any extra poller. */}
+            {(win.branch || win.agent?.pr) && (
               <Chip
-                className={`branch-pr ${win.agent.ci ? `ci-${win.agent.ci}` : ""}`}
-                title={win.agent.branch || `PR #${win.agent.pr}`}
+                className={`branch-pr ${win.agent?.ci ? `ci-${win.agent.ci}` : ""}`}
+                title={win.branch || `PR #${win.agent?.pr}`}
               >
-                {win.agent.ci && (
+                {win.agent?.ci && (
                   <span className={`ci-dot ci-${win.agent.ci}`} aria-hidden="true" />
                 )}
-                {win.agent.branch && <Icon name="git-branch" size={10} />}
-                {win.agent.branch && <span>{win.agent.branch}</span>}
-                {win.agent.branch && win.agent.pr && <span className="pr-sep">›</span>}
-                {win.agent.pr && <span className="pr-num">#{win.agent.pr}</span>}
+                {win.branch && <Icon name="git-branch" size={10} />}
+                {win.branch && <span>{win.branch}</span>}
+                {win.branch && win.agent?.pr && <span className="pr-sep">›</span>}
+                {win.agent?.pr && <span className="pr-num">#{win.agent.pr}</span>}
               </Chip>
             )}
             {win.agent?.spinner && (
