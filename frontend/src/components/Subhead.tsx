@@ -1,6 +1,7 @@
 import type { StatusFilter } from "../lib/filter";
 import type { HeaderCounts } from "./Header";
 import { Icon } from "./Icon";
+import { Tooltip } from "./Tooltip";
 
 interface Props {
   filter: StatusFilter;
@@ -52,15 +53,21 @@ export function Subhead({ filter, setFilter, query, setQuery, counts }: Props) {
       </span>
       <span className="hdr-spacer" />
       <span className="layout-switcher">
-        <button className="is-active" title="Kanban">
-          <Icon name="kanban" size={13} />
-        </button>
-        <button disabled title="Grid (coming soon)">
-          <Icon name="grid" size={13} />
-        </button>
-        <button disabled title="List (coming soon)">
-          <Icon name="list" size={13} />
-        </button>
+        <Tooltip content="Kanban">
+          <button className="is-active">
+            <Icon name="kanban" size={13} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Grid (coming soon)">
+          <button disabled>
+            <Icon name="grid" size={13} />
+          </button>
+        </Tooltip>
+        <Tooltip content="List (coming soon)">
+          <button disabled>
+            <Icon name="list" size={13} />
+          </button>
+        </Tooltip>
       </span>
     </div>
   );
