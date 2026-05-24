@@ -10,6 +10,7 @@ import {
   updateSettings,
   useSettings,
 } from "../lib/settings";
+import { useScrimClose } from "../lib/useScrimClose";
 import { Icon } from "./Icon";
 import { SwitchboardMark } from "./SwitchboardMark";
 import { Toggle } from "./Toggle";
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }: Props) {
+  const scrimProps = useScrimClose(onClose);
   const settings = useSettings();
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
   };
 
   return (
-    <div className="scrim" onClick={onClose}>
+    <div className="scrim" {...scrimProps}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-hd">
           <SwitchboardMark size={22} />

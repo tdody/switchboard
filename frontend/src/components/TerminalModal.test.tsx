@@ -320,3 +320,38 @@ describe("TerminalModal — kill window (THI-111)", () => {
     expect(onKill).toHaveBeenCalledWith(win, true);
   });
 });
+
+describe("TerminalModal — scrim drag-to-select survives (THI-125)", () => {
+  it("does NOT close when mousedown starts inside the modal and mouseup lands on the scrim", () => {
+    // The reported bug: drag-select text in xterm scrollback → release outside
+    // the modal → modal closed. Wiring regression guard for `useScrimClose`.
+    const onClose = vi.fn();
+    const { container } = render(
+      <TerminalModal window={win} onClose={onClose} onToast={() => {}} />,
+    );
+    const scrim = container.querySelector(".scrim") as HTMLElement;
+    const modal = container.querySelector(".term-modal") as HTMLElement;
+    expect(scrim).toBeTruthy();
+    expect(modal).toBeTruthy();
+
+    fireEvent.mouseDown(modal);
+    fireEvent.mouseUp(scrim);
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("closes when both mousedown and mouseup land on the bare scrim", () => {
+    // Positive control: the intentional "click outside to dismiss" path must
+    // still work — otherwise users would have no way to close via the scrim.
+    const onClose = vi.fn();
+    const { container } = render(
+      <TerminalModal window={win} onClose={onClose} onToast={() => {}} />,
+    );
+    const scrim = container.querySelector(".scrim") as HTMLElement;
+
+    fireEvent.mouseDown(scrim);
+    fireEvent.mouseUp(scrim);
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
