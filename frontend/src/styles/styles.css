@@ -931,6 +931,20 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .term-title b { color: var(--text); font-weight: 600; }
 .term-title .crumb-sep { color: var(--text-dim); }
+/* Keep chip rows from squeezing the close button off-screen when an agent
+ * has a very long branch name + spinner + action. min-width:0 lets flex
+ * shrink the term-title cluster; `.term-action` is the most-disposable
+ * element so it gets the truncation budget. */
+.term-title { min-width: 0; flex-shrink: 1; }
+.term-action {
+  color: var(--tone-amber);
+  font-style: italic;
+  max-width: 320px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .term-spacer { flex: 1; }
 .term-actions { display: flex; gap: 4px; align-items: center; }
 .term-body {

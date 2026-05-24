@@ -320,3 +320,90 @@ describe("TerminalModal — kill window (THI-111)", () => {
     expect(onKill).toHaveBeenCalledWith(win, true);
   });
 });
+
+// THI-115 item 3: the modal header surfaces the same agent chips the
+// kanban card already shows (branch + PR + CI + spinner) plus a hint of the
+// pending action. Data comes from `win.agent`, fed by App.tsx's 100ms
+// modal-open /api/state poll (THI-105) — these tests just pin the render.
+describe("TerminalModal — agent chips in header (THI-115)", () => {
+  const baseAgent = {
+    branch: null,
+    pr: null,
+    ci: null,
+    spinner: null,
+    duration: null,
+    recap: null,
+    action: null,
+  };
+
+  function withAgent(overrides: Partial<typeof baseAgent>): Window {
+    return { ...win, agent: { ...baseAgent, ...overrides } } as unknown as Window;
+  }
+
+  it("renders the branch + PR + CI chip when all three are present", () => {
+    const w = withAgent({ branch: "feature/x", pr: 1234, ci: "passing" });
+    const { container } = render(
+      <TerminalModal window={w} onClose={() => {}} onToast={() => {}} />,
+    );
+    const chip = container.querySelector(".chip.branch-pr");
+    expect(chip).toBeTruthy();
+    expect(chip?.className).toContain("ci-passing");
+    expect(chip?.textContent).toContain("feature/x");
+    expect(chip?.textContent).toContain("#1234");
+    // The CI dot is rendered as an aria-hidden marker, not visible text.
+    expect(chip?.querySelector(".ci-dot.ci-passing")).toBeTruthy();
+  });
+
+  it("renders just the branch when no PR is open", () => {
+    const w = withAgent({ branch: "feature/y" });
+    const { container } = render(
+      <TerminalModal window={w} onClose={() => {}} onToast={() => {}} />,
+    );
+    const chip = container.querySelector(".chip.branch-pr");
+    expect(chip?.textContent).toContain("feature/y");
+    expect(chip?.textContent).not.toContain("#");
+    expect(chip?.querySelector(".ci-dot")).toBeNull();
+  });
+
+  it("renders the spinner chip with duration when the agent is running", () => {
+    const w = withAgent({ spinner: "Reasoning", duration: "12s" });
+    const { container } = render(
+      <TerminalModal window={w} onClose={() => {}} onToast={() => {}} />,
+    );
+    const spin = container.querySelector(".chip.spinner");
+    expect(spin?.textContent).toContain("Reasoning");
+    expect(spin?.textContent).toContain("12s");
+  });
+
+  it("renders the action hint only when the pane is pendingInput", () => {
+    // pendingInput=false + action set → action hint suppressed (would be
+    // misleading since the status pill says idle/running).
+    const idleWithAction = withAgent({ action: "Approve change?" });
+    const { container: idleC } = render(
+      <TerminalModal window={idleWithAction} onClose={() => {}} onToast={() => {}} />,
+    );
+    expect(idleC.querySelector(".term-action")).toBeNull();
+    cleanup();
+
+    // pendingInput=true + action set → hint visible with the action text.
+    const waiting = {
+      ...withAgent({ action: "Approve change?" }),
+      pendingInput: true,
+    } as unknown as Window;
+    const { container: waitC } = render(
+      <TerminalModal window={waiting} onClose={() => {}} onToast={() => {}} />,
+    );
+    const hint = waitC.querySelector(".term-action");
+    expect(hint).toBeTruthy();
+    expect(hint?.textContent).toBe("Approve change?");
+  });
+
+  it("renders no chips when agent is null (shell pane)", () => {
+    const { container } = render(
+      <TerminalModal window={win} onClose={() => {}} onToast={() => {}} />,
+    );
+    expect(container.querySelector(".chip.branch-pr")).toBeNull();
+    expect(container.querySelector(".chip.spinner")).toBeNull();
+    expect(container.querySelector(".term-action")).toBeNull();
+  });
+});
