@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchState, focusWindow, killSession, killWindow } from "./api/client";
+import {
+  fetchAiStatus,
+  fetchState,
+  focusWindow,
+  killSession,
+  killWindow,
+} from "./api/client";
 import { usePolling } from "./api/usePolling";
+import { AutoRenameModal } from "./components/AutoRenameModal";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { EmptyState } from "./components/EmptyState";
@@ -66,6 +73,27 @@ export function App() {
   const [newWindowSession, setNewWindowSession] = useState<string | null>(null);
   const [renameSessionTarget, setRenameSessionTarget] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  // Auto-rename modal target (THI-67). Session id when open, null when closed.
+  const [autoRenameSession, setAutoRenameSession] = useState<string | null>(null);
+  // Whether the backend has an Anthropic key configured — drives whether the
+  // ✨ button shows in the Kanban column headers. Fetched once on mount
+  // (the key doesn't change at runtime); refetched after Settings closes in
+  // case the user pasted a key while there.
+  const [aiEnabled, setAiEnabled] = useState<boolean>(false);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAiStatus().then(
+      (s) => {
+        if (!cancelled) setAiEnabled(s.enabled);
+      },
+      () => {
+        /* status endpoint unreachable — keep button hidden, no toast */
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const sessions = state?.sessions ?? [];
   const windows = state?.windows ?? [];
@@ -191,6 +219,14 @@ export function App() {
     (session: string) => setRenameSessionTarget(session),
     [],
   );
+  // Open the auto-rename modal for a session (THI-67). The modal is
+  // self-contained: it fetches its own suggestions via /api/auto-rename-session
+  // and calls /api/rename per accepted row, so App only needs to track which
+  // session (if any) is currently open.
+  const handleAutoRename = useCallback(
+    (session: string) => setAutoRenameSession(session),
+    [],
+  );
 
   // `refresh` and `windows` are replaced on every poll. Read them through refs
   // so the kill handlers stay referentially stable — otherwise every poll would
@@ -313,6 +349,7 @@ export function App() {
         showShortcuts ||
         newWindowSession ||
         renameSessionTarget ||
+        autoRenameSession ||
         confirm;
 
       // ⌘K / Ctrl+K — open palette pre-targeted to first pending, then highlighted,
@@ -396,6 +433,7 @@ export function App() {
     showShortcuts,
     newWindowSession,
     renameSessionTarget,
+    autoRenameSession,
     confirm,
     navCols,
     highlightedId,
@@ -473,6 +511,7 @@ export function App() {
           onNewWindow={handleNewWindow}
           onKillSession={handleKillSession}
           onRenameSession={handleRenameSession}
+          onAutoRename={aiEnabled ? handleAutoRename : undefined}
         />
       </main>
       {openWindow && (
@@ -508,6 +547,14 @@ export function App() {
           session={renameSessionTarget}
           onClose={() => setRenameSessionTarget(null)}
           onApplied={refresh}
+        />
+      )}
+      {autoRenameSession && (
+        <AutoRenameModal
+          session={autoRenameSession}
+          onClose={() => setAutoRenameSession(null)}
+          onApplied={refresh}
+          onOpenSettings={() => setShowSettings(true)}
         />
       )}
       {confirm && (

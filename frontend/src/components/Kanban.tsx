@@ -18,6 +18,9 @@ interface Props {
   onNewWindow: (session: string) => void;
   onKillSession: (session: string, skipConfirm: boolean) => void;
   onRenameSession: (session: string) => void;
+  /** Open the auto-rename modal for `session`. Optional — hidden when the
+   *  backend reports no Anthropic key configured (THI-67). */
+  onAutoRename?: (session: string) => void;
 }
 
 export function Kanban({
@@ -33,6 +36,7 @@ export function Kanban({
   onNewWindow,
   onKillSession,
   onRenameSession,
+  onAutoRename,
 }: Props) {
   return (
     <div className="kanban">
@@ -56,6 +60,15 @@ export function Kanban({
                 </span>
               </span>
               <div className="col-actions">
+                {onAutoRename && (
+                  <button
+                    className="btn btn-icon"
+                    onClick={() => onAutoRename(s.id)}
+                    title={`Auto-rename windows in ${s.name}`}
+                  >
+                    <Icon name="sparkle" size={14} />
+                  </button>
+                )}
                 <button
                   className="btn btn-icon"
                   onClick={() => onNewWindow(s.id)}

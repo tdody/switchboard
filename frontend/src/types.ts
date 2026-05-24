@@ -49,3 +49,28 @@ export interface StateResponse {
   windows: Window[];
   serverRunning: boolean;
 }
+
+// Auto-rename modal (THI-67). Preview-only — applying happens via the
+// existing /api/rename per accepted row. `Usage.estCostUsd` is a Haiku 4.5
+// rate-card estimate; actual billing is what Anthropic charges.
+export interface RenameSuggestion {
+  index: number;
+  old: string;
+  suggested: string;
+}
+
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+  estCostUsd: number;
+}
+
+export interface AutoRenameResponse {
+  suggestions: RenameSuggestion[];
+  usage: Usage;
+}
+
+export interface AiStatus {
+  enabled: boolean;
+  model: string;
+}
