@@ -15,6 +15,7 @@ import { ShortcutsSheet } from "./components/ShortcutsSheet";
 import { Subhead } from "./components/Subhead";
 import { TerminalModal } from "./components/TerminalModal";
 import { ToastStack } from "./components/ToastStack";
+import { Tour } from "./components/Tour";
 import type { ToastData } from "./components/Toast";
 import { applyFilter, parseQuery, type StatusFilter } from "./lib/filter";
 import { columnsForNav, navigateCard, type NavDirection } from "./lib/cardNav";
@@ -521,6 +522,25 @@ export function App() {
       )}
       {settingsModal}
       {shortcutsSheet}
+      {/* First-run tour (THI-96). Suppressed while any overlay is up — the
+       *  tour's data-tour anchors get covered when a modal is open, and the
+       *  user is mid-interaction anyway. Also requires at least one visible
+       *  card so the `[data-tour="first-card"]` anchor exists. */}
+      <Tour
+        enabled={
+          !!state &&
+          !inEmpty &&
+          visible.length > 0 &&
+          !openId &&
+          !paletteTargetId &&
+          !renameTargetId &&
+          !newWindowSession &&
+          !renameSessionTarget &&
+          !showSettings &&
+          !showShortcuts &&
+          !confirm
+        }
+      />
       <ToastStack toasts={toasts} />
     </div>
   );

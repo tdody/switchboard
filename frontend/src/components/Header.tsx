@@ -69,6 +69,7 @@ export function Header({ counts, serverAddr, inEmpty, onHelp, onSettings, onRetr
           className="btn btn-icon btn-ghost"
           onClick={onHelp}
           title="Keyboard shortcuts (?)"
+          data-tour="kbar-hint"
         >
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, lineHeight: 1 }}>?</span>
         </button>

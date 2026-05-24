@@ -34,6 +34,13 @@ export function Kanban({
   onKillSession,
   onRenameSession,
 }: Props) {
+  // The first card across all visible sessions gets `data-tour="first-card"`
+  // so the first-run tour (THI-96) can anchor its opening steps. Computing
+  // this once per render keeps it O(N) and clearer than threading a mutable
+  // flag through the nested .map() callbacks below.
+  const firstPaneId = sessions
+    .flatMap((s) => sortPendingFirst(windows.filter((w) => w.session === s.id)))
+    .at(0)?.paneId;
   return (
     <div className="kanban">
       {sessions.map((s) => {
@@ -146,6 +153,7 @@ export function Kanban({
                     onRename={onRename}
                     onFocus={onFocus}
                     onKill={onKill}
+                    dataTour={w.paneId === firstPaneId ? "first-card" : undefined}
                   />
                 ))
               )}

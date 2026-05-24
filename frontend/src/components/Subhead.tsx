@@ -16,15 +16,19 @@ export function Subhead({ filter, setFilter, query, setQuery, counts }: Props) {
     label,
     n,
     tone,
+    dataTour,
   }: {
     id: StatusFilter;
     label: string;
     n: number;
     tone?: string;
+    /** Optional `data-tour="…"` selector hook for the first-run tour. */
+    dataTour?: string;
   }) => (
     <button
       className={`tab ${filter === id ? "is-active" : ""}`}
       onClick={() => setFilter(id)}
+      data-tour={dataTour}
     >
       {tone && <span className={`stat-dot tone-${tone}`} />}
       <span>{label}</span>
@@ -46,7 +50,13 @@ export function Subhead({ filter, setFilter, query, setQuery, counts }: Props) {
       </div>
       <span style={{ display: "inline-flex", gap: 2, alignItems: "center" }}>
         <Tab id="all" label="All" n={counts.all} />
-        <Tab id="waiting" label="Waiting" n={counts.waiting} tone="amber" />
+        <Tab
+          id="waiting"
+          label="Waiting"
+          n={counts.waiting}
+          tone="amber"
+          dataTour="amber-waiting"
+        />
         <Tab id="running" label="Running" n={counts.running} tone="cyan" />
         <Tab id="idle" label="Idle" n={counts.idle} tone="gray" />
       </span>
