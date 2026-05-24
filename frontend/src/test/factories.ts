@@ -31,6 +31,7 @@ export function mkWindow(overrides: Partial<Window> = {}): Window {
     cmd: "",
     cwd: "",
     pendingInput: false,
+    branch: null,
     agent: null,
     preview: [],
     ...overrides,

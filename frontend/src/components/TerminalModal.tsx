@@ -493,10 +493,10 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
               {win.session} › :{win.index}
             </span>
             <b>{win.name}</b>
-            {win.agent?.branch && (
+            {win.branch && (
               <span className="chip branch-pr">
                 <Icon name="git-branch" size={10} />
-                <span>{win.agent.branch}</span>
+                <span>{win.branch}</span>
               </span>
             )}
             <StatusPill status={win.status} />
