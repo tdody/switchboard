@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from switchboard.auth import auth_state
 from switchboard.config import settings
 from switchboard.logconfig import RequestContextMiddleware, setup_logging
-from switchboard.routers import actions, auth, pane, state, ws
+from switchboard.routers import actions, auth, pane, rename_ai, state, ws
 from switchboard.security import SecurityMiddleware
 from switchboard.services import pane_stream
 
@@ -68,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(pane.router)
     app.include_router(actions.router)
     app.include_router(auth.router)
+    app.include_router(rename_ai.router)
     app.include_router(ws.router)
     return app
 

@@ -14,6 +14,9 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "websockets>=13",
+    # Auto-rename modal (THI-67). Lazy-imported in `services/anthropic_client`
+    # so the rest of the app boots without the SDK if the user hasn't opted in.
+    "anthropic>=0.40",
 ]
 
 [dependency-groups]

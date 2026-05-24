@@ -71,3 +71,39 @@ class StateResponse(_CamelModel):
     sessions: list[Session]
     windows: list[Window]
     server_running: bool
+
+
+class RenameSuggestion(_CamelModel):
+    """One row of the auto-rename modal: the LLM's suggested name for a window,
+    paired with the old name for diff rendering (THI-67)."""
+
+    index: int
+    old: str
+    suggested: str
+
+
+class Usage(_CamelModel):
+    """Token + cost breakdown for one auto-rename call, surfaced in the modal
+    footer so the user can see what they spent (THI-67)."""
+
+    input_tokens: int
+    output_tokens: int
+    est_cost_usd: float
+
+
+class AutoRenameResponse(_CamelModel):
+    """Preview-only response — the user accepts/skips per row and the frontend
+    calls the existing `/api/rename` per accepted row. Never applies a rename
+    on the backend (THI-67)."""
+
+    suggestions: list[RenameSuggestion]
+    usage: Usage
+
+
+class AiStatus(_CamelModel):
+    """Lightweight capability probe for the frontend: `enabled=false` hides
+    the ✨ button entirely; `enabled=true` shows it. `model` is informational
+    (rendered in the Settings panel)."""
+
+    enabled: bool
+    model: str
