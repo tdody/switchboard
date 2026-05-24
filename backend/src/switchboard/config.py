@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     auth_required: bool | None = None
     token_file: Path = Path.home() / ".switchboard" / "token"
 
+    # Where Claude Code logs each assistant turn — one JSONL per session under a
+    # per-cwd subdirectory. Used by `services/claude_usage` (THI-110) to
+    # aggregate rolling-window token usage.
+    claude_projects_dir: Path = Path.home() / ".claude" / "projects"
+
     model_config = SettingsConfigDict(env_prefix="SWITCHBOARD_", env_file=".env")
 
     @property

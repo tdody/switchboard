@@ -76,3 +76,41 @@ class StateResponse(_CamelModel):
     sessions: list[Session]
     windows: list[Window]
     server_running: bool
+
+
+class ClaudeUsage(_CamelModel):
+    """Token totals scraped from the rolling window of `~/.claude/projects/*.jsonl`
+    session logs. The plan's 5 h reset fires `window_hours` after the *earliest*
+    in-window message — see `services/claude_usage.compute_claude_usage` for the
+    aggregation contract (THI-110)."""
+
+    available: bool
+    window_hours: float = 5.0
+    messages: int = 0
+    input_tokens: int = 0
+    cache_creation_tokens: int = 0
+    cache_read_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    reset_at: int | None = None  # unix epoch seconds; None when no in-window record
+
+
+class UsageMeter(_CamelModel):
+    """One row of the `claude /usage` TUI screen — session / week-all / week-Sonnet.
+    Populated only when the optional scrape is enabled (THI-110, deferred to commit 2)."""
+
+    label: str
+    percent: int
+    resets: str  # human string carried verbatim from the TUI, e.g. "in 3h 22m"
+
+
+class UsageScrape(_CamelModel):
+    """Plan percentages scraped from `claude /usage`. Optional, opt-in."""
+
+    available: bool
+    meters: dict[str, UsageMeter] = {}
+
+
+class UsageResponse(_CamelModel):
+    tokens: ClaudeUsage
+    scrape: UsageScrape | None = None
