@@ -1,0 +1,15 @@
+  Plan usage
+
+  Current session
+  █████████████████▌                                 35% used
+  Resets 12:20am (America/New_York)
+
+  Current week (all models)
+  ██                                                 4% used
+  Resets Mon Jun 2
+
+  Current week (Sonnet only)
+  ▌                                                  1% used
+  Resets Mon Jun 2
+
+  Press any key to dismiss

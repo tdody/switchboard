@@ -73,6 +73,60 @@ describe("UsagePill", () => {
     expect(node).toBeTruthy();
   });
 
+  it("renders the meters branch when scrape data is available", () => {
+    const usage: UsageResponse = {
+      tokens: baseTokens,
+      scrape: {
+        available: true,
+        meters: {
+          session: { label: "Current session", percent: 35, resets: "12:20am" },
+          week_all: { label: "Current week (all models)", percent: 4, resets: "" },
+        },
+      },
+    };
+    const { container } = render(<UsagePill usage={usage} />);
+    // The pill switches to the meters variant.
+    const pill = container.querySelector(".usage-pill");
+    expect(pill?.className).toContain("usage-pill-meters");
+    // Both meters render with their percentages.
+    expect(screen.getByText("35%")).toBeTruthy();
+    expect(screen.getByText("4%")).toBeTruthy();
+    // Short labels — full labels live in the title tooltip.
+    expect(screen.getByText("session")).toBeTruthy();
+    expect(screen.getByText("week")).toBeTruthy();
+  });
+
+  it("ignores unknown meter keys gracefully", () => {
+    // Defends against a future claude release adding a fourth bar with a key
+    // we don't know about — the pill should still render the known ones,
+    // not crash.
+    const usage: UsageResponse = {
+      tokens: baseTokens,
+      scrape: {
+        available: true,
+        meters: {
+          session: { label: "Current session", percent: 12, resets: "" },
+          // Hypothetical future key — not in METER_ORDER, must be skipped:
+          some_new_meter: { label: "Future", percent: 99, resets: "" },
+        },
+      },
+    };
+    render(<UsagePill usage={usage} />);
+    expect(screen.getByText("12%")).toBeTruthy();
+    expect(screen.queryByText("99%")).toBeNull();
+  });
+
+  it("falls through to the token branch when scrape.available is false", () => {
+    const usage: UsageResponse = {
+      tokens: baseTokens,
+      scrape: { available: false, meters: {} },
+    };
+    render(<UsagePill usage={usage} />);
+    // Token branch active: 5h chip visible, no meter bars.
+    expect(screen.getByText("5h")).toBeTruthy();
+    expect(screen.queryByText(/%/)).toBeNull();
+  });
+
   it("applies the danger tone class above the danger threshold (active tokens)", () => {
     const usage: UsageResponse = {
       tokens: {

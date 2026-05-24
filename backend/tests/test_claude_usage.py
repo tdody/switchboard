@@ -166,6 +166,106 @@ def test_usage_endpoint_returns_camel_case_shape(monkeypatch: pytest.MonkeyPatch
     assert tokens["resetAt"] == 1779999999
 
 
+def _load_fixture(name: str) -> str:
+    return (FIXTURES / name).read_text()
+
+
+def test_parse_usage_screen_full_three_meters() -> None:
+    """Full /usage screen — three meters with bars + Resets lines."""
+    scrape = claude_usage.parse_usage_screen(_load_fixture("usage_screen_full.txt"))
+    assert scrape.available is True
+    assert set(scrape.meters.keys()) == {"session", "week_all", "week_sonnet"}
+    assert scrape.meters["session"].percent == 35
+    assert scrape.meters["session"].label == "Current session"
+    assert scrape.meters["session"].resets == "12:20am (America/New_York)"
+    assert scrape.meters["week_all"].percent == 4
+    assert scrape.meters["week_all"].resets == "Mon Jun 2"
+    assert scrape.meters["week_sonnet"].percent == 1
+
+
+def test_parse_usage_screen_partial_two_meters_no_resets_on_second() -> None:
+    """A common shape: only session + week_all (no Sonnet meter), and week_all
+    has no `Resets` follow-up line. Parser must still return both meters; the
+    missing resets becomes the empty string."""
+    scrape = claude_usage.parse_usage_screen(_load_fixture("usage_screen_partial.txt"))
+    assert scrape.available is True
+    assert set(scrape.meters.keys()) == {"session", "week_all"}
+    assert scrape.meters["session"].percent == 35
+    assert scrape.meters["session"].resets.startswith("12:20am")
+    assert scrape.meters["week_all"].percent == 4
+    assert scrape.meters["week_all"].resets == ""
+
+
+def test_parse_usage_screen_garbage_returns_unavailable() -> None:
+    """A non-/usage capture (e.g. claude rendered some other view) must not
+    fabricate meters — `available=False` falls through to the token pill."""
+    scrape = claude_usage.parse_usage_screen(_load_fixture("usage_screen_garbage.txt"))
+    assert scrape.available is False
+    assert scrape.meters == {}
+
+
+def test_parse_usage_screen_empty_string() -> None:
+    scrape = claude_usage.parse_usage_screen("")
+    assert scrape.available is False
+    assert scrape.meters == {}
+
+
+def test_cached_scraped_usage_starts_empty_and_schedules_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stale-while-revalidate contract:
+      - First call returns None (no cached scrape yet), but kicks a background
+        refresh.
+      - Subsequent call inside the TTL returns the cached value (after the
+        background thread has populated it).
+      - Subsequent call past the TTL re-arms the refresher.
+    The actual subprocess.run path is stubbed — we exercise the cache & lock,
+    not the tmux drive.
+    """
+    # Reset module state for the test.
+    monkeypatch.setattr(claude_usage, "_scrape_cache", (0.0, None))
+    monkeypatch.setattr(claude_usage, "_scrape_in_flight", False)
+
+    # Stub scrape_usage_via_tmux so the refresh thread completes synchronously
+    # with a known payload.
+    from switchboard.schemas import UsageMeter, UsageScrape
+
+    canned = UsageScrape(
+        available=True,
+        meters={"session": UsageMeter(label="Current session", percent=42, resets="now")},
+    )
+    monkeypatch.setattr(claude_usage, "scrape_usage_via_tmux", lambda: canned)
+
+    # Start the fake clock well past `_SCRAPE_TTL_S` so the cold-cache state
+    # `(ts=0.0, data=None)` reads as expired and triggers the refresh path.
+    # (At small `now` values the delta against ts=0 would still be < TTL,
+    # masking the cache miss.)
+    fake_clock = {"t": 100_000.0}
+    monkeypatch.setattr(claude_usage.time, "time", lambda: fake_clock["t"])
+
+    # First call: nothing cached yet → returns None, schedules the refresh
+    # (which, with our sync stub, completes before we leave cached_scraped_usage
+    # in practice; rely on it being populated by next call).
+    first = claude_usage.cached_scraped_usage()
+    assert first is None
+    # Give the daemon thread a brief moment to land its write.
+    import time as _time
+
+    _time.sleep(0.05)
+
+    # Second call inside TTL: should return the canned payload.
+    second = claude_usage.cached_scraped_usage()
+    assert second is not None
+    assert second.meters["session"].percent == 42
+
+    # Past TTL: re-arms (we can't easily observe the refresh kicking, but the
+    # value should still be the canned one since the stub returns the same).
+    fake_clock["t"] = 100_000.0 + claude_usage._SCRAPE_TTL_S + 1
+    third = claude_usage.cached_scraped_usage()
+    assert third is not None
+    assert third.meters["session"].percent == 42
+
+
 def test_cached_token_usage_serves_from_cache_within_ttl(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

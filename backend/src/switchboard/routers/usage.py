@@ -19,6 +19,7 @@ import asyncio
 
 from fastapi import APIRouter
 
+from switchboard.config import settings
 from switchboard.schemas import UsageResponse
 from switchboard.services import claude_usage
 
@@ -31,4 +32,11 @@ async def get_usage() -> UsageResponse:
     # off-load to a worker thread so the event loop stays responsive even on
     # a cold cache.
     tokens = await asyncio.to_thread(claude_usage.cached_token_usage)
-    return UsageResponse(tokens=tokens, scrape=None)
+    scrape = None
+    if settings.usage_scrape_enabled:
+        # `cached_scraped_usage` is non-blocking on the hot path (just a cache
+        # read + maybe-spawn a refresh thread). It returns None until the first
+        # background scrape completes; the UI handles that by falling through
+        # to the token-pill branch.
+        scrape = await asyncio.to_thread(claude_usage.cached_scraped_usage)
+    return UsageResponse(tokens=tokens, scrape=scrape)

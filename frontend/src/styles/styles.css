@@ -190,6 +190,37 @@ input, textarea, select { font: inherit; color: inherit; }
 .usage-pill-warn   { border-left-color: var(--tone-amber); }
 .usage-pill-danger { border-left-color: var(--tone-red); }
 
+/* Meter chips for `claude /usage` percentages (THI-110 commit 2). Drawn as
+ * small "label · bar · pct%" segments inside the pill, one per known meter. */
+.usage-pill-meters {
+  gap: 12px;
+  border-left-color: var(--hairline-strong);
+}
+.usage-meter {
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.usage-meter-label {
+  color: var(--text-dim);
+}
+.usage-meter-bar {
+  display: inline-block;
+  width: 44px; height: 6px;
+  background: var(--panel-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.usage-meter-fill {
+  display: block; height: 100%;
+  transition: width 200ms ease;
+}
+.usage-meter-fill-ok     { background: var(--tone-green); }
+.usage-meter-fill-warn   { background: var(--tone-amber); }
+.usage-meter-fill-danger { background: var(--tone-red); }
+.usage-meter-pct {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 .btn {
   display: inline-flex; align-items: center; gap: 6px;
   height: 28px; padding: 0 10px;

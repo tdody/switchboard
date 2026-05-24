@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     # aggregate rolling-window token usage.
     claude_projects_dir: Path = Path.home() / ".claude" / "projects"
 
+    # When True, the /api/usage endpoint also spawns `claude /usage` in a
+    # hidden tmux session every 5 min to parse plan percentages (session / week
+    # / week-Sonnet meters). Each scrape costs ~hundreds of claude tokens and a
+    # ~15s subprocess; the cost is tiny relative to interactive Claude usage
+    # but explicit. Disable via `SWITCHBOARD_USAGE_SCRAPE_ENABLED=false` if you
+    # don't want any background claude invocations (THI-110 commit 2).
+    usage_scrape_enabled: bool = True
+
     model_config = SettingsConfigDict(env_prefix="SWITCHBOARD_", env_file=".env")
 
     @property
