@@ -1697,3 +1697,89 @@ input, textarea, select { font: inherit; color: inherit; }
 .prompt-label { flex: 1; }
 .prompt-buttons { display: flex; gap: 8px; }
 .prompt-hint { color: var(--text-dim); font-size: 11px; }
+
+/* ─── Status legend (THI-96) ───────────────────────────────── */
+/* `i` trigger next to the status filter chips in the subhead; click opens a
+ * small popover explaining each status color. Absolute-positioned popover
+ * relative to .status-legend so it follows the trigger on subhead scroll. */
+.status-legend {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+}
+.legend-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--hairline);
+  color: var(--text-mute);
+  background: transparent;
+  font-family: var(--font-serif, "Inter", serif);
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1;
+}
+.legend-trigger:hover,
+.legend-trigger[aria-expanded="true"] {
+  color: var(--text);
+  border-color: var(--hairline-strong);
+  background: var(--panel-2);
+}
+.legend-trigger:focus-visible {
+  outline: 1.5px solid var(--accent-edge);
+  outline-offset: 1px;
+}
+.legend-i { display: inline-block; transform: translateY(-0.5px); }
+
+.legend-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 260px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-lift);
+  animation: legendIn 120ms ease-out;
+}
+[data-reduced-motion="true"] .legend-popover { animation: none; }
+@keyframes legendIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+.legend-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.legend-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.legend-row {
+  display: grid;
+  grid-template-columns: 12px 64px 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+}
+.legend-row .stat-dot { width: 8px; height: 8px; margin: 0; }
+.legend-name {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.legend-desc { color: var(--text-mute); }
