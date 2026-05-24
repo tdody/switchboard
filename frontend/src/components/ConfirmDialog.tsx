@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useScrimClose } from "../lib/useScrimClose";
 import { Icon } from "./Icon";
 
 interface Props {
@@ -15,6 +16,7 @@ interface Props {
  * The confirm button is focused on mount so Enter confirms and Esc cancels.
  */
 export function ConfirmDialog({ title, message, confirmLabel, onConfirm, onCancel }: Props) {
+  const scrimProps = useScrimClose(onCancel);
   const [busy, setBusy] = useState(false);
   const confirmRef = useRef<HTMLButtonElement | null>(null);
 
@@ -42,7 +44,7 @@ export function ConfirmDialog({ title, message, confirmLabel, onConfirm, onCance
   };
 
   return (
-    <div className="scrim" onClick={onCancel}>
+    <div className="scrim" {...scrimProps}>
       <div
         className="confirm-modal"
         onClick={(e) => e.stopPropagation()}

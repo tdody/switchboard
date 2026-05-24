@@ -63,6 +63,11 @@ class Window(_CamelModel):
     cmd: str = ""
     cwd: str = ""
     pending_input: bool = False
+    # The current git branch for the pane's cwd, if it is inside a repo. Shown
+    # as a chip on every pane — not just agent ones — so shell users can see at
+    # a glance which branch a terminal is sitting on (THI-126 follow-up). For
+    # agent panes this is the same value mirrored on `agent.branch`.
+    branch: str | None = None
     agent: Agent | None = None
     preview: list[str] = []
 

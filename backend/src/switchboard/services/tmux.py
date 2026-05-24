@@ -147,6 +147,13 @@ def collect_state() -> StateResponse:
                 pending = False
                 agent = None
 
+            # Surface the cwd's git branch on every pane, not just agent ones,
+            # so shell tiles get a branch chip too. For agent panes, parse_pane
+            # has already populated `agent.branch` via the same `_git_branch`
+            # helper — the call below hits the 2 s cache (THI-126), so the
+            # subprocess cost is the same as before.
+            branch = claude_parser._git_branch(cwd) if cwd else None
+
             idx = _to_int(w.window_index)
             windows.append(
                 Window(
@@ -161,6 +168,7 @@ def collect_state() -> StateResponse:
                     cmd=cmd,
                     cwd=cwd,
                     pending_input=pending,
+                    branch=branch,
                     agent=agent,
                     preview=capture[-8:] if capture else [],
                 )

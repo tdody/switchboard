@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createWindow } from "../api/client";
+import { useScrimClose } from "../lib/useScrimClose";
 import { Icon } from "./Icon";
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
  * Mirrors RenameOverlay's layout/keyboard model (⏎ apply, esc cancel).
  */
 export function NewWindowOverlay({ session, onClose, onApplied }: Props) {
+  const scrimProps = useScrimClose(onClose);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +53,7 @@ export function NewWindowOverlay({ session, onClose, onApplied }: Props) {
   };
 
   return (
-    <div className="scrim" onClick={onClose}>
+    <div className="scrim" {...scrimProps}>
       <div className="rename-modal" onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
         <div className="rename-hd">
           <Icon name="plus" />
