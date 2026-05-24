@@ -18,6 +18,7 @@ import { StatusPill } from "./StatusPill";
 import { PromptOverlay } from "./PromptOverlay";
 import { parsePromptMessage } from "../lib/prompt";
 import type { Prompt } from "../lib/prompt";
+import { useScrimClose } from "../lib/useScrimClose";
 import { decideCloseAction } from "../lib/wsReconnect";
 
 interface Props {
@@ -54,6 +55,7 @@ function clampFont(n: number): number {
 }
 
 export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) {
+  const scrimProps = useScrimClose(onClose);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -478,7 +480,7 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   const zoomPct = Math.round((terminalFontSize / TERM_FONT_DEFAULT) * 100);
 
   return (
-    <div className="scrim" onClick={onClose}>
+    <div className="scrim" {...scrimProps}>
       <div className="term-modal" onClick={(e) => e.stopPropagation()}>
         <div className="term-hd">
           <span className="traffic">
