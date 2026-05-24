@@ -86,3 +86,12 @@ export interface UsageResponse {
   tokens: ClaudeUsage;
   scrape: UsageScrape | null;
 }
+
+// Read-only knobs for the Settings panel (THI-110 commit 3). The TTL values
+// are seconds (per-server-startup config — toggling them at runtime would
+// invalidate caches, not worth the complexity here).
+export interface UsageConfig {
+  scrapeEnabled: boolean;
+  scrapeTtlS: number;
+  tokenTtlS: number;
+}

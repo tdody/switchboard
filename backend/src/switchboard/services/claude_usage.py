@@ -100,9 +100,7 @@ def compute_claude_usage(
                     try:
                         # `Z` suffix isn't accepted by fromisoformat until 3.11;
                         # the swap keeps us forward- and backward-compatible.
-                        ts = datetime.fromisoformat(
-                            ts_str.replace("Z", "+00:00")
-                        ).timestamp()
+                        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
                     except Exception:  # noqa: BLE001
                         continue
                     if ts < cutoff:
@@ -122,9 +120,7 @@ def compute_claude_usage(
         except OSError:
             continue
 
-    reset_at = (
-        int(earliest_msg_ts + window_hours * 3600) if earliest_msg_ts is not None else None
-    )
+    reset_at = int(earliest_msg_ts + window_hours * 3600) if earliest_msg_ts is not None else None
     return ClaudeUsage(
         available=True,
         window_hours=window_hours,
@@ -353,6 +349,76 @@ def cached_scraped_usage() -> UsageScrape | None:
 
 
 # --- end /usage scrape ------------------------------------------------------
+
+
+# Prefix shared by `scrape_usage_via_tmux` and the orphan sweep below — kept
+# as a module constant so the two stay in sync if the naming ever changes.
+_USAGE_SESSION_PREFIX = "sb-usage-"
+
+
+def cleanup_orphaned_usage_sessions() -> int:
+    """Kill stray `sb-usage-<uuid8>` tmux sessions from a prior backend crash.
+
+    `scrape_usage_via_tmux` always cleans its session in a `finally`, but a
+    SIGKILL (or uvicorn `--reload`-driven restart mid-scrape) skips that.
+    The headless sessions are otherwise invisible to the user but accumulate
+    over time and burn a tmux server slot each.
+
+    Mirrors the pid-aware design of `pane_stream.cleanup_orphaned_fifos`:
+    safe to call on every startup, returns a count for the log line.
+    Failures (tmux not running, list-sessions fails) are swallowed — this
+    is a best-effort sweep, not a critical path.
+    """
+    try:
+        # `list-sessions -F '#S'` prints one session name per line.
+        out = subprocess.run(
+            ["tmux", "list-sessions", "-F", "#S"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return 0
+    if out.returncode != 0:
+        # No server running, or tmux complained; nothing to sweep.
+        return 0
+    removed = 0
+    for name in (out.stdout or "").splitlines():
+        name = name.strip()
+        if not name.startswith(_USAGE_SESSION_PREFIX):
+            continue
+        try:
+            subprocess.run(
+                ["tmux", "kill-session", "-t", name],
+                capture_output=True,
+                check=False,
+                timeout=5,
+            )
+            removed += 1
+        except (subprocess.TimeoutExpired, OSError):
+            # Best effort — a session that vanished between list-sessions
+            # and our kill is the desired end state anyway.
+            continue
+    return removed
+
+
+def prewarm_scrape() -> threading.Thread | None:
+    """Fire the first scrape in a daemon thread so the dashboard's initial
+    `/api/usage` poll already has data instead of waiting another 30 s for
+    the next refresh cycle.
+
+    Idempotent in practice — the lock + `_scrape_in_flight` flag inside
+    `cached_scraped_usage` prevent overlapping scrapes if something else
+    races with us. Returns the thread for tests; production callers can
+    ignore the return.
+
+    Caller should gate on `settings.usage_scrape_enabled` — this helper
+    doesn't re-check because the call site is the lifespan startup and
+    avoiding a duplicate import order is nice.
+    """
+    thread = threading.Thread(target=cached_scraped_usage, daemon=True, name="usage-prewarm")
+    thread.start()
+    return thread
 
 
 def cached_token_usage() -> ClaudeUsage:

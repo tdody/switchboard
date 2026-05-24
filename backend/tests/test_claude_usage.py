@@ -97,9 +97,7 @@ def test_reset_at_anchors_to_earliest_in_window_message(tmp_path: Path) -> None:
     projects = _seed_projects_dir(tmp_path, "session-fresh.jsonl")
     result = claude_usage.compute_claude_usage(projects_dir=projects, now=NOW)
 
-    expected = int(
-        datetime(2026, 5, 24, 1, 0, tzinfo=UTC).timestamp()
-    )
+    expected = int(datetime(2026, 5, 24, 1, 0, tzinfo=UTC).timestamp())
     assert result.reset_at == expected
 
 
@@ -266,6 +264,81 @@ def test_cached_scraped_usage_starts_empty_and_schedules_refresh(
     assert third.meters["session"].percent == 42
 
 
+# --- THI-110 commit 3: orphan sweep + config endpoint ----------------------
+
+
+def test_cleanup_orphaned_usage_sessions_kills_only_our_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sweep should kill `sb-usage-*` sessions and leave everything else
+    alone. The user's own tmux work must never be touched."""
+    from types import SimpleNamespace
+
+    listed = "sb-usage-aaaaaaaa\nmain\nagents\nsb-usage-bbbbbbbb\n"
+    killed: list[list[str]] = []
+
+    def fake_run(args, *_a, **_kw):
+        if args[:2] == ["tmux", "list-sessions"]:
+            return SimpleNamespace(returncode=0, stdout=listed, stderr="")
+        if args[:2] == ["tmux", "kill-session"]:
+            killed.append(list(args))
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        raise AssertionError(f"unexpected subprocess.run args: {args}")
+
+    monkeypatch.setattr(claude_usage.subprocess, "run", fake_run)
+
+    removed = claude_usage.cleanup_orphaned_usage_sessions()
+    assert removed == 2
+    kill_targets = [c[-1] for c in killed]
+    assert kill_targets == ["sb-usage-aaaaaaaa", "sb-usage-bbbbbbbb"]
+    # main / agents must NEVER show up in the kill list.
+    assert "main" not in kill_targets
+    assert "agents" not in kill_targets
+
+
+def test_cleanup_orphaned_usage_sessions_returns_zero_when_no_tmux_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """list-sessions returns nonzero when no tmux server is running. Sweep
+    must short-circuit without crashing."""
+    from types import SimpleNamespace
+
+    def fake_run(_args, *_a, **_kw):
+        return SimpleNamespace(returncode=1, stdout="", stderr="no server")
+
+    monkeypatch.setattr(claude_usage.subprocess, "run", fake_run)
+    assert claude_usage.cleanup_orphaned_usage_sessions() == 0
+
+
+def test_cleanup_orphaned_usage_sessions_swallows_missing_tmux_binary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(*_a, **_kw):
+        raise FileNotFoundError("tmux: not found")
+
+    monkeypatch.setattr(claude_usage.subprocess, "run", boom)
+    assert claude_usage.cleanup_orphaned_usage_sessions() == 0
+
+
+def test_usage_config_endpoint_returns_camel_case_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+
+    from switchboard.config import settings
+    from switchboard.main import create_app
+
+    monkeypatch.setattr(settings, "usage_scrape_enabled", True)
+    with TestClient(create_app(), base_url="http://127.0.0.1:8765") as client:
+        r = client.get("/api/usage/config")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["scrapeEnabled"] is True
+    # camelCase aliases on the wire — scrape_ttl_s → scrapeTtlS.
+    assert body["scrapeTtlS"] == claude_usage._SCRAPE_TTL_S
+    assert body["tokenTtlS"] == claude_usage._TOKEN_TTL_S
+
+
 def test_cached_token_usage_serves_from_cache_within_ttl(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -280,9 +353,12 @@ def test_cached_token_usage_serves_from_cache_within_ttl(
 
     def counting_compute(*args, **kwargs):
         calls["n"] += 1
-        return real_compute(*args, projects_dir=projects, now=NOW, **{
-            k: v for k, v in kwargs.items() if k not in ("projects_dir", "now")
-        })
+        return real_compute(
+            *args,
+            projects_dir=projects,
+            now=NOW,
+            **{k: v for k, v in kwargs.items() if k not in ("projects_dir", "now")},
+        )
 
     monkeypatch.setattr(claude_usage, "compute_claude_usage", counting_compute)
 

@@ -20,10 +20,22 @@ import asyncio
 from fastapi import APIRouter
 
 from switchboard.config import settings
-from switchboard.schemas import UsageResponse
+from switchboard.schemas import UsageConfig, UsageResponse
 from switchboard.services import claude_usage
 
 router = APIRouter(prefix="/api")
+
+
+@router.get("/usage/config", response_model=UsageConfig)
+def get_usage_config() -> UsageConfig:
+    """Read-only knobs for the Settings panel — surfaces whether the optional
+    `claude /usage` scrape is wired and the cache TTLs (THI-110 commit 3).
+    Tiny payload + rare callsite (Settings open), so no caching needed."""
+    return UsageConfig(
+        scrape_enabled=settings.usage_scrape_enabled,
+        scrape_ttl_s=claude_usage._SCRAPE_TTL_S,
+        token_ttl_s=claude_usage._TOKEN_TTL_S,
+    )
 
 
 @router.get("/usage", response_model=UsageResponse)

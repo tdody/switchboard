@@ -1,4 +1,4 @@
-import type { StateResponse, UsageResponse } from "../types";
+import type { StateResponse, UsageConfig, UsageResponse } from "../types";
 
 const BASE = "/api";
 
@@ -164,6 +164,14 @@ export async function fetchUsage(signal?: AbortSignal): Promise<UsageResponse> {
   const r = await fetch(`${BASE}/usage`, { signal });
   if (!r.ok) throw new Error(`usage ${r.status}`);
   return (await r.json()) as UsageResponse;
+}
+
+/** Read-only config knobs for the Claude usage pill — surfaced in the
+ *  Settings panel (THI-110 commit 3). One-shot fetch; no polling. */
+export async function fetchUsageConfig(): Promise<UsageConfig> {
+  const r = await fetch(`${BASE}/usage/config`);
+  if (!r.ok) throw new Error(`usage config ${r.status}`);
+  return (await r.json()) as UsageConfig;
 }
 
 export function openPaneWS(session: string, index: number): WebSocket {

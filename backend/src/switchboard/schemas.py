@@ -114,3 +114,14 @@ class UsageScrape(_CamelModel):
 class UsageResponse(_CamelModel):
     tokens: ClaudeUsage
     scrape: UsageScrape | None = None
+
+
+class UsageConfig(_CamelModel):
+    """Read-only knobs the Settings panel surfaces for the Claude usage pill
+    (THI-110 commit 3). Both TTL knobs are server-startup config — toggling
+    them at runtime would force-clear caches, which isn't worth the
+    complexity for a personal dev tool."""
+
+    scrape_enabled: bool
+    scrape_ttl_s: float
+    token_ttl_s: float
