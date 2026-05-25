@@ -161,6 +161,66 @@ input, textarea, select { font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 6px;
 }
 
+/* Claude usage pill in the header (THI-110). The three tone variants tint the
+ * left-edge accent so the pill is glanceable as "fine" / "watch it" / "stop"
+ * without changing the overall layout weight. */
+.usage-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px;
+  margin-right: 4px;
+  border: 1px solid var(--hairline);
+  border-left-width: 3px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+.usage-pill .usage-window {
+  color: var(--text-dim);
+}
+.usage-pill .usage-total {
+  color: var(--text);
+  font-weight: 500;
+}
+.usage-pill .usage-reset {
+  color: var(--text-dim);
+}
+.usage-pill-ok     { border-left-color: var(--tone-green); }
+.usage-pill-warn   { border-left-color: var(--tone-amber); }
+.usage-pill-danger { border-left-color: var(--tone-red); }
+
+/* Meter chips for `claude /usage` percentages (THI-110 commit 2). Drawn as
+ * small "label · bar · pct%" segments inside the pill, one per known meter. */
+.usage-pill-meters {
+  gap: 12px;
+  border-left-color: var(--hairline-strong);
+}
+.usage-meter {
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.usage-meter-label {
+  color: var(--text-dim);
+}
+.usage-meter-bar {
+  display: inline-block;
+  width: 44px; height: 6px;
+  background: var(--panel-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.usage-meter-fill {
+  display: block; height: 100%;
+  transition: width 200ms ease;
+}
+.usage-meter-fill-ok     { background: var(--tone-green); }
+.usage-meter-fill-warn   { background: var(--tone-amber); }
+.usage-meter-fill-danger { background: var(--tone-red); }
+.usage-meter-pct {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 .btn {
   display: inline-flex; align-items: center; gap: 6px;
   height: 28px; padding: 0 10px;
@@ -276,6 +336,16 @@ input, textarea, select { font: inherit; color: inherit; }
   pointer-events: none;
   z-index: 2;
 }
+/* Drag-to-reorder visuals (THI-115). The header is the drag handle; the
+ * section catches drops anywhere within it. `col-drop-left/right` paints a
+ * thick accent edge to telegraph the insertion point — using `box-shadow`
+ * rather than a real border so it doesn't shift the column width during the
+ * hover. */
+.col-dragging { opacity: 0.55; }
+.col-drop-left  { box-shadow: inset 3px 0 0 0 var(--accent); }
+.col-drop-right { box-shadow: inset -3px 0 0 0 var(--accent); }
+.col-hd[draggable="true"] { cursor: grab; }
+.col-hd[draggable="true"]:active { cursor: grabbing; }
 .col-hd {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 12px;
@@ -334,6 +404,24 @@ input, textarea, select { font: inherit; color: inherit; }
 .col-actions { display: flex; gap: 2px; align-items: center; }
 .col-actions .btn-icon { height: 24px; width: 24px; border: 0; background: transparent; color: var(--text-mute); }
 .col-actions .btn-icon:hover { background: var(--hairline); color: var(--text); }
+/* Quick-create text buttons in the column header (THI-115). Smaller than
+ * a default .btn so two of them fit alongside the dropdown trigger; mono
+ * font so the leading `+` lines up like a hint of the underlying command. */
+.col-actions .col-quick {
+  height: 22px;
+  padding: 0 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-mute);
+  border-color: transparent;
+  background: transparent;
+}
+.col-actions .col-quick:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--hairline);
+  background: var(--panel-2);
+}
+.col-actions .col-quick:disabled { opacity: 0.5; }
 
 /* ─── Dropdown / overflow menu ────────────────────────────── */
 .dropdown { position: relative; display: inline-flex; }
@@ -931,6 +1019,20 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .term-title b { color: var(--text); font-weight: 600; }
 .term-title .crumb-sep { color: var(--text-dim); }
+/* Keep chip rows from squeezing the close button off-screen when an agent
+ * has a very long branch name + spinner + action. min-width:0 lets flex
+ * shrink the term-title cluster; `.term-action` is the most-disposable
+ * element so it gets the truncation budget. */
+.term-title { min-width: 0; flex-shrink: 1; }
+.term-action {
+  color: var(--tone-amber);
+  font-style: italic;
+  max-width: 320px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .term-spacer { flex: 1; }
 .term-actions { display: flex; gap: 4px; align-items: center; }
 .term-body {
@@ -1783,3 +1885,37 @@ input, textarea, select { font: inherit; color: inherit; }
   font-size: 11px;
 }
 .legend-desc { color: var(--text-mute); }
+
+/* ─── Tooltip (THI-96) ─────────────────────────────────────── */
+/* Portal-rendered hover/focus tooltip; replaces the browser-default `title=`
+ * on icon-only buttons. Positioned by JS via `getBoundingClientRect`. The
+ * `position: fixed` + body portal makes it immune to scrollable / overflow-
+ * hidden ancestors. */
+.tooltip {
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  background: #0a0b0e;
+  color: #f0f2f6;
+  border: 1px solid var(--hairline-strong);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+  font-size: 11.5px;
+  line-height: 1.2;
+  max-width: 280px;
+  pointer-events: none; /* never intercept clicks against the anchor */
+  /* Subtle entrance only — match the reduced-motion handling already in
+   * StatusPill / Toast (which gates animation on the html attribute). */
+  animation: tooltipIn 120ms ease-out;
+}
+[data-reduced-motion="true"] .tooltip { animation: none; }
+@keyframes tooltipIn {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: none; }
+}
+.tooltip-content { color: inherit; }
+/* Tighten the .kbd inside a tooltip — it inherits the larger base height
+ * otherwise and breaks the inline rhythm against the small body text. */
+.tooltip-kbd { height: 16px; font-size: 10px; }

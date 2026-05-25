@@ -5,6 +5,7 @@ import { cpuLevel, kindIcon, memLevel } from "../lib/status";
 import { Chip } from "./Chip";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
+import { Tooltip } from "./Tooltip";
 
 interface Props {
   w: Window;
@@ -62,22 +63,22 @@ function WindowCardImpl({
         <StatusPill status={w.status} />
       </div>
 
-      {agent && (
+      {(agent || w.branch) && (
         <div className="card-agent">
           <div className="chip-row">
-            {(agent.branch || agent.pr) && (
+            {(w.branch || w.pr) && (
               <Chip
-                className={`branch-pr ${agent.ci ? `ci-${agent.ci}` : ""}`}
-                title={agent.branch || `PR #${agent.pr}`}
+                className={`branch-pr ${w.ci ? `ci-${w.ci}` : ""}`}
+                title={w.branch || `PR #${w.pr}`}
               >
-                {agent.ci && <span className={`ci-dot ci-${agent.ci}`} aria-hidden="true" />}
-                {agent.branch && <Icon name="git-branch" size={10} />}
-                {agent.branch && <span>{agent.branch}</span>}
-                {agent.branch && agent.pr && <span className="pr-sep">›</span>}
-                {agent.pr && <span className="pr-num">#{agent.pr}</span>}
+                {w.ci && <span className={`ci-dot ci-${w.ci}`} aria-hidden="true" />}
+                {w.branch && <Icon name="git-branch" size={10} />}
+                {w.branch && <span>{w.branch}</span>}
+                {w.branch && w.pr && <span className="pr-sep">›</span>}
+                {w.pr && <span className="pr-num">#{w.pr}</span>}
               </Chip>
             )}
-            {agent.spinner && (
+            {agent?.spinner && (
               <Chip className="spinner" title="agent activity">
                 <span className="spin" />
                 <span>{agent.spinner}</span>
@@ -85,8 +86,8 @@ function WindowCardImpl({
               </Chip>
             )}
           </div>
-          {agent.recap && <div className="recap">{agent.recap}</div>}
-          {pending && agent.action && (
+          {agent?.recap && <div className="recap">{agent.recap}</div>}
+          {pending && agent?.action && (
             <div className="pending">
               <span className="glyph">›</span>
               <span>{agent.action}</span>
@@ -116,26 +117,29 @@ function WindowCardImpl({
       )}
 
       <div className="card-foot" onClick={(e) => e.stopPropagation()}>
-        <button
-          className="act act-icon"
-          onClick={() => onFocus(w)}
-          title="Jump to this window in your terminal (tmux switch-client)"
-        >
-          <Icon name="focus" size={12} />
-        </button>
-        <button className="act act-icon" onClick={() => onRename(w)} title="Rename window">
-          <Icon name="rename" size={12} />
-        </button>
-        <button className="act act-icon" onClick={() => onSendKeys(w)} title="Send keys">
-          <Icon name="send" size={12} />
-        </button>
-        <button
-          className="act act-icon act-danger"
-          onClick={(e) => onKill(w, e.shiftKey)}
-          title="Kill window — Shift-click to skip the confirm"
-        >
-          <Icon name="trash" size={12} />
-        </button>
+        <Tooltip content="Jump to this window in your terminal">
+          <button className="act act-icon" onClick={() => onFocus(w)}>
+            <Icon name="focus" size={12} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Rename window">
+          <button className="act act-icon" onClick={() => onRename(w)}>
+            <Icon name="rename" size={12} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Send keys">
+          <button className="act act-icon" onClick={() => onSendKeys(w)}>
+            <Icon name="send" size={12} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Kill window — Shift-click to skip the confirm">
+          <button
+            className="act act-icon act-danger"
+            onClick={(e) => onKill(w, e.shiftKey)}
+          >
+            <Icon name="trash" size={12} />
+          </button>
+        </Tooltip>
         <span className="spacer" />
         <span className="ago" title="last activity">
           <Icon name="clock" size={11} style={{ opacity: 0.6 }} />
@@ -170,9 +174,9 @@ export const WindowCard = memo(WindowCardImpl, (prev, next) => {
     a.cpu === b.cpu &&
     a.mem === b.mem &&
     a.pendingInput === b.pendingInput &&
-    a.agent?.branch === b.agent?.branch &&
-    a.agent?.pr === b.agent?.pr &&
-    a.agent?.ci === b.agent?.ci &&
+    a.branch === b.branch &&
+    a.pr === b.pr &&
+    a.ci === b.ci &&
     a.agent?.spinner === b.agent?.spinner &&
     a.agent?.duration === b.agent?.duration &&
     a.agent?.recap === b.agent?.recap &&
