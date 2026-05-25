@@ -284,3 +284,67 @@ def test_git_branch_returns_none_for_empty_cwd() -> None:
     # short-circuit to None rather than shelling out with no -C.
     assert claude_parser._git_branch(None) is None
     assert claude_parser._git_branch("") is None
+
+
+# Regression guard: `gh pr view` takes the branch as a positional. An earlier
+# version passed it via `--head` and gh exited "unknown flag" on every call,
+# silently caching (None, None) — the modal-header chip never got its CI tint.
+def test_gh_pr_passes_branch_as_positional_and_parses_passing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, list[str]] = {}
+
+    class FakeProc:
+        returncode = 0
+        stdout = (
+            '{"number": 32, '
+            '"statusCheckRollup": ['
+            '{"name": "Backend", "conclusion": "SUCCESS"}, '
+            '{"name": "Frontend", "conclusion": "SUCCESS"}'
+            "]}"
+        )
+
+    def fake_run(argv: list[str], **_kwargs: object) -> FakeProc:
+        captured["argv"] = argv
+        return FakeProc()
+
+    monkeypatch.setattr(claude_parser.subprocess, "run", fake_run)
+    monkeypatch.setattr(claude_parser, "_PR_CACHE", {})
+
+    pr, ci = claude_parser._gh_pr("/some/repo", "thibaultdody/feature-x")
+
+    # Pin the argv shape — `gh pr view <branch>`, NOT `--head <branch>`.
+    assert captured["argv"][:3] == ["gh", "pr", "view"]
+    assert "thibaultdody/feature-x" in captured["argv"]
+    assert "--head" not in captured["argv"]
+    assert pr == 32
+    assert ci == "passing"
+
+
+def test_gh_pr_failing_when_any_check_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeProc:
+        returncode = 0
+        stdout = (
+            '{"number": 7, '
+            '"statusCheckRollup": ['
+            '{"name": "A", "conclusion": "SUCCESS"}, '
+            '{"name": "B", "conclusion": "FAILURE"}'
+            "]}"
+        )
+
+    monkeypatch.setattr(claude_parser.subprocess, "run", lambda *_a, **_k: FakeProc())
+    monkeypatch.setattr(claude_parser, "_PR_CACHE", {})
+
+    pr, ci = claude_parser._gh_pr("/some/repo", "branch-y")
+    assert (pr, ci) == (7, "failing")
+
+
+def test_gh_pr_returns_none_on_gh_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeProc:
+        returncode = 1
+        stdout = ""
+
+    monkeypatch.setattr(claude_parser.subprocess, "run", lambda *_a, **_k: FakeProc())
+    monkeypatch.setattr(claude_parser, "_PR_CACHE", {})
+
+    assert claude_parser._gh_pr("/some/repo", "no-pr-branch") == (None, None)

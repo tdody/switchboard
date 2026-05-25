@@ -245,8 +245,13 @@ def _gh_pr(cwd: str | None, branch: str | None) -> tuple[int | None, CIState | N
     try:
         import json
 
+        # NB: `gh pr view` takes the branch as a positional, not via `--head`
+        # (a `--head` flag exists on `gh pr list` and `gh pr create`, not here).
+        # Earlier we used `--head` and gh exited with "unknown flag", so every
+        # call silently cached (None, None) — the modal header chip never got
+        # its CI tint. Pin the positional form.
         out = subprocess.run(
-            ["gh", "pr", "view", "--head", branch, "--json", "number,statusCheckRollup"],
+            ["gh", "pr", "view", branch, "--json", "number,statusCheckRollup"],
             capture_output=True,
             text=True,
             timeout=1.5,
