@@ -198,7 +198,17 @@ def parse_prompt(lines: list[str]) -> Prompt | None:
 
 _BRANCH_CACHE: dict[str, tuple[float, str | None]] = {}
 _PR_CACHE: dict[tuple[str, str], tuple[float, tuple[int | None, CIState | None]]] = {}
-_TTL_SECONDS = 30.0
+# Branch resolution caches per-cwd; the key doesn't change when the user runs
+# `git checkout` from inside the pane, so a long TTL freezes the dashboard
+# branch chip until expiry (THI-126). Keep it short — ~one user-noticeable
+# beat. With N agent panes polled at 100ms (THI-105), the upper bound on git
+# subprocess invocations is N / _BRANCH_TTL_SECONDS per second.
+_BRANCH_TTL_SECONDS = 2.0
+# PR resolution shells out to `gh` (~1s), and PR state changes far less often
+# than branch state. The PR cache also keys on (cwd, branch) so a branch flip
+# already invalidates it naturally — staleness here is bounded by gh's RTT,
+# not user impatience.
+_PR_TTL_SECONDS = 30.0
 
 
 def _git_branch(cwd: str | None) -> str | None:
@@ -206,7 +216,7 @@ def _git_branch(cwd: str | None) -> str | None:
         return None
     now = time.monotonic()
     cached = _BRANCH_CACHE.get(cwd)
-    if cached and now - cached[0] < _TTL_SECONDS:
+    if cached and now - cached[0] < _BRANCH_TTL_SECONDS:
         return cached[1]
     try:
         out = subprocess.run(
@@ -230,7 +240,7 @@ def _gh_pr(cwd: str | None, branch: str | None) -> tuple[int | None, CIState | N
     key = (cwd, branch)
     now = time.monotonic()
     cached = _PR_CACHE.get(key)
-    if cached and now - cached[0] < _TTL_SECONDS:
+    if cached and now - cached[0] < _PR_TTL_SECONDS:
         return cached[1]
     try:
         import json

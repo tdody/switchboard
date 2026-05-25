@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchState, focusWindow, killSession, killWindow } from "./api/client";
+import {
+  createWindowWithBoot,
+  fetchState,
+  fetchUsage,
+  focusWindow,
+  killSession,
+  killWindow,
+} from "./api/client";
 import { usePolling } from "./api/usePolling";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -36,6 +43,10 @@ const STATUS_FILTERS: StatusFilter[] = ["all", "waiting", "running", "idle"];
 // dashboard cadence. Pane bytes already stream over the WS; this only affects
 // the metadata sourced from /api/state (THI-105).
 const MODAL_OPEN_POLL_MS = 100;
+// Claude usage is server-side-cached for 30 s; polling more often would just
+// hand the cached value back. Decoupled from the /api/state cadence so a busy
+// modal-open dashboard doesn't pile up jsonl walks (THI-110).
+const USAGE_POLL_MS = 30_000;
 
 /** A pending destructive action awaiting confirmation in the ConfirmDialog. */
 interface ConfirmState {
@@ -60,6 +71,7 @@ export function App() {
 
   const pollIntervalMs = openId ? MODAL_OPEN_POLL_MS : settings.pollIntervalMs;
   const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, pollIntervalMs);
+  const { data: usage } = usePolling(fetchUsage, USAGE_POLL_MS);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -76,6 +88,10 @@ export function App() {
   // top-floating pin list — see `applySessionOrder` — so newly-spawned
   // sessions still appear automatically without manual reordering.
   const [sessionOrder, setSessionOrder] = useState<string[]>(() => loadSessionOrder());
+  // Sessions with an in-flight quick-create (THI-115). Disables the +claude /
+  // +shell buttons until the round-trip completes so a double-click can't
+  // spawn two windows by mistake.
+  const [quickCreating, setQuickCreating] = useState<Set<string>>(() => new Set());
 
   const sessions = state?.sessions ?? [];
   const windows = state?.windows ?? [];
@@ -233,6 +249,33 @@ export function App() {
     },
     [orderedSessions],
   );
+  // One-click new window. Mode="claude" autotypes `claude\n` so Claude Code
+  // boots; mode="shell" leaves the new window at a bare shell prompt
+  // (THI-115). Per-session in-flight tracking guards double-clicks.
+  const handleQuickCreate = useCallback(
+    async (session: string, mode: "claude" | "shell") => {
+      setQuickCreating((prev) => {
+        const next = new Set(prev);
+        next.add(session);
+        return next;
+      });
+      try {
+        await createWindowWithBoot(session, mode);
+        // Don't wait on the next poll tick — pop the new card immediately so
+        // the user sees their click took. The poll's etag will treat the
+        // refresh as a 200 (state changed); a duplicate request is fine.
+        refresh();
+      } finally {
+        setQuickCreating((prev) => {
+          if (!prev.has(session)) return prev;
+          const next = new Set(prev);
+          next.delete(session);
+          return next;
+        });
+      }
+    },
+    [refresh],
+  );
 
   // `refresh` and `windows` are replaced on every poll. Read them through refs
   // so the kill handlers stay referentially stable — otherwise every poll would
@@ -325,6 +368,30 @@ export function App() {
     const n = pendingWindows.length;
     document.title = settings.notifyBadge && n > 0 ? `(${n}) Switchboard` : "Switchboard";
   }, [settings.notifyBadge, pendingWindows.length]);
+
+  // Auto-dismiss the terminal modal when its pane disappears from /api/state —
+  // the pane was killed externally (someone ran `tmux kill-pane` from a
+  // terminal, or tmux itself died). The ref tracks the last-known open window
+  // so we can still toast its name after `openWindow` flips to null. The
+  // `openId` guard suppresses the toast on the user's own close path (where
+  // openId is "" by the time openWindow goes null). The `state` guard avoids
+  // false positives on first hydration when a stale `?open=` URL points at a
+  // pane that never existed (THI-94).
+  const lastOpenWindowRef = useRef<Window | null>(null);
+  useEffect(() => {
+    if (!state) return;
+    if (openWindow) {
+      lastOpenWindowRef.current = openWindow;
+      return;
+    }
+    if (lastOpenWindowRef.current && openId) {
+      const name = lastOpenWindowRef.current.name;
+      lastOpenWindowRef.current = null;
+      setOpenId("");
+      const reason = serverRunning === false ? "tmux server stopped" : `Window "${name}" closed`;
+      messageToast(reason);
+    }
+  }, [state, openWindow, openId, serverRunning, setOpenId, messageToast]);
 
   // Pre-highlight the first visible card on the first non-null state so arrow
   // nav is discoverable (THI-87). The ref guard ensures subsequent polls never
@@ -474,6 +541,7 @@ export function App() {
         </main>
         {settingsModal}
         {shortcutsSheet}
+        <ToastStack toasts={toasts} />
       </div>
     );
   }
@@ -484,6 +552,7 @@ export function App() {
         counts={counts}
         serverAddr={SERVER_ADDR}
         inEmpty={false}
+        usage={usage}
         onHelp={() => setShowShortcuts(true)}
         onSettings={() => setShowSettings(true)}
       />
@@ -516,6 +585,8 @@ export function App() {
           onKillSession={handleKillSession}
           onRenameSession={handleRenameSession}
           onReorderSession={handleReorderSession}
+          onQuickCreate={handleQuickCreate}
+          quickCreating={quickCreating}
         />
       </main>
       {openWindow && (

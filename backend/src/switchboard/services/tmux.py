@@ -10,6 +10,7 @@ at most 2 positional args, despite its `*args: Any`.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import time
 import uuid
@@ -18,6 +19,8 @@ import libtmux
 
 from switchboard.schemas import Client, Kind, Session, StateResponse, Status, Window
 from switchboard.services import claude_parser
+
+log = logging.getLogger(__name__)
 
 
 def get_server() -> libtmux.Server | None:
@@ -114,6 +117,15 @@ def collect_state() -> StateResponse:
 
     for s in srv.sessions:
         name = s.session_name or ""
+        # Hide internal scrape sessions from the dashboard (THI-110 commit 3).
+        # `sb-usage-<uuid8>` sessions are created/killed by claude_usage's
+        # /usage scrape every ~5 min. The scrape lifecycle is tiny but
+        # racy with /api/state polls: if `s.windows` is queried after the
+        # scrape's `tmux kill-session`, libtmux raises LibTmuxException.
+        # Filtering here also keeps these sessions out of the kanban UI,
+        # which is the right answer regardless of the race.
+        if name.startswith("sb-usage-"):
+            continue
         clients = _list_clients(srv, name)
         sessions.append(
             Session(
@@ -125,7 +137,18 @@ def collect_state() -> StateResponse:
             )
         )
 
-        for w in s.windows:
+        # Defense-in-depth: even after the `sb-usage-` filter, ANY session
+        # can vanish between `srv.sessions` and `s.windows` (the user runs
+        # `tmux kill-session` from a shell). Per-session libtmux failures
+        # used to crash the whole /api/state call with a 500; now they
+        # demote to a skipped session card and the dashboard keeps polling.
+        try:
+            session_windows = list(s.windows)
+        except Exception:  # noqa: BLE001 — libtmux can raise its own errors here
+            log.warning("collect_state: failed to list windows for session %r", name)
+            continue
+
+        for w in session_windows:
             pane = w.active_pane
             if pane is None:
                 continue
@@ -147,6 +170,13 @@ def collect_state() -> StateResponse:
                 pending = False
                 agent = None
 
+            # Surface the cwd's git branch on every pane, not just agent ones,
+            # so shell tiles get a branch chip too. For agent panes, parse_pane
+            # has already populated `agent.branch` via the same `_git_branch`
+            # helper — the call below hits the 2 s cache (THI-126), so the
+            # subprocess cost is the same as before.
+            branch = claude_parser._git_branch(cwd) if cwd else None
+
             idx = _to_int(w.window_index)
             windows.append(
                 Window(
@@ -161,6 +191,7 @@ def collect_state() -> StateResponse:
                     cmd=cmd,
                     cwd=cwd,
                     pending_input=pending,
+                    branch=branch,
                     agent=agent,
                     preview=capture[-8:] if capture else [],
                 )

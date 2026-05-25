@@ -4,7 +4,6 @@ import type { Session, Window } from "../types";
 import { sortPendingFirst } from "../lib/filter";
 import { formatAgo } from "../lib/format";
 import { DropdownMenu } from "./DropdownMenu";
-import { Icon } from "./Icon";
 import { WindowCard } from "./WindowCard";
 
 interface Props {
@@ -24,6 +23,12 @@ interface Props {
    *  `false` to the right. Optional so the component still renders without the
    *  reorder feature wired up (and in tests). */
   onReorderSession?: (src: string, dst: string, before: boolean) => void;
+  /** One-click new-window. `mode` "claude" autotypes `claude\n` to boot
+   *  Claude Code; "shell" leaves a bare prompt. (THI-115). */
+  onQuickCreate?: (session: string, mode: "claude" | "shell") => void;
+  /** Session ids currently mid-create; the +claude / +shell buttons are
+   *  disabled for these to prevent double-spawn on a rapid double-click. */
+  quickCreating?: Set<string>;
 }
 
 // Custom mime type for the drag payload — keeps us from picking up text drags
@@ -44,6 +49,8 @@ export function Kanban({
   onKillSession,
   onRenameSession,
   onReorderSession,
+  onQuickCreate,
+  quickCreating,
 }: Props) {
   // Local drag-state — kept here (not in App.tsx) because nothing outside
   // Kanban cares about the in-flight hover side or the source id; the parent
@@ -143,16 +150,34 @@ export function Kanban({
                 </span>
               </span>
               <div className="col-actions">
-                <button
-                  className="btn btn-icon"
-                  onClick={() => onNewWindow(s.id)}
-                  title={`New window in ${s.name}`}
-                >
-                  <Icon name="plus" size={14} />
-                </button>
+                {onQuickCreate && (
+                  <>
+                    <button
+                      className="btn col-quick"
+                      onClick={() => onQuickCreate(s.id, "claude")}
+                      disabled={quickCreating?.has(s.id)}
+                      title={`New Claude window in ${s.name}`}
+                    >
+                      +claude
+                    </button>
+                    <button
+                      className="btn col-quick"
+                      onClick={() => onQuickCreate(s.id, "shell")}
+                      disabled={quickCreating?.has(s.id)}
+                      title={`New shell window in ${s.name}`}
+                    >
+                      +shell
+                    </button>
+                  </>
+                )}
                 <DropdownMenu
                   label={`Actions for ${s.name}`}
                   items={[
+                    {
+                      label: "Named window…",
+                      icon: "plus",
+                      onClick: () => onNewWindow(s.id),
+                    },
                     {
                       label: "Rename session",
                       icon: "rename",
