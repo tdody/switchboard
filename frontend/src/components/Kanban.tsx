@@ -52,6 +52,14 @@ export function Kanban({
   onQuickCreate,
   quickCreating,
 }: Props) {
+  // The first card across all visible sessions gets `data-tour="first-card"`
+  // so the first-run tour (THI-96) can anchor its opening steps. Computing
+  // this once per render keeps it O(N) and clearer than threading a mutable
+  // flag through the nested .map() callbacks below.
+  const firstPaneId = sessions
+    .flatMap((s) => sortPendingFirst(windows.filter((w) => w.session === s.id)))
+    .at(0)?.paneId;
+
   // Local drag-state — kept here (not in App.tsx) because nothing outside
   // Kanban cares about the in-flight hover side or the source id; the parent
   // only learns about the drop via `onReorderSession`.
@@ -258,6 +266,7 @@ export function Kanban({
                     onRename={onRename}
                     onFocus={onFocus}
                     onKill={onKill}
+                    dataTour={w.paneId === firstPaneId ? "first-card" : undefined}
                   />
                 ))
               )}

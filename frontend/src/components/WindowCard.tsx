@@ -17,6 +17,9 @@ interface Props {
   onFocus: (w: Window) => void;
   /** `skipConfirm` is true when the user Shift-clicked the kill button. */
   onKill: (w: Window, skipConfirm: boolean) => void;
+  /** Optional anchor selector for the first-run tour (THI-96). Set by Kanban
+   *  on the very first rendered card so the tour can find it. */
+  dataTour?: string;
 }
 
 function WindowCardImpl({
@@ -28,6 +31,7 @@ function WindowCardImpl({
   onRename,
   onFocus,
   onKill,
+  dataTour,
 }: Props) {
   const pending = !!w.pendingInput;
   const ago = formatAgo(w.lastActivity);
@@ -42,6 +46,7 @@ function WindowCardImpl({
     <div
       className={className}
       data-card-id={w.paneId}
+      data-tour={dataTour}
       onClick={() => onOpen(w)}
       role="button"
       tabIndex={0}
@@ -158,6 +163,7 @@ export const WindowCard = memo(WindowCardImpl, (prev, next) => {
   if (prev.onRename !== next.onRename) return false;
   if (prev.onFocus !== next.onFocus) return false;
   if (prev.onKill !== next.onKill) return false;
+  if (prev.dataTour !== next.dataTour) return false;
   // The Window object is replaced wholesale on each poll. Shallow-compare the
   // fields the card actually renders. (No deep-compare to keep this cheap.)
   const a = prev.w;

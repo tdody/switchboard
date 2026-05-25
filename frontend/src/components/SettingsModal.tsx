@@ -12,6 +12,7 @@ import {
   updateSettings,
   useSettings,
 } from "../lib/settings";
+import { resetTour } from "../lib/tour";
 import { useScrimClose } from "../lib/useScrimClose";
 import type { UsageConfig } from "../types";
 import { Icon } from "./Icon";
@@ -269,6 +270,24 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
                 label="Browser notifications"
                 onChange={(v) => void toggleBrowserNotifications(v)}
               />
+            </div>
+            <div className="settings-row">
+              <span>
+                <div className="name">Replay first-run tour</div>
+                <div className="desc">
+                  Re-show the 4-step intro the next time you load the dashboard.
+                </div>
+              </span>
+              <span className="val" />
+              <button
+                className="btn"
+                onClick={() => {
+                  resetTour();
+                  onClose();
+                }}
+              >
+                Reset
+              </button>
             </div>
           </div>
         </div>

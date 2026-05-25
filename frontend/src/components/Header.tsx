@@ -82,7 +82,7 @@ export function Header({
           </button>
         )}
         <Tooltip content="Keyboard shortcuts" shortcut="?">
-          <button className="btn btn-icon btn-ghost" onClick={onHelp}>
+          <button className="btn btn-icon btn-ghost" onClick={onHelp} data-tour="kbar-hint">
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, lineHeight: 1 }}>?</span>
           </button>
         </Tooltip>

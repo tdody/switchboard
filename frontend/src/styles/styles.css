@@ -1800,6 +1800,74 @@ input, textarea, select { font: inherit; color: inherit; }
 .prompt-buttons { display: flex; gap: 8px; }
 .prompt-hint { color: var(--text-dim); font-size: 11px; }
 
+/* ─── First-run tour (THI-96) ──────────────────────────────── */
+/* Full-page overlay with a transparent "cutout" around the current step's
+ * target. We build the cutout from 4 dim divs (top/bottom/left/right of the
+ * target rect) — simpler than an SVG mask and themable via the same panel
+ * tokens as the rest of the UI. */
+.tour-root { position: fixed; inset: 0; z-index: 200; pointer-events: none; }
+.tour-scrim {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  animation: tourIn 180ms ease-out;
+}
+[data-reduced-motion="true"] .tour-scrim,
+[data-reduced-motion="true"] .tour-popover { animation: none; }
+@keyframes tourIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.tour-cutout {
+  position: absolute;
+  pointer-events: none;
+  border-radius: var(--r);
+  box-shadow:
+    0 0 0 1.5px var(--accent-edge),
+    0 0 0 4px rgba(0, 0, 0, 0.35);
+}
+.tour-popover {
+  position: absolute;
+  width: 320px;
+  pointer-events: auto;
+  padding: 14px 16px 12px;
+  border-radius: var(--r);
+  background: var(--bg-elev);
+  border: 1px solid var(--hairline-strong);
+  box-shadow: var(--shadow-lift);
+  animation: tourIn 180ms ease-out;
+  outline: none; /* focus handled by visible popover styling */
+}
+.tour-popover:focus-visible {
+  border-color: var(--accent-edge);
+}
+.tour-step-n {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.tour-title {
+  margin: 4px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.tour-body {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-mute);
+}
+.tour-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tour-skip { color: var(--text-dim); }
+.tour-skip:hover { color: var(--text); }
+
 /* ─── Status legend (THI-96) ───────────────────────────────── */
 /* `i` trigger next to the status filter chips in the subhead; click opens a
  * small popover explaining each status color. Absolute-positioned popover
