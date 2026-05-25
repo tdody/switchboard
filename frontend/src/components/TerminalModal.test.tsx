@@ -61,7 +61,7 @@ vi.mock("xterm-addon-fit", () => ({
 vi.mock("xterm/css/xterm.css", () => ({}));
 
 import { TerminalModal } from "./TerminalModal";
-import type { Agent, Window } from "../types";
+import type { Agent, CIState, Window } from "../types";
 
 afterEach(() => {
   cleanup();
@@ -329,24 +329,29 @@ describe("TerminalModal — kill window (THI-111)", () => {
 // /api/state poll (THI-105) — these tests just pin the render.
 describe("TerminalModal — agent chips in header (THI-115)", () => {
   // Typed as Agent (not inferred) so each field carries its full union —
-  // otherwise `typeof baseAgent` collapses to `{ branch: null, pr: null, … }`
-  // and `Partial<…>` refuses the concrete string / number overrides below.
+  // otherwise `typeof baseAgent` collapses to `{ branch: null, … }` and
+  // `Partial<…>` refuses the concrete string overrides below.
   const baseAgent: Agent = {
     branch: null,
-    pr: null,
-    ci: null,
     spinner: null,
     duration: null,
     recap: null,
     action: null,
   };
 
-  function withAgent(overrides: Partial<Agent>): Window {
+  // `pr` / `ci` are top-level Window fields after the THI-115 follow-up lift
+  // (so shell panes on a branch with a PR get the same chip the agent card
+  // shows); accept them alongside the agent overrides and route to the right
+  // level when assembling the Window.
+  function withAgent(
+    overrides: Partial<Agent> & { pr?: number | null; ci?: CIState | null },
+  ): Window {
+    const { pr = null, ci = null, ...agentOverrides } = overrides;
+    const agent: Agent = { ...baseAgent, ...agentOverrides };
     // Mirror the agent's branch onto the top-level Window.branch field —
     // that's how the backend serializes agent panes (THI-126), and the
     // component reads from `win.branch` now, not `win.agent.branch`.
-    const agent = { ...baseAgent, ...overrides };
-    return { ...win, agent, branch: agent.branch } as unknown as Window;
+    return { ...win, agent, branch: agent.branch, pr, ci } as unknown as Window;
   }
 
   it("renders the branch + PR + CI chip when all three are present", () => {

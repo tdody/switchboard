@@ -153,6 +153,11 @@ def collect_state() -> StateResponse:
             # helper — the call below hits the 2 s cache (THI-126), so the
             # subprocess cost is the same as before.
             branch = claude_parser._git_branch(cwd) if cwd else None
+            # PR / CI rollup is keyed by (cwd, branch) and 60 s-cached, so the
+            # same lookup serves every pane on that branch — agent or shell.
+            # Shell tiles on a branch with an open PR get the same CI-tinted
+            # chip the kanban agent card shows.
+            pr, ci = claude_parser._gh_pr(cwd, branch) if branch else (None, None)
 
             idx = _to_int(w.window_index)
             windows.append(
@@ -169,6 +174,8 @@ def collect_state() -> StateResponse:
                     cwd=cwd,
                     pending_input=pending,
                     branch=branch,
+                    pr=pr,
+                    ci=ci,
                     agent=agent,
                     preview=capture[-8:] if capture else [],
                 )

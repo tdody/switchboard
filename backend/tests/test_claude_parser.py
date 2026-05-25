@@ -279,6 +279,58 @@ def test_window_branch_can_carry_without_agent() -> None:
     assert w.agent is None
 
 
+# THI-115 lift: `pr` + `ci` are top-level Window fields (not Agent), so shell
+# panes sitting on a branch with an open PR get the CI-tinted chip too —
+# symmetric to `branch` post-THI-126. Pin both the schema shape and that the
+# fields default to None.
+def test_window_pr_ci_can_carry_on_shell_pane() -> None:
+    from switchboard.schemas import Window
+
+    w = Window(
+        id="main:0",
+        session="main",
+        index=0,
+        name="zsh",
+        kind="shell",
+        status="idle",
+        last_activity=0,
+        branch="thibaultdody/feature-x",
+        pr=42,
+        ci="passing",
+        agent=None,
+    )
+    assert w.pr == 42
+    assert w.ci == "passing"
+    assert w.agent is None
+
+
+def test_window_pr_ci_default_to_none() -> None:
+    from switchboard.schemas import Window
+
+    w = Window(
+        id="main:0",
+        session="main",
+        index=0,
+        name="zsh",
+        kind="shell",
+        status="idle",
+        last_activity=0,
+    )
+    assert w.pr is None
+    assert w.ci is None
+
+
+# Parse-pane no longer reaches out to gh — pr/ci are populated by tmux.py at
+# the Window level. The Agent it returns is purely terminal-content derived,
+# so it must not carry `pr` / `ci` attributes at all (would mean the lift
+# didn't actually move them off Agent).
+def test_parse_pane_agent_has_no_pr_or_ci_fields() -> None:
+    from switchboard.schemas import Agent
+
+    assert "pr" not in Agent.model_fields
+    assert "ci" not in Agent.model_fields
+
+
 def test_git_branch_returns_none_for_empty_cwd() -> None:
     # The tmux.py loop passes `cwd` straight through; an empty pane cwd must
     # short-circuit to None rather than shelling out with no -C.

@@ -18,8 +18,6 @@ export interface Session {
 
 export interface Agent {
   branch: string | null;
-  pr: number | null;
-  ci: CIState | null;
   spinner: string | null;
   duration: string | null;
   recap: string | null;
@@ -43,6 +41,11 @@ export interface Window {
   // Git branch of the pane's cwd, if any — populated for shell panes too, not
   // just agents. For agents this is the same value as `agent.branch`.
   branch: string | null;
+  // PR number + CI rollup for the pane's `branch`, surfaced on every pane
+  // (not just agents) so shell tiles on a branch with an open PR also get a
+  // CI-tinted chip. Null when there's no branch or no open PR.
+  pr: number | null;
+  ci: CIState | null;
   agent: Agent | null;
   preview: string[];
 }

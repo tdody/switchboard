@@ -501,18 +501,18 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
                 on every `/api/state` poll (100ms while modal-open per
                 THI-105 — see MODAL_OPEN_POLL_MS in App.tsx), so React
                 re-renders the chips live without any extra poller. */}
-            {(win.branch || win.agent?.pr) && (
+            {(win.branch || win.pr) && (
               <Chip
-                className={`branch-pr ${win.agent?.ci ? `ci-${win.agent.ci}` : ""}`}
-                title={win.branch || `PR #${win.agent?.pr}`}
+                className={`branch-pr ${win.ci ? `ci-${win.ci}` : ""}`}
+                title={win.branch || `PR #${win.pr}`}
               >
-                {win.agent?.ci && (
-                  <span className={`ci-dot ci-${win.agent.ci}`} aria-hidden="true" />
+                {win.ci && (
+                  <span className={`ci-dot ci-${win.ci}`} aria-hidden="true" />
                 )}
                 {win.branch && <Icon name="git-branch" size={10} />}
                 {win.branch && <span>{win.branch}</span>}
-                {win.branch && win.agent?.pr && <span className="pr-sep">›</span>}
-                {win.agent?.pr && <span className="pr-num">#{win.agent.pr}</span>}
+                {win.branch && win.pr && <span className="pr-sep">›</span>}
+                {win.pr && <span className="pr-num">#{win.pr}</span>}
               </Chip>
             )}
             {win.agent?.spinner && (

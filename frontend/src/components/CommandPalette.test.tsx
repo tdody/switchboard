@@ -24,6 +24,8 @@ const TARGET: Window = {
   cwd: "/tmp",
   pendingInput: false,
   branch: null,
+  pr: null,
+  ci: null,
   agent: null,
   preview: [],
 };

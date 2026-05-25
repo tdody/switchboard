@@ -29,8 +29,6 @@ class Session(_CamelModel):
 
 class Agent(_CamelModel):
     branch: str | None = None
-    pr: int | None = None
-    ci: CIState | None = None
     spinner: str | None = None
     duration: str | None = None
     recap: str | None = None
@@ -68,6 +66,13 @@ class Window(_CamelModel):
     # a glance which branch a terminal is sitting on (THI-126 follow-up). For
     # agent panes this is the same value mirrored on `agent.branch`.
     branch: str | None = None
+    # PR number + CI rollup for the pane's `branch`, looked up via `gh pr view`
+    # in tmux.py. Lifted out of Agent (previously THI-115) so shell panes
+    # sitting on a branch with an open PR also get the CI-tinted chip — same
+    # symmetry as `branch` after THI-126. None for panes without a branch or
+    # whose branch has no PR.
+    pr: int | None = None
+    ci: CIState | None = None
     agent: Agent | None = None
     preview: list[str] = []
 

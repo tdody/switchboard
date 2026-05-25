@@ -290,13 +290,10 @@ def parse_pane(lines: list[str], cwd: str | None) -> tuple[Status, bool, Agent |
         action = None
 
     branch = _git_branch(cwd)
-    pr, ci = _gh_pr(cwd, branch)
 
     status: Status = "waiting" if pending else ("running" if spinner else "idle")
     agent = Agent(
         branch=branch,
-        pr=pr,
-        ci=ci,
         spinner=spinner,
         duration=duration,
         recap=recap,
