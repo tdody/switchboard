@@ -1,4 +1,4 @@
-import type { StateResponse } from "../types";
+import type { StateResponse, UsageConfig, UsageResponse } from "../types";
 
 const BASE = "/api";
 
@@ -155,6 +155,23 @@ export async function fetchPane(
   if (!r.ok) return [];
   const data = (await r.json()) as { lines: string[] };
   return data.lines;
+}
+
+// Claude rolling-window usage — small, no ETag (response changes every poll
+// anyway; the saved bandwidth doesn't pay for the ETag round-trip overhead).
+// Polled on a slower 30 s cadence than `/api/state`; see App.tsx (THI-110).
+export async function fetchUsage(signal?: AbortSignal): Promise<UsageResponse> {
+  const r = await fetch(`${BASE}/usage`, { signal });
+  if (!r.ok) throw new Error(`usage ${r.status}`);
+  return (await r.json()) as UsageResponse;
+}
+
+/** Read-only config knobs for the Claude usage pill — surfaced in the
+ *  Settings panel (THI-110 commit 3). One-shot fetch; no polling. */
+export async function fetchUsageConfig(): Promise<UsageConfig> {
+  const r = await fetch(`${BASE}/usage/config`);
+  if (!r.ok) throw new Error(`usage config ${r.status}`);
+  return (await r.json()) as UsageConfig;
 }
 
 export function openPaneWS(session: string, index: number): WebSocket {

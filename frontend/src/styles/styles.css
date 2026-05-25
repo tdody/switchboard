@@ -161,6 +161,66 @@ input, textarea, select { font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 6px;
 }
 
+/* Claude usage pill in the header (THI-110). The three tone variants tint the
+ * left-edge accent so the pill is glanceable as "fine" / "watch it" / "stop"
+ * without changing the overall layout weight. */
+.usage-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px;
+  margin-right: 4px;
+  border: 1px solid var(--hairline);
+  border-left-width: 3px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+.usage-pill .usage-window {
+  color: var(--text-dim);
+}
+.usage-pill .usage-total {
+  color: var(--text);
+  font-weight: 500;
+}
+.usage-pill .usage-reset {
+  color: var(--text-dim);
+}
+.usage-pill-ok     { border-left-color: var(--tone-green); }
+.usage-pill-warn   { border-left-color: var(--tone-amber); }
+.usage-pill-danger { border-left-color: var(--tone-red); }
+
+/* Meter chips for `claude /usage` percentages (THI-110 commit 2). Drawn as
+ * small "label · bar · pct%" segments inside the pill, one per known meter. */
+.usage-pill-meters {
+  gap: 12px;
+  border-left-color: var(--hairline-strong);
+}
+.usage-meter {
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.usage-meter-label {
+  color: var(--text-dim);
+}
+.usage-meter-bar {
+  display: inline-block;
+  width: 44px; height: 6px;
+  background: var(--panel-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.usage-meter-fill {
+  display: block; height: 100%;
+  transition: width 200ms ease;
+}
+.usage-meter-fill-ok     { background: var(--tone-green); }
+.usage-meter-fill-warn   { background: var(--tone-amber); }
+.usage-meter-fill-danger { background: var(--tone-red); }
+.usage-meter-pct {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 .btn {
   display: inline-flex; align-items: center; gap: 6px;
   height: 28px; padding: 0 10px;

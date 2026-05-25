@@ -52,3 +52,46 @@ export interface StateResponse {
   windows: Window[];
   serverRunning: boolean;
 }
+
+// Claude rolling-window token usage parsed from `~/.claude/projects/*.jsonl`
+// (THI-110). `available=false` means the projects directory doesn't exist —
+// e.g. the user has never run Claude Code. `resetAt` is unix epoch seconds for
+// the *earliest* in-window message + windowHours.
+export interface ClaudeUsage {
+  available: boolean;
+  windowHours: number;
+  messages: number;
+  inputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  resetAt: number | null;
+}
+
+// One row of the `claude /usage` TUI; populated only when the optional scrape
+// is enabled (THI-110 commit 2).
+export interface UsageMeter {
+  label: string;
+  percent: number;
+  resets: string;
+}
+
+export interface UsageScrape {
+  available: boolean;
+  meters: Record<string, UsageMeter>;
+}
+
+export interface UsageResponse {
+  tokens: ClaudeUsage;
+  scrape: UsageScrape | null;
+}
+
+// Read-only knobs for the Settings panel (THI-110 commit 3). The TTL values
+// are seconds (per-server-startup config — toggling them at runtime would
+// invalidate caches, not worth the complexity here).
+export interface UsageConfig {
+  scrapeEnabled: boolean;
+  scrapeTtlS: number;
+  tokenTtlS: number;
+}
