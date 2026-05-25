@@ -5,6 +5,7 @@ import { cpuLevel, kindIcon, memLevel } from "../lib/status";
 import { Chip } from "./Chip";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
+import { Tooltip } from "./Tooltip";
 
 interface Props {
   w: Window;
@@ -116,26 +117,29 @@ function WindowCardImpl({
       )}
 
       <div className="card-foot" onClick={(e) => e.stopPropagation()}>
-        <button
-          className="act act-icon"
-          onClick={() => onFocus(w)}
-          title="Jump to this window in your terminal (tmux switch-client)"
-        >
-          <Icon name="focus" size={12} />
-        </button>
-        <button className="act act-icon" onClick={() => onRename(w)} title="Rename window">
-          <Icon name="rename" size={12} />
-        </button>
-        <button className="act act-icon" onClick={() => onSendKeys(w)} title="Send keys">
-          <Icon name="send" size={12} />
-        </button>
-        <button
-          className="act act-icon act-danger"
-          onClick={(e) => onKill(w, e.shiftKey)}
-          title="Kill window — Shift-click to skip the confirm"
-        >
-          <Icon name="trash" size={12} />
-        </button>
+        <Tooltip content="Jump to this window in your terminal">
+          <button className="act act-icon" onClick={() => onFocus(w)}>
+            <Icon name="focus" size={12} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Rename window">
+          <button className="act act-icon" onClick={() => onRename(w)}>
+            <Icon name="rename" size={12} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Send keys">
+          <button className="act act-icon" onClick={() => onSendKeys(w)}>
+            <Icon name="send" size={12} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Kill window — Shift-click to skip the confirm">
+          <button
+            className="act act-icon act-danger"
+            onClick={(e) => onKill(w, e.shiftKey)}
+          >
+            <Icon name="trash" size={12} />
+          </button>
+        </Tooltip>
         <span className="spacer" />
         <span className="ago" title="last activity">
           <Icon name="clock" size={11} style={{ opacity: 0.6 }} />

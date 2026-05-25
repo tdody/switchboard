@@ -1,6 +1,7 @@
 import type { UsageResponse } from "../types";
 import { Icon } from "./Icon";
 import { SwitchboardMark } from "./SwitchboardMark";
+import { Tooltip } from "./Tooltip";
 import { UsagePill } from "./UsagePill";
 
 export interface HeaderCounts {
@@ -80,16 +81,16 @@ export function Header({
             <Icon name="spinner" /> Retry
           </button>
         )}
-        <button
-          className="btn btn-icon btn-ghost"
-          onClick={onHelp}
-          title="Keyboard shortcuts (?)"
-        >
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, lineHeight: 1 }}>?</span>
-        </button>
-        <button className="btn btn-icon btn-ghost" onClick={onSettings} title="Settings">
-          <Icon name="settings" />
-        </button>
+        <Tooltip content="Keyboard shortcuts" shortcut="?">
+          <button className="btn btn-icon btn-ghost" onClick={onHelp}>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, lineHeight: 1 }}>?</span>
+          </button>
+        </Tooltip>
+        <Tooltip content="Settings">
+          <button className="btn btn-icon btn-ghost" onClick={onSettings}>
+            <Icon name="settings" />
+          </button>
+        </Tooltip>
       </div>
     </header>
   );

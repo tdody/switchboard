@@ -1799,3 +1799,37 @@ input, textarea, select { font: inherit; color: inherit; }
 .prompt-label { flex: 1; }
 .prompt-buttons { display: flex; gap: 8px; }
 .prompt-hint { color: var(--text-dim); font-size: 11px; }
+
+/* ─── Tooltip (THI-96) ─────────────────────────────────────── */
+/* Portal-rendered hover/focus tooltip; replaces the browser-default `title=`
+ * on icon-only buttons. Positioned by JS via `getBoundingClientRect`. The
+ * `position: fixed` + body portal makes it immune to scrollable / overflow-
+ * hidden ancestors. */
+.tooltip {
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  background: #0a0b0e;
+  color: #f0f2f6;
+  border: 1px solid var(--hairline-strong);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+  font-size: 11.5px;
+  line-height: 1.2;
+  max-width: 280px;
+  pointer-events: none; /* never intercept clicks against the anchor */
+  /* Subtle entrance only — match the reduced-motion handling already in
+   * StatusPill / Toast (which gates animation on the html attribute). */
+  animation: tooltipIn 120ms ease-out;
+}
+[data-reduced-motion="true"] .tooltip { animation: none; }
+@keyframes tooltipIn {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: none; }
+}
+.tooltip-content { color: inherit; }
+/* Tighten the .kbd inside a tooltip — it inherits the larger base height
+ * otherwise and breaks the inline rhythm against the small body text. */
+.tooltip-kbd { height: 16px; font-size: 10px; }
