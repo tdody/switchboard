@@ -61,7 +61,7 @@ vi.mock("xterm-addon-fit", () => ({
 vi.mock("xterm/css/xterm.css", () => ({}));
 
 import { TerminalModal } from "./TerminalModal";
-import type { Window } from "../types";
+import type { Agent, Window } from "../types";
 
 afterEach(() => {
   cleanup();
@@ -328,7 +328,10 @@ describe("TerminalModal — kill window (THI-111)", () => {
 // fields (PR / CI / spinner / action), fed by App.tsx's 100ms modal-open
 // /api/state poll (THI-105) — these tests just pin the render.
 describe("TerminalModal — agent chips in header (THI-115)", () => {
-  const baseAgent = {
+  // Typed as Agent (not inferred) so each field carries its full union —
+  // otherwise `typeof baseAgent` collapses to `{ branch: null, pr: null, … }`
+  // and `Partial<…>` refuses the concrete string / number overrides below.
+  const baseAgent: Agent = {
     branch: null,
     pr: null,
     ci: null,
@@ -338,7 +341,7 @@ describe("TerminalModal — agent chips in header (THI-115)", () => {
     action: null,
   };
 
-  function withAgent(overrides: Partial<typeof baseAgent>): Window {
+  function withAgent(overrides: Partial<Agent>): Window {
     // Mirror the agent's branch onto the top-level Window.branch field —
     // that's how the backend serializes agent panes (THI-126), and the
     // component reads from `win.branch` now, not `win.agent.branch`.
