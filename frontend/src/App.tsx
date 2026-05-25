@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createWindowWithBoot,
   fetchState,
+  fetchUsage,
   focusWindow,
   killSession,
   killWindow,
@@ -36,6 +37,10 @@ const STATUS_FILTERS: StatusFilter[] = ["all", "waiting", "running", "idle"];
 // dashboard cadence. Pane bytes already stream over the WS; this only affects
 // the metadata sourced from /api/state (THI-105).
 const MODAL_OPEN_POLL_MS = 100;
+// Claude usage is server-side-cached for 30 s; polling more often would just
+// hand the cached value back. Decoupled from the /api/state cadence so a busy
+// modal-open dashboard doesn't pile up jsonl walks (THI-110).
+const USAGE_POLL_MS = 30_000;
 
 /** A pending destructive action awaiting confirmation in the ConfirmDialog. */
 interface ConfirmState {
@@ -60,6 +65,7 @@ export function App() {
 
   const pollIntervalMs = openId ? MODAL_OPEN_POLL_MS : settings.pollIntervalMs;
   const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, pollIntervalMs);
+  const { data: usage } = usePolling(fetchUsage, USAGE_POLL_MS);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -504,6 +510,7 @@ export function App() {
         counts={counts}
         serverAddr={SERVER_ADDR}
         inEmpty={false}
+        usage={usage}
         onHelp={() => setShowShortcuts(true)}
         onSettings={() => setShowSettings(true)}
       />
