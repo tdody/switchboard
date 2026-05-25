@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  createWindowWithBoot,
   fetchState,
   fetchUsage,
   focusWindow,
@@ -8,6 +7,7 @@ import {
   killWindow,
 } from "./api/client";
 import { usePolling } from "./api/usePolling";
+import { useQuickCreate } from "./lib/useQuickCreate";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { EmptyState } from "./components/EmptyState";
@@ -72,6 +72,7 @@ export function App() {
   const pollIntervalMs = openId ? MODAL_OPEN_POLL_MS : settings.pollIntervalMs;
   const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, pollIntervalMs);
   const { data: usage } = usePolling(fetchUsage, USAGE_POLL_MS);
+  const { quickCreating, handleQuickCreate } = useQuickCreate(refresh);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -88,10 +89,6 @@ export function App() {
   // top-floating pin list — see `applySessionOrder` — so newly-spawned
   // sessions still appear automatically without manual reordering.
   const [sessionOrder, setSessionOrder] = useState<string[]>(() => loadSessionOrder());
-  // Sessions with an in-flight quick-create (THI-115). Disables the +claude /
-  // +shell buttons until the round-trip completes so a double-click can't
-  // spawn two windows by mistake.
-  const [quickCreating, setQuickCreating] = useState<Set<string>>(() => new Set());
 
   const sessions = state?.sessions ?? [];
   const windows = state?.windows ?? [];
@@ -248,33 +245,6 @@ export function App() {
       });
     },
     [orderedSessions],
-  );
-  // One-click new window. Mode="claude" autotypes `claude\n` so Claude Code
-  // boots; mode="shell" leaves the new window at a bare shell prompt
-  // (THI-115). Per-session in-flight tracking guards double-clicks.
-  const handleQuickCreate = useCallback(
-    async (session: string, mode: "claude" | "shell") => {
-      setQuickCreating((prev) => {
-        const next = new Set(prev);
-        next.add(session);
-        return next;
-      });
-      try {
-        await createWindowWithBoot(session, mode);
-        // Don't wait on the next poll tick — pop the new card immediately so
-        // the user sees their click took. The poll's etag will treat the
-        // refresh as a 200 (state changed); a duplicate request is fine.
-        refresh();
-      } finally {
-        setQuickCreating((prev) => {
-          if (!prev.has(session)) return prev;
-          const next = new Set(prev);
-          next.delete(session);
-          return next;
-        });
-      }
-    },
-    [refresh],
   );
 
   // `refresh` and `windows` are replaced on every poll. Read them through refs
