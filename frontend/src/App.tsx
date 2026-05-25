@@ -456,6 +456,14 @@ export function App() {
         return;
       }
       if (e.key === "Enter") {
+        // Don't preempt the native Enter→click activation on focused
+        // <button>s (StatusLegend trigger, header help/settings, filter
+        // tabs, card action icons, etc.). Without this guard our
+        // `preventDefault()` below suppresses the button's click and the
+        // user's Tab+Enter just opens the highlighted card instead. Cards
+        // themselves use `<div role="button">` (tagName "div"), so this
+        // guard doesn't affect card-open from keyboard nav.
+        if (tag === "button") return;
         const w = highlightedId
           ? windows.find((x) => x.paneId === highlightedId)
           : null;
