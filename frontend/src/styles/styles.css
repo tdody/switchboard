@@ -394,6 +394,24 @@ input, textarea, select { font: inherit; color: inherit; }
 .col-actions { display: flex; gap: 2px; align-items: center; }
 .col-actions .btn-icon { height: 24px; width: 24px; border: 0; background: transparent; color: var(--text-mute); }
 .col-actions .btn-icon:hover { background: var(--hairline); color: var(--text); }
+/* Quick-create text buttons in the column header (THI-115). Smaller than
+ * a default .btn so two of them fit alongside the dropdown trigger; mono
+ * font so the leading `+` lines up like a hint of the underlying command. */
+.col-actions .col-quick {
+  height: 22px;
+  padding: 0 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-mute);
+  border-color: transparent;
+  background: transparent;
+}
+.col-actions .col-quick:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--hairline);
+  background: var(--panel-2);
+}
+.col-actions .col-quick:disabled { opacity: 0.5; }
 
 /* ─── Dropdown / overflow menu ────────────────────────────── */
 .dropdown { position: relative; display: inline-flex; }

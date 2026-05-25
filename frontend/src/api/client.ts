@@ -133,6 +133,29 @@ export async function createWindow(
   return { index: data.index, id: data.id };
 }
 
+/** Create a new window and, in `claude` mode, type `claude⏎` into it so
+ *  Claude Code boots automatically. Used by the kanban's quick-create buttons
+ *  (THI-115). Resolves the new window id, or null on failure.
+ *
+ *  Race note: the shell that backs the new window buffers stdin into its pty
+ *  before its prompt is drawn, so the queued `claude\n` reaches it as soon as
+ *  the prompt is ready — no client-side sleep needed. If `sendKeys` fails
+ *  (network blip, etc.) we still leave the empty window behind: the user can
+ *  type `claude` themselves. */
+export async function createWindowWithBoot(
+  session: string,
+  mode: "shell" | "claude",
+): Promise<{ index: number; id: string } | null> {
+  const win = await createWindow(session, mode);
+  if (!win) return null;
+  if (mode === "claude") {
+    // Fire-and-forget the autotype; a failed sendKeys shouldn't roll back the
+    // window creation, just leave an empty shell the user can type into.
+    void sendKeys(session, win.index, { paste: "claude", keys: ["Enter"] });
+  }
+  return win;
+}
+
 /** detach-client for a specific client tty. Resolves false on any non-2xx. */
 export async function detachClient(tty: string): Promise<boolean> {
   const r = await fetch(`${BASE}/detach?tty=${encodeURIComponent(tty)}`, {
