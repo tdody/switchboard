@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  createWindowWithBoot,
   fetchState,
   fetchUsage,
   focusWindow,
@@ -8,6 +7,7 @@ import {
   killWindow,
 } from "./api/client";
 import { usePolling } from "./api/usePolling";
+import { useQuickCreate } from "./lib/useQuickCreate";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { EmptyState } from "./components/EmptyState";
@@ -72,6 +72,7 @@ export function App() {
   const pollIntervalMs = openId ? MODAL_OPEN_POLL_MS : settings.pollIntervalMs;
   const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, pollIntervalMs);
   const { data: usage } = usePolling(fetchUsage, USAGE_POLL_MS);
+  const { quickCreating, handleQuickCreate } = useQuickCreate(refresh);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
