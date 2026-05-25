@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchState, focusWindow, killSession, killWindow } from "./api/client";
+import {
+  fetchState,
+  fetchUsage,
+  focusWindow,
+  killSession,
+  killWindow,
+} from "./api/client";
 import { usePolling } from "./api/usePolling";
+import { useQuickCreate } from "./lib/useQuickCreate";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { EmptyState } from "./components/EmptyState";
@@ -19,6 +26,12 @@ import { Tour } from "./components/Tour";
 import type { ToastData } from "./components/Toast";
 import { applyFilter, parseQuery, type StatusFilter } from "./lib/filter";
 import { columnsForNav, navigateCard, type NavDirection } from "./lib/cardNav";
+import {
+  applySessionOrder,
+  loadSessionOrder,
+  reorderSessions,
+  saveSessionOrder,
+} from "./lib/sessionOrder";
 import { applyAccent, useSettings } from "./lib/settings";
 import { useURLParam } from "./lib/urlState";
 import type { Window } from "./types";
@@ -31,6 +44,10 @@ const STATUS_FILTERS: StatusFilter[] = ["all", "waiting", "running", "idle"];
 // dashboard cadence. Pane bytes already stream over the WS; this only affects
 // the metadata sourced from /api/state (THI-105).
 const MODAL_OPEN_POLL_MS = 100;
+// Claude usage is server-side-cached for 30 s; polling more often would just
+// hand the cached value back. Decoupled from the /api/state cadence so a busy
+// modal-open dashboard doesn't pile up jsonl walks (THI-110).
+const USAGE_POLL_MS = 30_000;
 
 /** A pending destructive action awaiting confirmation in the ConfirmDialog. */
 interface ConfirmState {
@@ -55,6 +72,8 @@ export function App() {
 
   const pollIntervalMs = openId ? MODAL_OPEN_POLL_MS : settings.pollIntervalMs;
   const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, pollIntervalMs);
+  const { data: usage } = usePolling(fetchUsage, USAGE_POLL_MS);
+  const { quickCreating, handleQuickCreate } = useQuickCreate(refresh);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -67,6 +86,10 @@ export function App() {
   const [newWindowSession, setNewWindowSession] = useState<string | null>(null);
   const [renameSessionTarget, setRenameSessionTarget] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  // User-pinned session order (drag-to-reorder, THI-115). Treated as a
+  // top-floating pin list — see `applySessionOrder` — so newly-spawned
+  // sessions still appear automatically without manual reordering.
+  const [sessionOrder, setSessionOrder] = useState<string[]>(() => loadSessionOrder());
 
   const sessions = state?.sessions ?? [];
   const windows = state?.windows ?? [];
@@ -108,9 +131,17 @@ export function App() {
     () => windows.filter((w) => w.pendingInput),
     [windows],
   );
+  // User pin-list applied on top of the natural order from /api/state. Saved
+  // sessions float to the front; new/unsaved sessions keep their server order
+  // (THI-115). `applySessionOrder` returns the input ref when the order is a
+  // no-op, so this useMemo doesn't churn for users who never reorder.
+  const orderedSessions = useMemo(
+    () => applySessionOrder(sessions, sessionOrder),
+    [sessions, sessionOrder],
+  );
   const navCols = useMemo(
-    () => columnsForNav(sessions, visible),
-    [sessions, visible],
+    () => columnsForNav(orderedSessions, visible),
+    [orderedSessions, visible],
   );
 
   const hostTerm = useMemo(() => {
@@ -191,6 +222,30 @@ export function App() {
   const handleRenameSession = useCallback(
     (session: string) => setRenameSessionTarget(session),
     [],
+  );
+  // Drag-drop reorder of session columns (THI-115). Persisted to localStorage
+  // so the order survives reloads. `reorderSessions` is pure and short-
+  // circuits when src === dst or either is missing — safe to call eagerly
+  // from the drop handler.
+  const handleReorderSession = useCallback(
+    (src: string, dst: string, before: boolean) => {
+      setSessionOrder((prev) => {
+        // Seed the pin list from the *currently-displayed* order, not just
+        // `prev`. Otherwise dropping a never-pinned session next to another
+        // never-pinned one would leave both unpinned and the move would have
+        // no effect.
+        const base = orderedSessions.map((s) => s.id);
+        const seed = prev.length > 0 ? prev : base;
+        // Fold any currently-rendered sessions that aren't already pinned to
+        // the end of the seed so reorderSessions can find both src and dst.
+        const merged = [...seed];
+        for (const id of base) if (!merged.includes(id)) merged.push(id);
+        const next = reorderSessions(merged, src, dst, before);
+        saveSessionOrder(next);
+        return next;
+      });
+    },
+    [orderedSessions],
   );
 
   // `refresh` and `windows` are replaced on every poll. Read them through refs
@@ -402,6 +457,14 @@ export function App() {
         return;
       }
       if (e.key === "Enter") {
+        // Don't preempt the native Enter→click activation on focused
+        // <button>s (StatusLegend trigger, header help/settings, filter
+        // tabs, card action icons, etc.). Without this guard our
+        // `preventDefault()` below suppresses the button's click and the
+        // user's Tab+Enter just opens the highlighted card instead. Cards
+        // themselves use `<div role="button">` (tagName "div"), so this
+        // guard doesn't affect card-open from keyboard nav.
+        if (tag === "button") return;
         const w = highlightedId
           ? windows.find((x) => x.paneId === highlightedId)
           : null;
@@ -468,6 +531,7 @@ export function App() {
         counts={counts}
         serverAddr={SERVER_ADDR}
         inEmpty={false}
+        usage={usage}
         onHelp={() => setShowShortcuts(true)}
         onSettings={() => setShowSettings(true)}
       />
@@ -487,7 +551,7 @@ export function App() {
       />
       <main className="main">
         <Kanban
-          sessions={sessions}
+          sessions={orderedSessions}
           windows={visible}
           focusedId={focusedId}
           highlightedId={highlightedId}
@@ -499,6 +563,9 @@ export function App() {
           onNewWindow={handleNewWindow}
           onKillSession={handleKillSession}
           onRenameSession={handleRenameSession}
+          onReorderSession={handleReorderSession}
+          onQuickCreate={handleQuickCreate}
+          quickCreating={quickCreating}
         />
       </main>
       {openWindow && (

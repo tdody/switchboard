@@ -279,8 +279,124 @@ def test_window_branch_can_carry_without_agent() -> None:
     assert w.agent is None
 
 
+# THI-115 lift: `pr` + `ci` are top-level Window fields (not Agent), so shell
+# panes sitting on a branch with an open PR get the CI-tinted chip too —
+# symmetric to `branch` post-THI-126. Pin both the schema shape and that the
+# fields default to None.
+def test_window_pr_ci_can_carry_on_shell_pane() -> None:
+    from switchboard.schemas import Window
+
+    w = Window(
+        id="main:0",
+        session="main",
+        index=0,
+        name="zsh",
+        kind="shell",
+        status="idle",
+        last_activity=0,
+        branch="thibaultdody/feature-x",
+        pr=42,
+        ci="passing",
+        agent=None,
+    )
+    assert w.pr == 42
+    assert w.ci == "passing"
+    assert w.agent is None
+
+
+def test_window_pr_ci_default_to_none() -> None:
+    from switchboard.schemas import Window
+
+    w = Window(
+        id="main:0",
+        session="main",
+        index=0,
+        name="zsh",
+        kind="shell",
+        status="idle",
+        last_activity=0,
+    )
+    assert w.pr is None
+    assert w.ci is None
+
+
+# Parse-pane no longer reaches out to gh — pr/ci are populated by tmux.py at
+# the Window level. The Agent it returns is purely terminal-content derived,
+# so it must not carry `pr` / `ci` attributes at all (would mean the lift
+# didn't actually move them off Agent).
+def test_parse_pane_agent_has_no_pr_or_ci_fields() -> None:
+    from switchboard.schemas import Agent
+
+    assert "pr" not in Agent.model_fields
+    assert "ci" not in Agent.model_fields
+
+
 def test_git_branch_returns_none_for_empty_cwd() -> None:
     # The tmux.py loop passes `cwd` straight through; an empty pane cwd must
     # short-circuit to None rather than shelling out with no -C.
     assert claude_parser._git_branch(None) is None
     assert claude_parser._git_branch("") is None
+
+
+# Regression guard: `gh pr view` takes the branch as a positional. An earlier
+# version passed it via `--head` and gh exited "unknown flag" on every call,
+# silently caching (None, None) — the modal-header chip never got its CI tint.
+def test_gh_pr_passes_branch_as_positional_and_parses_passing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, list[str]] = {}
+
+    class FakeProc:
+        returncode = 0
+        stdout = (
+            '{"number": 32, '
+            '"statusCheckRollup": ['
+            '{"name": "Backend", "conclusion": "SUCCESS"}, '
+            '{"name": "Frontend", "conclusion": "SUCCESS"}'
+            "]}"
+        )
+
+    def fake_run(argv: list[str], **_kwargs: object) -> FakeProc:
+        captured["argv"] = argv
+        return FakeProc()
+
+    monkeypatch.setattr(claude_parser.subprocess, "run", fake_run)
+    monkeypatch.setattr(claude_parser, "_PR_CACHE", {})
+
+    pr, ci = claude_parser._gh_pr("/some/repo", "thibaultdody/feature-x")
+
+    # Pin the argv shape — `gh pr view <branch>`, NOT `--head <branch>`.
+    assert captured["argv"][:3] == ["gh", "pr", "view"]
+    assert "thibaultdody/feature-x" in captured["argv"]
+    assert "--head" not in captured["argv"]
+    assert pr == 32
+    assert ci == "passing"
+
+
+def test_gh_pr_failing_when_any_check_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeProc:
+        returncode = 0
+        stdout = (
+            '{"number": 7, '
+            '"statusCheckRollup": ['
+            '{"name": "A", "conclusion": "SUCCESS"}, '
+            '{"name": "B", "conclusion": "FAILURE"}'
+            "]}"
+        )
+
+    monkeypatch.setattr(claude_parser.subprocess, "run", lambda *_a, **_k: FakeProc())
+    monkeypatch.setattr(claude_parser, "_PR_CACHE", {})
+
+    pr, ci = claude_parser._gh_pr("/some/repo", "branch-y")
+    assert (pr, ci) == (7, "failing")
+
+
+def test_gh_pr_returns_none_on_gh_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeProc:
+        returncode = 1
+        stdout = ""
+
+    monkeypatch.setattr(claude_parser.subprocess, "run", lambda *_a, **_k: FakeProc())
+    monkeypatch.setattr(claude_parser, "_PR_CACHE", {})
+
+    assert claude_parser._gh_pr("/some/repo", "no-pr-branch") == (None, None)

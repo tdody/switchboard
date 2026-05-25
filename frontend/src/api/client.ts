@@ -1,4 +1,4 @@
-import type { StateResponse } from "../types";
+import type { StateResponse, UsageConfig, UsageResponse } from "../types";
 
 const BASE = "/api";
 
@@ -133,6 +133,29 @@ export async function createWindow(
   return { index: data.index, id: data.id };
 }
 
+/** Create a new window and, in `claude` mode, type `claude⏎` into it so
+ *  Claude Code boots automatically. Used by the kanban's quick-create buttons
+ *  (THI-115). Resolves the new window id, or null on failure.
+ *
+ *  Race note: the shell that backs the new window buffers stdin into its pty
+ *  before its prompt is drawn, so the queued `claude\n` reaches it as soon as
+ *  the prompt is ready — no client-side sleep needed. If `sendKeys` fails
+ *  (network blip, etc.) we still leave the empty window behind: the user can
+ *  type `claude` themselves. */
+export async function createWindowWithBoot(
+  session: string,
+  mode: "shell" | "claude",
+): Promise<{ index: number; id: string } | null> {
+  const win = await createWindow(session, mode);
+  if (!win) return null;
+  if (mode === "claude") {
+    // Fire-and-forget the autotype; a failed sendKeys shouldn't roll back the
+    // window creation, just leave an empty shell the user can type into.
+    void sendKeys(session, win.index, { paste: "claude", keys: ["Enter"] });
+  }
+  return win;
+}
+
 /** detach-client for a specific client tty. Resolves false on any non-2xx. */
 export async function detachClient(tty: string): Promise<boolean> {
   const r = await fetch(`${BASE}/detach?tty=${encodeURIComponent(tty)}`, {
@@ -155,6 +178,23 @@ export async function fetchPane(
   if (!r.ok) return [];
   const data = (await r.json()) as { lines: string[] };
   return data.lines;
+}
+
+// Claude rolling-window usage — small, no ETag (response changes every poll
+// anyway; the saved bandwidth doesn't pay for the ETag round-trip overhead).
+// Polled on a slower 30 s cadence than `/api/state`; see App.tsx (THI-110).
+export async function fetchUsage(signal?: AbortSignal): Promise<UsageResponse> {
+  const r = await fetch(`${BASE}/usage`, { signal });
+  if (!r.ok) throw new Error(`usage ${r.status}`);
+  return (await r.json()) as UsageResponse;
+}
+
+/** Read-only config knobs for the Claude usage pill — surfaced in the
+ *  Settings panel (THI-110 commit 3). One-shot fetch; no polling. */
+export async function fetchUsageConfig(): Promise<UsageConfig> {
+  const r = await fetch(`${BASE}/usage/config`);
+  if (!r.ok) throw new Error(`usage config ${r.status}`);
+  return (await r.json()) as UsageConfig;
 }
 
 export function openPaneWS(session: string, index: number): WebSocket {

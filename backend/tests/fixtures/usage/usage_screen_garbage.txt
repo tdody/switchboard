@@ -1,0 +1,6 @@
+  ╭──────────────────────────────────────────────────────╮
+  │  Random noise that the parser must ignore.           │
+  │  No "Current session" label, no "% used", no bars.   │
+  ╰──────────────────────────────────────────────────────╯
+
+  Press q to quit.

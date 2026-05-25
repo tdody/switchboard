@@ -8,9 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from switchboard.auth import auth_state
 from switchboard.config import settings
 from switchboard.logconfig import RequestContextMiddleware, setup_logging
-from switchboard.routers import actions, auth, pane, state, ws
+from switchboard.routers import actions, auth, pane, state, usage, ws
 from switchboard.security import SecurityMiddleware
-from switchboard.services import pane_stream
+from switchboard.services import claude_usage, pane_stream
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +28,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if swept:
         log.info("Cleared %d orphaned pane FIFO(s) from a prior run.", swept)
     pane_stream.install_fifo_cleanup_hook()
+    # Same idea for THI-110's `sb-usage-<uuid8>` headless tmux sessions —
+    # SIGKILL'd scrapes leave the session behind. Sweep on startup, then
+    # prewarm the scrape cache so the first /api/usage poll already has
+    # plan-percentage data instead of returning null for 30 s.
+    swept_usage = claude_usage.cleanup_orphaned_usage_sessions()
+    if swept_usage:
+        log.info("Cleared %d orphaned usage tmux session(s) from a prior run.", swept_usage)
+    if settings.usage_scrape_enabled:
+        claude_usage.prewarm_scrape()
     if settings.auth_enabled:
         log.warning(
             "Switchboard auth ENABLED (host=%s). Bootstrap URL: http://%s:%s/?token=%s",
@@ -68,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(pane.router)
     app.include_router(actions.router)
     app.include_router(auth.router)
+    app.include_router(usage.router)
     app.include_router(ws.router)
     return app
 

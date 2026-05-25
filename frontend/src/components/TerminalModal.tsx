@@ -13,6 +13,7 @@ import {
 } from "../lib/settings";
 import type { Window } from "../types";
 import { comboBytes, escAction, newlineBytes } from "../lib/termKeys";
+import { Chip } from "./Chip";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
 import { PromptOverlay } from "./PromptOverlay";
@@ -493,13 +494,44 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
               {win.session} › :{win.index}
             </span>
             <b>{win.name}</b>
-            {win.branch && (
-              <span className="chip branch-pr">
-                <Icon name="git-branch" size={10} />
-                <span>{win.branch}</span>
-              </span>
+            {/* Branch / PR / CI / spinner chips mirror the WindowCard layout
+                so the modal header carries the same at-a-glance signal as the
+                kanban card. Data flows through `win.branch` (top-level field
+                so shell panes get the chip too, per THI-126) and `win.agent`
+                on every `/api/state` poll (100ms while modal-open per
+                THI-105 — see MODAL_OPEN_POLL_MS in App.tsx), so React
+                re-renders the chips live without any extra poller. */}
+            {(win.branch || win.pr) && (
+              <Chip
+                className={`branch-pr ${win.ci ? `ci-${win.ci}` : ""}`}
+                title={win.branch || `PR #${win.pr}`}
+              >
+                {win.ci && (
+                  <span className={`ci-dot ci-${win.ci}`} aria-hidden="true" />
+                )}
+                {win.branch && <Icon name="git-branch" size={10} />}
+                {win.branch && <span>{win.branch}</span>}
+                {win.branch && win.pr && <span className="pr-sep">›</span>}
+                {win.pr && <span className="pr-num">#{win.pr}</span>}
+              </Chip>
+            )}
+            {win.agent?.spinner && (
+              <Chip className="spinner" title="agent activity">
+                <span className="spin" />
+                <span>{win.agent.spinner}</span>
+                {win.agent.duration && <span className="dur">{win.agent.duration}</span>}
+              </Chip>
             )}
             <StatusPill status={win.status} />
+            {/* When the pane is waiting on the user, surface the prompt
+                question as an ellipsized hint after the StatusPill so a
+                glance at the modal header tells you what to answer without
+                scrolling the terminal. */}
+            {win.pendingInput && win.agent?.action && (
+              <span className="term-action" title={win.agent.action}>
+                {win.agent.action}
+              </span>
+            )}
           </div>
           <span className="term-spacer" style={{ flex: 1 }} />
           <button
