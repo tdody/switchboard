@@ -1,6 +1,8 @@
+import type { UsageResponse } from "../types";
 import { Icon } from "./Icon";
 import { SwitchboardMark } from "./SwitchboardMark";
 import { Tooltip } from "./Tooltip";
+import { UsagePill } from "./UsagePill";
 
 export interface HeaderCounts {
   all: number;
@@ -13,12 +15,23 @@ interface Props {
   counts: HeaderCounts;
   serverAddr: string;
   inEmpty: boolean;
+  /** Claude rolling-window usage; null while the first /api/usage poll is in
+   *  flight. Pill hides itself when usage data isn't available (THI-110). */
+  usage?: UsageResponse | null;
   onHelp: () => void;
   onSettings: () => void;
   onRetry?: () => void;
 }
 
-export function Header({ counts, serverAddr, inEmpty, onHelp, onSettings, onRetry }: Props) {
+export function Header({
+  counts,
+  serverAddr,
+  inEmpty,
+  usage,
+  onHelp,
+  onSettings,
+  onRetry,
+}: Props) {
   return (
     <header className="hdr">
       <div className="hdr-brand">
@@ -59,6 +72,8 @@ export function Header({ counts, serverAddr, inEmpty, onHelp, onSettings, onRetr
       )}
 
       <div className="hdr-spacer" />
+
+      {!inEmpty && <UsagePill usage={usage ?? null} />}
 
       <div className="hdr-cta">
         {inEmpty && onRetry && (

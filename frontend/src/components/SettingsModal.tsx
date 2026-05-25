@@ -1,4 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+
+import { fetchUsageConfig } from "../api/client";
 import {
   ACCENT_TOKENS,
   accentColor,
@@ -10,6 +12,8 @@ import {
   updateSettings,
   useSettings,
 } from "../lib/settings";
+import { useScrimClose } from "../lib/useScrimClose";
+import type { UsageConfig } from "../types";
 import { Icon } from "./Icon";
 import { SwitchboardMark } from "./SwitchboardMark";
 import { Toggle } from "./Toggle";
@@ -24,7 +28,25 @@ interface Props {
 }
 
 export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }: Props) {
+  const scrimProps = useScrimClose(onClose);
   const settings = useSettings();
+  // Claude usage config (THI-110 commit 3). Fetched once on Settings open;
+  // null while in flight. Read-only — TTL knobs are server-startup config.
+  const [usageConfig, setUsageConfig] = useState<UsageConfig | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchUsageConfig().then(
+      (c) => {
+        if (!cancelled) setUsageConfig(c);
+      },
+      () => {
+        /* /api/usage/config unreachable — leave loading state */
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -48,7 +70,7 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
   };
 
   return (
-    <div className="scrim" onClick={onClose}>
+    <div className="scrim" {...scrimProps}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-hd">
           <SwitchboardMark size={22} />
@@ -108,6 +130,49 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
                 label="Live terminal stream"
                 onChange={(v) => updateSettings({ wsStreamEnabled: v })}
               />
+            </div>
+          </div>
+
+          <div className="settings-group">
+            <h4>Claude usage</h4>
+            <div className="settings-row">
+              <span>
+                <div className="name">Token aggregation</div>
+                <div className="desc">
+                  Sums tokens from <code>~/.claude/projects/*.jsonl</code> over
+                  the last {usageConfig ? `${usageConfig.tokenTtlS}s` : "30s"}{" "}
+                  cache. Always on; no claude binary spawn.
+                </div>
+              </span>
+              <span className="val">always on</span>
+              <span />
+            </div>
+            <div className="settings-row">
+              <span>
+                <div className="name">Plan-% scraping</div>
+                <div className="desc">
+                  {usageConfig === null && "Checking…"}
+                  {usageConfig?.scrapeEnabled && (
+                    <>
+                      Runs <code>claude /usage</code> in a hidden tmux session
+                      every {Math.round(usageConfig.scrapeTtlS / 60)}min. Costs a
+                      small claude inference per scrape. Disable with{" "}
+                      <code>SWITCHBOARD_USAGE_SCRAPE_ENABLED=false</code>.
+                    </>
+                  )}
+                  {usageConfig && !usageConfig.scrapeEnabled && (
+                    <>
+                      Disabled. Header pill falls back to the token-window
+                      estimate. Enable with{" "}
+                      <code>SWITCHBOARD_USAGE_SCRAPE_ENABLED=true</code>.
+                    </>
+                  )}
+                </div>
+              </span>
+              <span className="val">
+                {usageConfig === null ? "—" : usageConfig.scrapeEnabled ? "enabled" : "disabled"}
+              </span>
+              <span />
             </div>
           </div>
 

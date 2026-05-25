@@ -61,7 +61,7 @@ vi.mock("xterm-addon-fit", () => ({
 vi.mock("xterm/css/xterm.css", () => ({}));
 
 import { TerminalModal } from "./TerminalModal";
-import type { Window } from "../types";
+import type { Agent, CIState, Window } from "../types";
 
 afterEach(() => {
   cleanup();
@@ -318,5 +318,154 @@ describe("TerminalModal — kill window (THI-111)", () => {
     const btn = screen.getByRole("button", { name: /kill window/i });
     fireEvent.click(btn, { shiftKey: true });
     expect(onKill).toHaveBeenCalledWith(win, true);
+  });
+});
+
+// THI-115 item 3: the modal header surfaces the same agent chips the
+// kanban card already shows (branch + PR + CI + spinner) plus a hint of the
+// pending action. Data flows through `win.branch` (top-level, so shell panes
+// get the branch chip too per THI-126) and `win.agent` for the agent-only
+// fields (PR / CI / spinner / action), fed by App.tsx's 100ms modal-open
+// /api/state poll (THI-105) — these tests just pin the render.
+describe("TerminalModal — agent chips in header (THI-115)", () => {
+  // Typed as Agent (not inferred) so each field carries its full union —
+  // otherwise `typeof baseAgent` collapses to `{ branch: null, … }` and
+  // `Partial<…>` refuses the concrete string overrides below.
+  const baseAgent: Agent = {
+    branch: null,
+    spinner: null,
+    duration: null,
+    recap: null,
+    action: null,
+  };
+
+  // `pr` / `ci` are top-level Window fields after the THI-115 follow-up lift
+  // (so shell panes on a branch with a PR get the same chip the agent card
+  // shows); accept them alongside the agent overrides and route to the right
+  // level when assembling the Window.
+  function withAgent(
+    overrides: Partial<Agent> & { pr?: number | null; ci?: CIState | null },
+  ): Window {
+    const { pr = null, ci = null, ...agentOverrides } = overrides;
+    const agent: Agent = { ...baseAgent, ...agentOverrides };
+    // Mirror the agent's branch onto the top-level Window.branch field —
+    // that's how the backend serializes agent panes (THI-126), and the
+    // component reads from `win.branch` now, not `win.agent.branch`.
+    return { ...win, agent, branch: agent.branch, pr, ci } as unknown as Window;
+  }
+
+  it("renders the branch + PR + CI chip when all three are present", () => {
+    const w = withAgent({ branch: "feature/x", pr: 1234, ci: "passing" });
+    const { container } = render(
+      <TerminalModal window={w} onClose={() => {}} onToast={() => {}} />,
+    );
+    const chip = container.querySelector(".chip.branch-pr");
+    expect(chip).toBeTruthy();
+    expect(chip?.className).toContain("ci-passing");
+    expect(chip?.textContent).toContain("feature/x");
+    expect(chip?.textContent).toContain("#1234");
+    // The CI dot is rendered as an aria-hidden marker, not visible text.
+    expect(chip?.querySelector(".ci-dot.ci-passing")).toBeTruthy();
+  });
+
+  it("renders just the branch when no PR is open", () => {
+    const w = withAgent({ branch: "feature/y" });
+    const { container } = render(
+      <TerminalModal window={w} onClose={() => {}} onToast={() => {}} />,
+    );
+    const chip = container.querySelector(".chip.branch-pr");
+    expect(chip?.textContent).toContain("feature/y");
+    expect(chip?.textContent).not.toContain("#");
+    expect(chip?.querySelector(".ci-dot")).toBeNull();
+  });
+
+  it("renders the spinner chip with duration when the agent is running", () => {
+    const w = withAgent({ spinner: "Reasoning", duration: "12s" });
+    const { container } = render(
+      <TerminalModal window={w} onClose={() => {}} onToast={() => {}} />,
+    );
+    const spin = container.querySelector(".chip.spinner");
+    expect(spin?.textContent).toContain("Reasoning");
+    expect(spin?.textContent).toContain("12s");
+  });
+
+  it("renders the action hint only when the pane is pendingInput", () => {
+    // pendingInput=false + action set → action hint suppressed (would be
+    // misleading since the status pill says idle/running).
+    const idleWithAction = withAgent({ action: "Approve change?" });
+    const { container: idleC } = render(
+      <TerminalModal window={idleWithAction} onClose={() => {}} onToast={() => {}} />,
+    );
+    expect(idleC.querySelector(".term-action")).toBeNull();
+    cleanup();
+
+    // pendingInput=true + action set → hint visible with the action text.
+    const waiting = {
+      ...withAgent({ action: "Approve change?" }),
+      pendingInput: true,
+    } as unknown as Window;
+    const { container: waitC } = render(
+      <TerminalModal window={waiting} onClose={() => {}} onToast={() => {}} />,
+    );
+    const hint = waitC.querySelector(".term-action");
+    expect(hint).toBeTruthy();
+    expect(hint?.textContent).toBe("Approve change?");
+  });
+
+  it("renders no chips when agent is null and branch is null (shell pane outside a repo)", () => {
+    const { container } = render(
+      <TerminalModal window={win} onClose={() => {}} onToast={() => {}} />,
+    );
+    expect(container.querySelector(".chip.branch-pr")).toBeNull();
+    expect(container.querySelector(".chip.spinner")).toBeNull();
+    expect(container.querySelector(".term-action")).toBeNull();
+  });
+
+  it("renders the branch chip on a shell pane when win.branch is set (THI-126)", () => {
+    // Shell panes in a git repo carry a top-level `branch` but no `agent` —
+    // the chip should still render, just without the PR/CI nesting.
+    const shellWithBranch = { ...win, branch: "feature/z" } as unknown as Window;
+    const { container } = render(
+      <TerminalModal window={shellWithBranch} onClose={() => {}} onToast={() => {}} />,
+    );
+    const chip = container.querySelector(".chip.branch-pr");
+    expect(chip).toBeTruthy();
+    expect(chip?.textContent).toContain("feature/z");
+    expect(chip?.querySelector(".ci-dot")).toBeNull();
+  });
+});
+
+describe("TerminalModal — scrim drag-to-select survives (THI-125)", () => {
+  it("does NOT close when mousedown starts inside the modal and mouseup lands on the scrim", () => {
+    // The reported bug: drag-select text in xterm scrollback → release outside
+    // the modal → modal closed. Wiring regression guard for `useScrimClose`.
+    const onClose = vi.fn();
+    const { container } = render(
+      <TerminalModal window={win} onClose={onClose} onToast={() => {}} />,
+    );
+    const scrim = container.querySelector(".scrim") as HTMLElement;
+    const modal = container.querySelector(".term-modal") as HTMLElement;
+    expect(scrim).toBeTruthy();
+    expect(modal).toBeTruthy();
+
+    fireEvent.mouseDown(modal);
+    fireEvent.mouseUp(scrim);
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("closes when both mousedown and mouseup land on the bare scrim", () => {
+    // Positive control: the intentional "click outside to dismiss" path must
+    // still work — otherwise users would have no way to close via the scrim.
+    const onClose = vi.fn();
+    const { container } = render(
+      <TerminalModal window={win} onClose={onClose} onToast={() => {}} />,
+    );
+    const scrim = container.querySelector(".scrim") as HTMLElement;
+
+    fireEvent.mouseDown(scrim);
+    fireEvent.mouseUp(scrim);
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

@@ -63,22 +63,22 @@ function WindowCardImpl({
         <StatusPill status={w.status} />
       </div>
 
-      {agent && (
+      {(agent || w.branch) && (
         <div className="card-agent">
           <div className="chip-row">
-            {(agent.branch || agent.pr) && (
+            {(w.branch || w.pr) && (
               <Chip
-                className={`branch-pr ${agent.ci ? `ci-${agent.ci}` : ""}`}
-                title={agent.branch || `PR #${agent.pr}`}
+                className={`branch-pr ${w.ci ? `ci-${w.ci}` : ""}`}
+                title={w.branch || `PR #${w.pr}`}
               >
-                {agent.ci && <span className={`ci-dot ci-${agent.ci}`} aria-hidden="true" />}
-                {agent.branch && <Icon name="git-branch" size={10} />}
-                {agent.branch && <span>{agent.branch}</span>}
-                {agent.branch && agent.pr && <span className="pr-sep">›</span>}
-                {agent.pr && <span className="pr-num">#{agent.pr}</span>}
+                {w.ci && <span className={`ci-dot ci-${w.ci}`} aria-hidden="true" />}
+                {w.branch && <Icon name="git-branch" size={10} />}
+                {w.branch && <span>{w.branch}</span>}
+                {w.branch && w.pr && <span className="pr-sep">›</span>}
+                {w.pr && <span className="pr-num">#{w.pr}</span>}
               </Chip>
             )}
-            {agent.spinner && (
+            {agent?.spinner && (
               <Chip className="spinner" title="agent activity">
                 <span className="spin" />
                 <span>{agent.spinner}</span>
@@ -86,8 +86,8 @@ function WindowCardImpl({
               </Chip>
             )}
           </div>
-          {agent.recap && <div className="recap">{agent.recap}</div>}
-          {pending && agent.action && (
+          {agent?.recap && <div className="recap">{agent.recap}</div>}
+          {pending && agent?.action && (
             <div className="pending">
               <span className="glyph">›</span>
               <span>{agent.action}</span>
@@ -174,9 +174,9 @@ export const WindowCard = memo(WindowCardImpl, (prev, next) => {
     a.cpu === b.cpu &&
     a.mem === b.mem &&
     a.pendingInput === b.pendingInput &&
-    a.agent?.branch === b.agent?.branch &&
-    a.agent?.pr === b.agent?.pr &&
-    a.agent?.ci === b.agent?.ci &&
+    a.branch === b.branch &&
+    a.pr === b.pr &&
+    a.ci === b.ci &&
     a.agent?.spinner === b.agent?.spinner &&
     a.agent?.duration === b.agent?.duration &&
     a.agent?.recap === b.agent?.recap &&

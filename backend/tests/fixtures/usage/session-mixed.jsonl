@@ -1,0 +1,6 @@
+not-json-garbage-line-should-be-skipped
+{"timestamp":"2026-05-23T10:00:00Z","message":{"role":"assistant","usage":{"input_tokens":50000,"output_tokens":50000}}}
+{"timestamp":"not-a-real-iso-timestamp","message":{"role":"assistant","usage":{"input_tokens":50000}}}
+{"message":{"role":"assistant","usage":{"input_tokens":50000}}}
+{"timestamp":"2026-05-23T19:30:00Z","message":{"role":"user","content":"hi"}}
+{"timestamp":"2026-05-23T19:45:00Z","message":{"role":"assistant","usage":{"input_tokens":7,"cache_creation_input_tokens":3,"cache_read_input_tokens":2,"output_tokens":11}}}
