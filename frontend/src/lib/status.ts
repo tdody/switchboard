@@ -1,12 +1,35 @@
 import type { Kind, Status } from "../types";
 import type { IconName } from "../components/Icon";
 
-export const STATUS_META: Record<Status, { label: string; tone: string }> = {
-  running: { label: "running", tone: "cyan" },
-  waiting: { label: "waiting", tone: "amber" },
-  idle: { label: "idle", tone: "gray" },
-  done: { label: "done", tone: "green" },
-  error: { label: "error", tone: "red" },
+export const STATUS_META: Record<Status, { label: string; tone: string; description: string }> = {
+  // Description is the user-facing copy in StatusLegend (THI-96). Kept here
+  // so the legend and any future hover-tooltips on the StatusPill stay in
+  // sync without duplicating strings.
+  running: {
+    label: "running",
+    tone: "cyan",
+    description: "a long-running process is active",
+  },
+  waiting: {
+    label: "waiting",
+    tone: "amber",
+    description: "agent is asking for your input",
+  },
+  idle: {
+    label: "idle",
+    tone: "gray",
+    description: "shell prompt is idle",
+  },
+  done: {
+    label: "done",
+    tone: "green",
+    description: "process completed",
+  },
+  error: {
+    label: "error",
+    tone: "red",
+    description: "process exited with an error",
+  },
 };
 
 export function kindIcon(kind: Kind): IconName {

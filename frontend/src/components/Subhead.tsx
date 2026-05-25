@@ -1,6 +1,7 @@
 import type { StatusFilter } from "../lib/filter";
 import type { HeaderCounts } from "./Header";
 import { Icon } from "./Icon";
+import { StatusLegend } from "./StatusLegend";
 import { Tooltip } from "./Tooltip";
 
 interface Props {
@@ -51,6 +52,7 @@ export function Subhead({ filter, setFilter, query, setQuery, counts }: Props) {
         <Tab id="running" label="Running" n={counts.running} tone="cyan" />
         <Tab id="idle" label="Idle" n={counts.idle} tone="gray" />
       </span>
+      <StatusLegend />
       <span className="hdr-spacer" />
       <span className="layout-switcher">
         <Tooltip content="Kanban">
