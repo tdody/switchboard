@@ -1,2 +1,0 @@
-{"timestamp":"2026-05-23T20:00:00Z","message":{"role":"assistant","model":"claude-sonnet-4-6","usage":{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":500}}}
-{"timestamp":"2026-05-23T20:05:00Z","message":{"role":"assistant","model":"claude-future-9-9-20991231","usage":{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":500}}}

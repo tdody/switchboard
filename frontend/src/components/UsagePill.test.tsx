@@ -14,8 +14,6 @@ const baseTokens = {
   outputTokens: 150,
   totalTokens: 1_400,
   resetAt: null as number | null,
-  costUsd: 0.0,
-  unknownModels: [] as string[],
 };
 
 afterEach(cleanup);
@@ -145,37 +143,61 @@ describe("UsagePill", () => {
     expect(pill?.className).toContain("usage-pill-danger");
   });
 
-  it("renders the USD cost next to the token total (THI-139)", () => {
-    const usage: UsageResponse = {
-      tokens: { ...baseTokens, costUsd: 4.32 },
-      scrape: null,
-    };
-    render(<UsagePill usage={usage} />);
+  // ─── THI-139: aggregate session cost from `💰` across visible panes ───
+
+  it("renders the active-session cost next to the token total when > 0", () => {
+    // Cost is summed in App.tsx from per-pane TUI scrapes and passed in;
+    // pill just renders. The "·" separator keeps the chips visually tied.
+    const usage: UsageResponse = { tokens: baseTokens, scrape: null };
+    render(<UsagePill usage={usage} activeSessionCostUsd={4.32} />);
     expect(screen.getByText("· $4.32")).toBeTruthy();
   });
 
-  it("renders $0.00 when cost is zero (no priced records yet)", () => {
-    // Zero-cost should still paint the field — hiding it would read as
-    // a broken pill the moment the user runs their first message.
-    const usage: UsageResponse = {
-      tokens: { ...baseTokens, costUsd: 0.0 },
-      scrape: null,
-    };
-    render(<UsagePill usage={usage} />);
-    expect(screen.getByText("· $0.00")).toBeTruthy();
+  it("omits the cost element when activeSessionCostUsd is 0", () => {
+    // Zero means "no claude pane has reported a 💰 yet" — render no cost
+    // rather than a misleading $0.00.
+    const usage: UsageResponse = { tokens: baseTokens, scrape: null };
+    const { container } = render(<UsagePill usage={usage} activeSessionCostUsd={0} />);
+    expect(container.querySelector(".usage-cost")).toBeNull();
   });
 
-  it("lists unknown models in the tooltip when pricing is incomplete", () => {
+  it("renders the cost alongside the meters when scrape is available", () => {
+    // Scrape branch (plan percentages) should still surface the cost — same
+    // dollar value as the token branch would show.
     const usage: UsageResponse = {
-      tokens: {
-        ...baseTokens,
-        costUsd: 1.23,
-        unknownModels: ["claude-future-9-9-20991231"],
+      tokens: baseTokens,
+      scrape: {
+        available: true,
+        meters: {
+          session: { label: "Current session", percent: 35, resets: "" },
+        },
       },
-      scrape: null,
     };
-    const { container } = render(<UsagePill usage={usage} />);
-    const title = container.querySelector(".usage-pill")?.getAttribute("title") || "";
-    expect(title).toContain("pricing missing for: claude-future-9-9-20991231");
+    const { container } = render(<UsagePill usage={usage} activeSessionCostUsd={7.5} />);
+    expect(container.querySelector(".usage-pill")?.className).toContain("usage-pill-meters");
+    expect(screen.getByText("35%")).toBeTruthy();
+    expect(screen.getByText("$7.50")).toBeTruthy();
+  });
+
+  it("surfaces the cost in the tooltip (both branches)", () => {
+    // Token branch
+    const tokenUsage: UsageResponse = { tokens: baseTokens, scrape: null };
+    const tokenRender = render(<UsagePill usage={tokenUsage} activeSessionCostUsd={9.81} />);
+    const tokenTitle =
+      tokenRender.container.querySelector(".usage-pill")?.getAttribute("title") || "";
+    expect(tokenTitle).toContain("$9.81 sum of");
+    cleanup();
+    // Meters branch
+    const meterUsage: UsageResponse = {
+      tokens: baseTokens,
+      scrape: {
+        available: true,
+        meters: { session: { label: "Current session", percent: 12, resets: "" } },
+      },
+    };
+    const meterRender = render(<UsagePill usage={meterUsage} activeSessionCostUsd={9.81} />);
+    const meterTitle =
+      meterRender.container.querySelector(".usage-pill")?.getAttribute("title") || "";
+    expect(meterTitle).toContain("$9.81 sum of");
   });
 });

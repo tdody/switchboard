@@ -10,6 +10,10 @@ import {
 
 interface Props {
   usage: UsageResponse | null;
+  /** Sum of `agent.sessionCostUsd` across visible agent panes (THI-139).
+   *  Aggregated in App.tsx; 0 when no pane reports a `💰` line yet (e.g.
+   *  fresh sessions before the first billed turn). */
+  activeSessionCostUsd?: number;
 }
 
 // Short labels for the chip — the full label ("Current week (all models)") is
@@ -25,23 +29,34 @@ const METER_SHORT_LABELS: Record<string, string> = {
 const METER_ORDER = ["session", "week_all", "week_sonnet"];
 
 /**
- * Header pill showing Claude rolling-window token usage (THI-110).
+ * Header pill showing Claude rolling-window token usage (THI-110) and the
+ * aggregate per-session cost across visible agent panes (THI-139).
  *
  * Three render branches, priority-ordered:
- *   1. Scrape available → render `claude /usage` meters with %-bars (commit 2).
+ *   1. Scrape available → render `claude /usage` meters with %-bars.
  *   2. Tokens available → render token-window text pill with countdown.
  *   3. Nothing available → render nothing (zero visual weight).
  *
  * The scrape branch is preferred because percentages map directly to plan
  * limits; the token branch is a free local approximation that's good enough
- * when the optional scrape hasn't run yet or is disabled.
+ * when the optional scrape hasn't run yet or is disabled. The cost figure is
+ * appended to both branches when `activeSessionCostUsd > 0` — it's the same
+ * total the user would get by summing `💰 $X.XX` across every claude pane.
  */
-export function UsagePill({ usage }: Props) {
+export function UsagePill({ usage, activeSessionCostUsd = 0 }: Props) {
   if (!usage) return null;
+
+  const showCost = activeSessionCostUsd > 0;
+  const costChip = showCost ? (
+    <span className="usage-cost">{fmtCost(activeSessionCostUsd)}</span>
+  ) : null;
 
   if (usage.scrape?.available) {
     return (
-      <span className="usage-pill usage-pill-meters" title={scrapeTitle(usage)}>
+      <span
+        className="usage-pill usage-pill-meters"
+        title={scrapeTitle(usage, activeSessionCostUsd)}
+      >
         {METER_ORDER.flatMap((key) => {
           const meter = usage.scrape!.meters[key];
           if (!meter) return [];
@@ -49,6 +64,7 @@ export function UsagePill({ usage }: Props) {
             <UsageMeterChip key={key} short={METER_SHORT_LABELS[key] ?? key} meter={meter} />,
           ];
         })}
+        {costChip}
       </span>
     );
   }
@@ -59,12 +75,14 @@ export function UsagePill({ usage }: Props) {
     const active = activeTokens(usage.tokens);
     const tone = tokenTone(active);
     const countdown = fmtResetCountdown(usage.tokens.resetAt);
-    const cost = fmtCost(usage.tokens.costUsd);
     return (
-      <span className={`usage-pill usage-pill-${tone}`} title={pillTitle(usage)}>
+      <span
+        className={`usage-pill usage-pill-${tone}`}
+        title={pillTitle(usage, activeSessionCostUsd)}
+      >
         <span className="usage-window">5h</span>
         <span className="usage-total">{fmtTokens(active)}</span>
-        <span className="usage-cost">· {cost}</span>
+        {showCost && <span className="usage-cost">· {fmtCost(activeSessionCostUsd)}</span>}
         {countdown && <span className="usage-reset">· resets {countdown}</span>}
       </span>
     );
@@ -91,7 +109,7 @@ function UsageMeterChip({ short, meter }: { short: string; meter: UsageMeter }) 
   );
 }
 
-function pillTitle(usage: UsageResponse): string {
+function pillTitle(usage: UsageResponse, costUsd: number): string {
   const t = usage.tokens;
   const active = activeTokens(t);
   // Multi-line title via newlines — most browsers render tooltips honoring \n.
@@ -102,17 +120,14 @@ function pillTitle(usage: UsageResponse): string {
     `    cache create: ${t.cacheCreationTokens.toLocaleString()}`,
     `    output:       ${t.outputTokens.toLocaleString()}`,
     `  ${t.cacheReadTokens.toLocaleString()} cache reads (discounted, excluded from pill)`,
-    `  ${fmtCost(t.costUsd)} estimated USD cost`,
   ];
-  // Surface pricing gaps so users know the cost is incomplete rather than
-  // wondering why their $ figure looks low after a future Anthropic release.
-  if (t.unknownModels.length > 0) {
-    parts.push(`    pricing missing for: ${t.unknownModels.join(", ")}`);
+  if (costUsd > 0) {
+    parts.push(`  ${fmtCost(costUsd)} sum of 💰 across visible claude panes`);
   }
   return parts.join("\n");
 }
 
-function scrapeTitle(usage: UsageResponse): string {
+function scrapeTitle(usage: UsageResponse, costUsd: number): string {
   // Full meter labels + reset strings in the tooltip — short labels in the
   // chip itself save space but lose the "Current week (all models)" nuance.
   const meters = usage.scrape!.meters;
@@ -122,6 +137,9 @@ function scrapeTitle(usage: UsageResponse): string {
     if (!m) continue;
     parts.push(`  ${m.label}: ${m.percent}% used`);
     if (m.resets) parts.push(`    resets ${m.resets}`);
+  }
+  if (costUsd > 0) {
+    parts.push(`  ${fmtCost(costUsd)} sum of 💰 across visible claude panes (THI-139)`);
   }
   return parts.join("\n");
 }

@@ -1,172 +1,136 @@
 # THI-139 — Total Claude session cost in `/usage`
 
 **Linear:** [THI-139](https://linear.app/thibault-dody/issue/THI-139/total-claude-session-cost-in-usage)
-**Date:** 2026-05-26
-**Status:** Draft
+**Date:** 2026-05-26 (updated 2026-05-26)
+**Status:** Draft (v2 — source switched from jsonl pricing math to per-pane TUI scrape)
 
 ## Summary
 
-Add a USD dollar amount to the `/api/usage` response and surface it next to
-the existing tokens pill in the Header. The cost is computed locally from
-the per-record `model` + `usage` token counts already being walked by
-`compute_claude_usage` — no new file IO, no TUI scrape.
+Add an aggregate USD cost to the header usage pill. The figure is the **sum
+across visible agent panes** of each pane's running session cost — the same
+`💰 $X.XX` number Claude Code shows in each pane's TUI status line.
 
 ## Background
 
-`services/claude_usage.py:47` (`compute_claude_usage`) reads every recent
-`~/.claude/projects/*.jsonl` and aggregates token counts within the rolling
-`window_hours` window (default 5 h) into `ClaudeUsage`. Per-record
-`message.model` is available alongside `message.usage` but is not currently
-read — only the four token counters are. The dashboard renders a pill in
-the Header showing tokens / messages / reset countdown (THI-110) but no
-dollar figure.
+Claude Code prints a per-session running cost in its TUI footer, e.g.:
 
-The Claude TUI status line shows `💰 $X.XX` per-pane (e.g. the THI-131
-brain-emoji capture: `💰 $8.33`), but that is per-session, not aggregate,
-and is not surfaced in Switchboard today.
+```
+📁 frontend  🌿 thi-139  |  🧠 █░░░ 16% 📨 6 📤 542 | session: 155.4k in / 542 out  💰 $8.33  🤖 opus
+```
+
+That `💰 $8.33` is the cost of THIS pane's session-so-far — accurate, computed
+by Claude itself, and matches what the user would see if they Cmd-clicked
+each pane to read the number. Switchboard already captures these lines for
+the agent parser; THI-139 just scrapes the dollar field and exposes it.
+
+## Why not compute from `~/.claude/projects/*.jsonl`?
+
+We tried this first (v1 of this spec). Two problems:
+
+1. **Hard to define "active" precisely.** "5h rolling-window" cost double-bills
+   long sessions vs. how the user thinks about them; "sum of in-window-active
+   session lifetimes" overcounts sessions that ended recently; correlating
+   sessions to running tmux panes requires extra plumbing.
+2. **Always going to be a guess.** Anthropic's prices change; cache-tier
+   pricing has multiple variants (5 min, 1 h); our table will drift.
+
+The TUI's `💰` is the source of truth Claude itself uses. Reading from the
+TUI is more robust and matches user expectation exactly.
 
 ## Non-goals
 
-* **Per-pane cost.** This ticket is the *aggregate* rolling-window cost. A
-  per-pane breakdown is a separate ticket.
-* **TUI scrape.** The `/usage` TUI screen doesn't include a $ total. We
-  compute from jsonl, not from the scrape.
-* **Historical / lifetime totals.** Only the current rolling window
-  (matches the existing `compute_claude_usage` contract).
-* **Settings UI for custom pricing.** Pricing lives in code, dated by
-  comment; updated by hand when Anthropic changes prices.
+* **Per-pane cost in cards.** Add later — the data is on `Agent.sessionCostUsd`
+  already, but the kanban card UI is its own ticket.
+* **Lifetime / historical totals.** The TUI doesn't expose them and we don't
+  want to maintain a pricing table.
+* **Plan-aware projections.** Just sum what Claude tells us.
 
 ## Architecture
 
-### Pricing table
+### Backend
 
-New `services/pricing.py`:
+1. **`claude_parser._scan_session_cost(lines) -> float | None`** — scans the
+   last ~30 lines bottom-up for `💰 $X.XX`. Returns the parsed float (handles
+   integer values + thousands-separator commas defensively). Returns `None`
+   when the marker isn't present (fresh session before the first billed turn,
+   or a non-conversation TUI screen). Mirrors the `_scan_context_pct` pattern.
 
-```python
-# Anthropic public list prices (USD per million tokens) for the Claude 4.x
-# family — confirmed against anthropic.com/pricing on 2026-05-26.
-# When prices change, update this table and the date in this comment.
+2. **`Agent.session_cost_usd: float | None`** — new field on the `Agent`
+   pydantic model. `to_camel` alias serializes it as `sessionCostUsd`.
 
-@dataclass(frozen=True)
-class ModelPrices:
-    input: float
-    output: float
-    cache_write_5m: float
-    cache_read: float
+3. **`parse_pane`** threads the value into the constructed `Agent`.
 
-PRICE_PER_MTOK: dict[str, ModelPrices] = {
-    "claude-opus-4":    ModelPrices(input=15.0,  output=75.0,  cache_write_5m=18.75, cache_read=1.50),
-    "claude-sonnet-4":  ModelPrices(input=3.0,   output=15.0,  cache_write_5m=3.75,  cache_read=0.30),
-    "claude-haiku-4":   ModelPrices(input=1.0,   output=5.0,   cache_write_5m=1.25,  cache_read=0.10),
-}
+### Frontend
 
-def cost_for(model: str, usage: TokenUsage) -> float:
-    """Return USD cost for one billed turn. Unknown models → 0.0 (caller
-    decides whether to log)."""
-```
+1. **`Agent.sessionCostUsd?: number`** — matches the backend's new field.
+2. **`App.tsx`** computes `activeSessionCostUsd` as
+   `windows.reduce((sum, w) => sum + (w.agent?.sessionCostUsd ?? 0), 0)`
+   and passes it to `Header` → `UsagePill`.
+3. **`UsagePill`** renders the cost in both render branches (scrape meters and
+   token-window text), with a `· $X.XX` separator. Hides when the sum is `0`
+   (no pane has reported a `💰` yet). Tooltip lists the figure with a "sum of
+   💰 across visible claude panes" caption.
 
-Model id lookup uses a **prefix match** because the jsonl emits dated IDs
-(`claude-sonnet-4-6-20251001`) and the family-level prefix is stable.
+### Things removed (cleanup from v1)
 
-### Schema change
-
-Extend `ClaudeUsage` in `backend/src/switchboard/schemas.py`:
-
-```python
-class ClaudeUsage(_CamelModel):
-    # ...existing fields...
-    cost_usd: float = 0.0           # serializes as `costUsd`
-    unknown_models: list[str] = []  # serializes as `unknownModels` (de-duplicated;
-                                    # records counted with cost=0 fall here)
-```
-
-Backward-compatible: defaults to 0.0 / empty list when the projects dir
-doesn't exist or no records match.
-
-### Compute loop
-
-In `compute_claude_usage`, when reading the `usage` block of each in-window
-record, also read `rec["message"]["model"]` and call
-`pricing.cost_for(model, usage)`. Sum into a new `cost` accumulator. Unknown
-models append to a set, included verbatim in the response.
-
-```python
-total_cost = 0.0
-unknown: set[str] = set()
-# ... existing loop ...
-    model = ((rec.get("message") or {}).get("model")) or ""
-    prices = pricing.lookup(model)
-    if prices is None:
-        unknown.add(model)
-    else:
-        total_cost += pricing.cost_for(prices, usage)
-```
-
-### Frontend display
-
-Header usage pill (`Header.tsx`, `.usage-pill` chrome) gains a single
-appended field. Today the pill shows tokens / messages / reset; new layout:
-
-```
-[ ●  1.2M tok · 5/h · $4.32  →  2h 14m ]
-                       ^^^^^
-                       new
-```
-
-Format: `$0.00` (always 2 decimals), USD only, no currency selector (YAGNI).
-If `cost_usd == 0.0`, render the field anyway (`$0.00`) — hiding it would
-read as "broken pill" the moment the user makes any request.
-
-If `unknown_models` is non-empty, the pill's tooltip adds a one-liner:
-`"Pricing missing for: claude-…"`. Visible cost is still computed from
-known-model records; users see they have an incomplete picture without
-the UI just lying.
+* `services/pricing.py` + `test_pricing.py`
+* `ClaudeUsage.cost_usd` + `ClaudeUsage.unknown_models` + their serializers
+* The jsonl per-record cost loop in `compute_claude_usage`
+* The `session-priced-*.jsonl` fixtures and their `test_cost_*` tests
 
 ## Files touched
 
 | File | Change |
 |---|---|
-| `backend/src/switchboard/services/pricing.py` | **New** — pricing table + lookup helper |
-| `backend/src/switchboard/services/claude_usage.py` | Read `model`; accumulate `cost_usd` and `unknown_models` |
-| `backend/src/switchboard/schemas.py` | Add `cost_usd` and `unknown_models` to `ClaudeUsage` |
-| `backend/tests/test_pricing.py` | **New** — table coverage + lookup |
-| `backend/tests/test_claude_usage.py` | Add cost-aggregation cases (mixed models, unknown model, empty) |
-| `frontend/src/components/Header.tsx` | Render `$X.XX` next to existing tokens display |
-| `frontend/src/styles/styles.css` | Tiny `.usage-pill .cost` style if needed (optional — reuse `.dim`) |
-
-No router change — `/api/usage` keeps the same path; the response gets the
-new fields via `to_camel` alias.
+| `backend/src/switchboard/services/claude_parser.py` | Add `_SESSION_COST_RE`, `_scan_session_cost`, thread into `parse_pane` |
+| `backend/src/switchboard/schemas.py` | Add `Agent.session_cost_usd`; remove `ClaudeUsage.cost_usd` + `unknown_models` |
+| `backend/src/switchboard/services/claude_usage.py` | Revert jsonl-cost loop back to tokens-only |
+| `backend/src/switchboard/services/pricing.py` | **Removed** |
+| `backend/tests/test_claude_parser.py` | Add `_scan_session_cost` + `parse_pane` cost cases |
+| `backend/tests/test_claude_usage.py` | Remove THI-139 cost section (~100 lines) |
+| `backend/tests/test_pricing.py` | **Removed** |
+| `backend/tests/fixtures/usage/session-priced-*.jsonl` | **Removed** |
+| `frontend/src/types.ts` | Add `Agent.sessionCostUsd`; remove `ClaudeUsage.costUsd`/`unknownModels` |
+| `frontend/src/App.tsx` | Compute `activeSessionCostUsd` from `windows`; pass to `Header` |
+| `frontend/src/components/Header.tsx` | Forward `activeSessionCostUsd` prop to `UsagePill` |
+| `frontend/src/components/UsagePill.tsx` | Take `activeSessionCostUsd` prop; render in both branches |
+| `frontend/src/components/UsagePill.test.tsx` | Rewrite cost tests against the prop |
 
 ## Testing
 
-**Backend:**
+### Backend (automated)
 
-* `pricing.cost_for` returns the right $ for each model family, for each
-  field (input, output, cache write, cache read).
-* `pricing.lookup` matches dated IDs by family prefix; unknown ID → None.
-* `compute_claude_usage` on a fixture with one assistant turn at Sonnet
-  pricing returns the expected `cost_usd` (compute by hand).
-* Fixture with a mix of Opus + Sonnet records returns the sum.
-* Fixture with one unknown-model record returns the other records' cost
-  unchanged and lists the unknown id in `unknown_models`.
-* Empty fixture → `cost_usd == 0.0`, `unknown_models == []`.
-* Out-of-window records contribute 0 (existing cutoff logic — verify it
-  applies to the cost path too).
+* `_scan_session_cost`: modern status line; integer-only `$42`; thousands
+  separators (`$1,234.56`); most-recent-wins scan order; ANSI stripped;
+  returns `None` when the line is absent.
+* `parse_pane`: returns the cost on `agent.session_cost_usd`; serialized as
+  `sessionCostUsd` via `to_camel`; `None` when no `💰` line.
 
-**Frontend:**
+### Frontend (automated)
 
-* Pill renders `$X.XX` (two decimals) for non-zero cost.
-* Pill renders `$0.00` for zero cost (not hidden).
-* Pill tooltip shows the unknown-models hint when present.
+* `UsagePill`: renders `· $X.XX` next to token total when `activeSessionCostUsd
+  > 0`; omits the chip when `0`; renders alongside the meters in the scrape
+  branch; tooltip surfaces the figure with a clear caption.
+* `usageFormat.fmtCost`: existing tests still cover thousands grouping +
+  rounding.
+
+### Manual
+
+* On a multi-pane setup with several claude sessions that have exchanged
+  messages, the header pill shows a `$X.XX` value that equals the sum of
+  `💰 $…` printed in each pane's TUI footer (verified by reading the panes).
+* Send a message in one pane; within a poll tick or two, the header total
+  ticks up by that pane's incremental cost.
+* Open the docs / settings / command-palette modals — modal-open polling
+  cadence still applies; the cost figure updates promptly.
+* Kill a claude pane — its session cost stops contributing on the next poll.
 
 ## Open questions / future work
 
-* **Cache write tier.** The jsonl currently exposes only
-  `cache_creation_input_tokens` without distinguishing 5 min vs 1 h cache.
-  We use the 5 min price as a default — most prompt caching is 5 min. If
-  Anthropic exposes the tier in the record later, plumb it.
-* **Per-pane cost in cards.** A natural follow-up — display each agent
-  pane's running-session cost as a chip. Distinct from this ticket because
-  it requires per-session aggregation, not rolling-window.
-* **Currency / locale.** USD only for v0.1. If multi-currency is ever
-  needed, the pricing table is the right pivot point.
+* **Per-card cost chip.** Surface each pane's `sessionCostUsd` on its
+  `WindowCard` (small `$X.XX` chip next to context%). Data is already there.
+* **All-time cumulative.** The TUI doesn't expose it; would require either
+  parsing every jsonl (and a pricing table again) or a separate Claude API
+  call. Defer.
+* **Cost-tier accents.** Color the chip amber/red over thresholds. Trivial
+  once the per-card chip lands.

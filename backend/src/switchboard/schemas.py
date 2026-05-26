@@ -39,6 +39,12 @@ class Agent(_CamelModel):
     # just opened, or scrolled past). Serializes as `contextPct` via the
     # `to_camel` alias generator (THI-131).
     context_pct: int | None = None
+    # Running USD cost for THIS pane's claude session, scraped from the `💰`
+    # marker in the TUI status line by `_scan_session_cost`. None when the
+    # marker isn't visible (fresh session before the first billed turn, or
+    # a non-conversation TUI screen). The frontend sums these across visible
+    # agent panes for the header pill (THI-139).
+    session_cost_usd: float | None = None
 
 
 class PromptChoice(_CamelModel):
@@ -104,13 +110,6 @@ class ClaudeUsage(_CamelModel):
     output_tokens: int = 0
     total_tokens: int = 0
     reset_at: int | None = None  # unix epoch seconds; None when no in-window record
-    # USD cost across the same in-window records, computed locally against
-    # `services/pricing.PRICE_PER_MTOK` (THI-139). Serializes as `costUsd`.
-    # `unknown_models` lists any model ids that had no pricing entry — their
-    # token totals still count toward `*_tokens` but contribute 0 to cost,
-    # so the UI can surface a "pricing missing for X" hint.
-    cost_usd: float = 0.0
-    unknown_models: list[str] = []
 
 
 class UsageMeter(_CamelModel):
