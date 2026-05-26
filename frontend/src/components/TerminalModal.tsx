@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FitAddon } from "xterm-addon-fit";
+import { WebLinksAddon } from "xterm-addon-web-links";
 import { Terminal } from "xterm";
 import "xterm/css/xterm.css";
 
@@ -154,6 +155,17 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // Clickable http(s) URLs (THI-146). Open in a new tab; `noopener` keeps
+    // the popup from gaining a `window.opener` handle back to the dashboard.
+    term.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        // The addon's default handler also opens in a new tab, but it doesn't
+        // pass `noopener` — and our pane content is untrusted (anyone with a
+        // shell can echo a hostile URL). Take the click ourselves.
+        event.preventDefault();
+        window.open(uri, "_blank", "noopener,noreferrer");
+      }),
+    );
     // xterm's keydown handler calls stopPropagation on keys it owns, so
     // document-level listeners never see Cmd-combos or Esc. Anything that
     // needs to override xterm's default byte emission has to live here.
