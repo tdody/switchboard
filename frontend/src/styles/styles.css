@@ -106,6 +106,33 @@ button:disabled { opacity: .4; }
 input, textarea, select { font: inherit; color: inherit; }
 ::selection { background: var(--accent-soft); color: var(--text); }
 
+/* ─── Auto-hide scrollbars (global) ─────────────────────────────
+   Scrollbars stay invisible by default and only paint a thumb when the
+   user is over the scrollable container or actively dragging the thumb.
+   WebKit (Safari/Chrome) and Firefox both supported. Specific containers
+   (`.col-body`, `.term-body .xterm-viewport`, `.kanban`) may override
+   below for stronger contrast or scroll-event-driven reveals. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: color-mix(in oklch, var(--text-dim) 60%, transparent) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+  transition: background .2s ease;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--text-dim) 50%, transparent);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
+}
+
 /* ─── App shell ────────────────────────────────────────────── */
 .app {
   display: grid;

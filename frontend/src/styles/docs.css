@@ -1,14 +1,15 @@
 /* ─────────────────────────────────────────────────────────────
    Switchboard — Documentation modal (THI-136)
 
-   Phase 1: modal shell + tab nav + placeholder body per tab.
-   Diagram-specific styling (`.diagram-card`, `.callout-line`, …)
-   will land alongside the SVGs in phase 2.
+   Phase 2: stylized SVG diagrams (HeaderDiagram / AgentDiagram /
+   ShellDiagram) with callout overlays. Geometry lives in the
+   diagram components; this file maps the diagram classes to
+   themed CSS vars so light/dark/contrast all work.
    ───────────────────────────────────────────────────────────── */
 
 .docs-modal {
-  width: min(960px, 94vw);
-  height: min(640px, 85vh);
+  width: min(1240px, 96vw);
+  height: min(720px, 88vh);
   background: var(--panel);
   border: 1px solid var(--hairline-strong);
   border-radius: var(--r-lg);
@@ -57,36 +58,13 @@
 .docs-body {
   padding: 20px;
   overflow: auto;
-  display: grid;
-  place-items: center;
-}
-
-/* Phase-1 placeholder: centered card per tab with title + note. The diagram
-   SVGs ship in follow-up PRs. */
-.docs-placeholder {
-  max-width: 520px;
-  padding: 28px 32px;
-  border: 1px dashed var(--hairline-strong);
-  border-radius: var(--r);
-  background: var(--bg-elev);
-  text-align: center;
-  color: var(--text-mute);
-}
-.docs-placeholder h3 {
-  margin: 0 0 8px;
-  font-size: 14px;
-  color: var(--text);
-  font-weight: 600;
-}
-.docs-placeholder p {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.5;
-}
-.docs-placeholder code {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--text);
+  display: flex;
+  /* Anchor to top so a tall diagram doesn't get its head clipped off by
+   * the centered alignment (a flex item centered in an overflow:auto
+   * container can't be scrolled back to its top). Horizontal stays
+   * centered. */
+  align-items: flex-start;
+  justify-content: center;
 }
 
 .docs-foot {
@@ -100,4 +78,126 @@
   font-size: 11.5px;
   color: var(--text-mute);
   font-family: var(--font-mono);
+}
+
+/* ───── SVG diagrams ─────────────────────────────────────────── */
+
+.docs-diagram {
+  width: 100%;
+  max-width: 1180px;
+  height: auto;
+}
+
+/* Stylized card body */
+.diagram-card rect { fill: var(--bg-elev); stroke: var(--hairline); }
+.diagram-card .badge,
+.diagram-card .btn-quick,
+.diagram-card .kind-box {
+  fill: var(--panel-2);
+  stroke: var(--hairline);
+}
+.diagram-card .kind-box      { fill: color-mix(in oklch, var(--accent) 18%, var(--bg-elev)); }
+.diagram-card .kind-box-shell{ fill: color-mix(in oklch, var(--tone-cyan) 18%, var(--bg-elev)); }
+
+/* Chip illustrations (branch / spinner / etc.) */
+.diagram-card .chip-illu {
+  fill: var(--bg);
+  stroke: var(--hairline);
+}
+.diagram-card .chip-spinner {
+  stroke: color-mix(in oklch, var(--tone-cyan) 50%, var(--hairline));
+}
+.diagram-card .spin-illu {
+  fill: none;
+  stroke: var(--tone-cyan);
+  stroke-width: 1.5;
+  stroke-dasharray: 12 6;
+}
+
+/* Status pill (cyan = running) */
+.diagram-card .pill-running {
+  fill: color-mix(in oklch, var(--tone-cyan) 14%, transparent);
+  stroke: color-mix(in oklch, var(--tone-cyan) 45%, var(--hairline));
+}
+
+/* Pending block (amber) */
+.diagram-card .pending-illu {
+  fill: color-mix(in oklch, var(--tone-amber) 14%, transparent);
+  stroke: color-mix(in oklch, var(--tone-amber) 45%, var(--hairline));
+}
+
+/* CI dot */
+.diagram-card .ci-dot          { stroke: none; }
+.diagram-card .ci-dot.ci-passing { fill: var(--tone-green); }
+.diagram-card .ci-dot.ci-failing { fill: var(--tone-red); }
+.diagram-card .ci-dot.ci-running { fill: var(--tone-cyan); }
+
+/* Context % left-edge strip — bands match WindowCard's ctx-low/mid/high/crit */
+.diagram-card .ctx-strip         { stroke: none; }
+.diagram-card .ctx-strip-low     { fill: var(--tone-green); }
+.diagram-card .ctx-strip-mid     { fill: var(--tone-amber); }
+.diagram-card .ctx-strip-high    { fill: var(--tone-orange); }
+.diagram-card .ctx-strip-crit    { fill: var(--tone-red); }
+
+/* Preview "text" — short rounded bars suggest lines of mono output */
+.diagram-card .preview-illu rect {
+  fill: color-mix(in oklch, var(--text-mute) 35%, transparent);
+  stroke: none;
+}
+
+/* Footer action buttons */
+.diagram-card .foot-btn rect       { fill: var(--panel-2); stroke: var(--hairline); }
+.diagram-card .foot-btn-danger     {
+  fill: color-mix(in oklch, var(--tone-red) 14%, var(--panel-2));
+  stroke: color-mix(in oklch, var(--tone-red) 45%, var(--hairline));
+}
+
+/* Header-bar bits */
+.diagram-card .dot-attached { fill: var(--accent); stroke: none; }
+.diagram-card .grip circle  { fill: var(--text-dim); stroke: none; }
+
+/* Interior hairlines (separators between card-head / agent / preview / etc.) */
+.diagram-hairline { stroke: var(--hairline); stroke-width: 1; }
+
+/* Text inside the stylized card */
+.diagram-text {
+  fill: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+.diagram-text.small  { font-size: 11px; font-family: var(--font-mono); }
+.diagram-text.strong { font-weight: 600; }
+.diagram-text.dim    { fill: var(--text-dim); }
+.diagram-text .strong { font-weight: 600; }
+.diagram-text .dim    { fill: var(--text-dim); }
+.diagram-text.tone-cyan,
+.diagram-text .tone-cyan  { fill: var(--tone-cyan); }
+.diagram-text.tone-amber,
+.diagram-text .tone-amber { fill: var(--tone-amber); }
+.diagram-text.tone-lilac,
+.diagram-text .tone-lilac { fill: var(--tone-lilac); }
+
+/* ───── Callouts ─────────────────────────────────────────────── */
+
+.callout-line {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  fill: none;
+}
+.callout-dot {
+  fill: var(--accent);
+  stroke: var(--bg);
+  stroke-width: 1;
+}
+.callout-label {
+  fill: var(--text-mute);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+}
+.callout-label-strong {
+  fill: var(--text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
 }

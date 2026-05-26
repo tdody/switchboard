@@ -2,19 +2,19 @@ import { useEffect, useState } from "react";
 
 import { useScrimClose } from "../lib/useScrimClose";
 import "../styles/docs.css";
+import { AgentDiagram } from "./docs/AgentDiagram";
+import { HeaderDiagram } from "./docs/HeaderDiagram";
+import { ShellDiagram } from "./docs/ShellDiagram";
 import { Icon } from "./Icon";
 import { SwitchboardMark } from "./SwitchboardMark";
 
 /**
  * In-app Documentation modal (THI-136).
  *
- * Phase 1 (this PR) ships the modal shell only: header, three tab buttons,
- * a body region, and a placeholder card per tab. The annotated SVG diagrams
- * land in follow-up PRs once the surfaces they describe stop moving
- * (THI-128/129/131/135 — see the spec's "Sequencing" section).
- *
  * Modeled on `SettingsModal`: scrim with click-to-close, Esc-to-close,
- * pinned header / footer rows around a scrollable body.
+ * pinned header / footer rows around a scrollable body. Each tab renders
+ * a hand-authored SVG diagram annotated with callouts; geometry lives in
+ * the diagram components, themed colors in styles/docs.css.
  */
 
 type DocsTab = "header" | "agent" | "shell";
@@ -26,14 +26,12 @@ interface Props {
 interface TabDef {
   id: DocsTab;
   label: string;
-  /** Placeholder body title; phase-2 replaces with the real diagram. */
-  title: string;
 }
 
 const TABS: TabDef[] = [
-  { id: "header", label: "Session header", title: "Session header diagram" },
-  { id: "agent", label: "Agent tile", title: "Agent tile diagram" },
-  { id: "shell", label: "Shell tile", title: "Shell / SSH tile diagram" },
+  { id: "header", label: "Session header" },
+  { id: "agent", label: "Agent tile" },
+  { id: "shell", label: "Shell tile" },
 ];
 
 export function DocsModal({ onClose }: Props) {
@@ -47,8 +45,6 @@ export function DocsModal({ onClose }: Props) {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
-
-  const active = TABS.find((t) => t.id === tab) ?? TABS[0];
 
   return (
     <div className="scrim" {...scrimProps}>
@@ -82,13 +78,9 @@ export function DocsModal({ onClose }: Props) {
         </nav>
 
         <div className="docs-body" role="tabpanel">
-          <div className="docs-placeholder">
-            <h3>{active.title}</h3>
-            <p>
-              Diagram coming in a follow-up PR — see{" "}
-              <code>THI-136</code>.
-            </p>
-          </div>
+          {tab === "header" && <HeaderDiagram />}
+          {tab === "agent" && <AgentDiagram />}
+          {tab === "shell" && <ShellDiagram />}
         </div>
 
         <div className="docs-foot">
