@@ -1,4 +1,5 @@
 import type { KindFilter, StatusFilter } from "../lib/filter";
+import { COLUMN_SIZE_ORDER, updateSettings, useSettings } from "../lib/settings";
 import type { HeaderCounts } from "./Header";
 import { Icon } from "./Icon";
 import { StatusLegend } from "./StatusLegend";
@@ -12,6 +13,41 @@ interface Props {
   counts: HeaderCounts;
   kindFilter: KindFilter;
   onChipClick: (next: KindFilter) => void;
+}
+
+function ColumnSizeControl() {
+  const { columnSize } = useSettings();
+  const idx = COLUMN_SIZE_ORDER.indexOf(columnSize);
+  const atNarrow = idx <= 0;
+  const atWide = idx >= COLUMN_SIZE_ORDER.length - 1;
+  const step = (delta: -1 | 1) => {
+    const next = COLUMN_SIZE_ORDER[idx + delta];
+    if (next) updateSettings({ columnSize: next });
+  };
+  return (
+    <span style={{ display: "inline-flex", gap: 2, alignItems: "center" }}>
+      <Tooltip content={`Narrower columns (current: ${columnSize})`}>
+        <button
+          className="tab"
+          onClick={() => step(-1)}
+          disabled={atNarrow}
+          aria-label="Narrower columns"
+        >
+          <Icon name="minus" size={13} />
+        </button>
+      </Tooltip>
+      <Tooltip content={`Wider columns (current: ${columnSize})`}>
+        <button
+          className="tab"
+          onClick={() => step(1)}
+          disabled={atWide}
+          aria-label="Wider columns"
+        >
+          <Icon name="plus" size={13} />
+        </button>
+      </Tooltip>
+    </span>
+  );
 }
 
 export function Subhead({
@@ -92,6 +128,7 @@ export function Subhead({
         </button>
       </span>
       <StatusLegend />
+      <ColumnSizeControl />
       <span className="hdr-spacer" />
       <span className="layout-switcher">
         <Tooltip content="Kanban">
