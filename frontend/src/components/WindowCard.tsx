@@ -100,9 +100,7 @@ function WindowCardImpl({
               </Chip>
             )}
           </div>
-          {(w.kind === "agent" || agent?.recap) && (
-            <div className="recap">{agent?.recap || " "}</div>
-          )}
+          {agent?.recap && <div className="recap">{agent.recap}</div>}
           {pending && agent?.action && (
             <div className="pending">
               <span className="glyph">›</span>
