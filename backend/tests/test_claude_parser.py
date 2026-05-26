@@ -418,7 +418,7 @@ def test_scan_context_pct_brain_emoji_phrasing() -> None:
 
 
 def test_scan_context_pct_brain_emoji_full_bar() -> None:
-    # All-full bar (10× █) at high context. Confirms the bar-char class covers
+    # All-full bar (10x █) at high context. Confirms the bar-char class covers
     # the full Block Elements range, not just the partial-fill characters.
     assert claude_parser._scan_context_pct(["🧠 ██████████ 97%"]) == 97
 
