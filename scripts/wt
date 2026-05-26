@@ -66,8 +66,16 @@ git -C "$root" fetch origin main >/dev/null
 if $create_new; then
   git -C "$root" worktree add -b "$branch" "$wt_dir" origin/main
 else
-  # `git worktree add <path> <branch>` resolves <branch> against the local
-  # ref set, then falls back to origin/<branch>. Works for both cases.
+  # Resolve the branch against the local ref set, then origin. Fail with a
+  # more actionable hint than git's bare "fatal: invalid reference" when
+  # neither exists — most of the time the user meant to pass -b.
+  if ! git -C "$root" show-ref --verify --quiet "refs/heads/$branch" \
+     && ! git -C "$root" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    echo "branch not found locally or on origin: $branch" >&2
+    echo "  to create it off origin/main, re-run with -b:" >&2
+    echo "    $(basename "$0") -b $branch" >&2
+    exit 1
+  fi
   git -C "$root" worktree add "$wt_dir" "$branch"
 fi
 
