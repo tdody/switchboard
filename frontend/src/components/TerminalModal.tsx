@@ -74,6 +74,11 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   // update the callback without tearing down the terminal + WS.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // Same trick for `onToast` — the select-to-copy mouseup listener fires
+  // long after the construction effect runs, and the parent often hands us
+  // a new function identity each render (App's pushToast).
+  const onToastRef = useRef(onToast);
+  onToastRef.current = onToast;
   const [conn, setConn] = useState<Connection>("connecting");
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const { wsStreamEnabled: wsEnabled, terminalFontSize, columnSize } = useSettings();
@@ -265,6 +270,33 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
     };
     viewport?.addEventListener("scroll", onScroll, { passive: true });
 
+    // Select-to-copy (THI-146 extension). On mouseup inside the terminal,
+    // if xterm reports a non-empty selection, copy it to the clipboard and
+    // toast — matches the "select kills mark, mouseup yanks" muscle memory
+    // from terminals like iTerm. We listen on the modal `host` (capture
+    // phase) rather than on `window` so the listener is naturally scoped to
+    // this modal's terminal and doesn't fire for selections elsewhere on
+    // the page (e.g. the modal header text). Clipboard write is
+    // fire-and-forget; the surrounding try/catch handles browsers / iframes
+    // where `navigator.clipboard` is unavailable or rejected.
+    const onSelectMouseUp = () => {
+      const t = termRef.current;
+      if (!t) return;
+      const sel = t.getSelection();
+      if (!sel) return;
+      try {
+        void navigator.clipboard.writeText(sel).then(
+          () => onToastRef.current(`Copied ${sel.length} chars`),
+          () => {
+            /* clipboard denied / unavailable — stay silent */
+          },
+        );
+      } catch {
+        /* navigator.clipboard not available (file://, etc.) */
+      }
+    };
+    host.addEventListener("mouseup", onSelectMouseUp);
+
     let ws: WebSocket | null = null;
     let dataSub: { dispose: () => void } | null = null;
     let cancelled = false;
@@ -385,6 +417,7 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       resizeObs.disconnect();
       window.clearTimeout(fitTimer);
       viewport?.removeEventListener("scroll", onScroll);
+      host.removeEventListener("mouseup", onSelectMouseUp);
       window.clearTimeout(scrollbarTimer);
       dataSub?.dispose();
       if (ws) {
