@@ -28,11 +28,15 @@
   --tone-cyan:   oklch(0.78 0.13 220);
   --tone-amber:  oklch(0.80 0.14 80);
   --tone-green:  oklch(0.78 0.13 145);
-  --tone-red:    oklch(0.72 0.16 25);
+  --tone-red:    #CC6666;
   --tone-gray:   oklch(0.65 0.01 250);
   --tone-magenta: oklch(0.72 0.16 330);
   --tone-lilac:  oklch(0.74 0.12 295);
   --tone-sky:    oklch(0.78 0.13 240);
+  /* Orange sits between amber and red on the traffic-light ramp used by the
+   * context-window accent (THI-131). Defined via color-mix so it tracks any
+   * future tweak to the amber/red endpoints without inventing a fresh hue. */
+  --tone-orange: color-mix(in oklch, var(--tone-amber) 60%, var(--tone-red));
 
   /* Radii / shadows */
   --r-sm: 6px;
@@ -524,6 +528,29 @@ input, textarea, select { font: inherit; color: inherit; }
 .card-hl {
   border-color: var(--accent-edge);
   box-shadow: 0 0 0 1px var(--accent-edge) inset, var(--shadow-card);
+}
+
+/* Context-window usage accent (THI-131). A 4 px strip pinned to the card's
+ * left edge, colored by band. Hover-tooltipped via Tooltip wrapping in
+ * WindowCard. Steps discretely between bands — no transition. Sits inside the
+ * card's rounded border so it doesn't clash with `.card-pending` (which uses
+ * border-color) or `.card-hl` (outer box-shadow). */
+.ctx-accent {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 4px;
+  border-top-left-radius: var(--r);
+  border-bottom-left-radius: var(--r);
+  background: transparent;
+  pointer-events: auto;
+  z-index: 1;
+}
+.card.ctx-low  .ctx-accent { background: var(--tone-green); }
+.card.ctx-mid  .ctx-accent { background: var(--tone-amber); }
+.card.ctx-high .ctx-accent { background: var(--tone-orange); }
+.card.ctx-crit .ctx-accent {
+  background: var(--tone-red);
+  box-shadow: 0 0 6px color-mix(in oklch, var(--tone-red) 60%, transparent);
 }
 
 /* Single-window rename overlay (different layout from the multi-row auto-rename) */

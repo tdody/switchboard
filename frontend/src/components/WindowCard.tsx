@@ -1,7 +1,7 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import type { Window } from "../types";
 import { formatAgo, formatMem } from "../lib/format";
-import { cpuLevel, kindIcon, memLevel } from "../lib/status";
+import { contextBand, cpuLevel, kindIcon, memLevel } from "../lib/status";
 import { Chip } from "./Chip";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
@@ -39,9 +39,13 @@ function WindowCardImpl({
   const cpu = cpuLevel(w.cpu);
   const mem = memLevel(w.mem);
   const showResources = !!cpu || !!mem;
+  // Context-window usage band (THI-131). Drives the left-edge accent strip;
+  // the empty-string return on missing data collapses the conditional below.
+  const ctxBand = useMemo(() => contextBand(agent?.contextPct), [agent?.contextPct]);
   const className =
     `card ${pending ? "card-pending" : ""} ${isFocused ? "card-focused" : ""}` +
-    (isHighlighted ? " card-hl" : "");
+    (isHighlighted ? " card-hl" : "") +
+    (ctxBand ? ` ${ctxBand}` : "");
   return (
     <div
       className={className}
@@ -57,6 +61,11 @@ function WindowCardImpl({
         }
       }}
     >
+      {ctxBand && (
+        <Tooltip content={`Context: ${agent?.contextPct}%`}>
+          <span className="ctx-accent" aria-hidden="true" />
+        </Tooltip>
+      )}
       <div className="card-head">
         <span className={`card-kind kind-${w.kind}`} title={w.kind}>
           <Icon name={kindIcon(w.kind)} size={12} />
@@ -186,6 +195,7 @@ export const WindowCard = memo(WindowCardImpl, (prev, next) => {
     a.agent?.spinner === b.agent?.spinner &&
     a.agent?.duration === b.agent?.duration &&
     a.agent?.recap === b.agent?.recap &&
-    a.agent?.action === b.agent?.action
+    a.agent?.action === b.agent?.action &&
+    a.agent?.contextPct === b.agent?.contextPct
   );
 });
