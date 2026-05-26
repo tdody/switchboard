@@ -165,4 +165,94 @@ describe("sortPendingFirst", () => {
     sortPendingFirst(ws);
     expect(ws).toEqual(before);
   });
+
+  // ─── THI-141: user-pinned within-bucket order ───────────────────────
+
+  it("is identical to the no-arg call when pinnedPaneIds is empty", () => {
+    // Regression guard: the default arg shouldn't change behavior for any
+    // existing call site.
+    const ws = [
+      mkWindow({ name: "a", paneId: "%1", status: "idle", index: 3 }),
+      mkWindow({ name: "b", paneId: "%2", status: "idle", index: 1 }),
+      mkWindow({ name: "c", paneId: "%3", status: "idle", index: 2 }),
+    ];
+    expect(sortPendingFirst(ws).map((w) => w.name)).toEqual(
+      sortPendingFirst(ws, []).map((w) => w.name),
+    );
+  });
+
+  it("respects pinned order within a bucket; unpinned fall through to tmux index", () => {
+    // Three idle panes with tmux indices 3, 1, 2. Pinned = ["%3", "%1"] —
+    // those two come first in that order; the unpinned "%2" falls back
+    // to its index position (after the pinned tail).
+    const ws = [
+      mkWindow({ name: "a", paneId: "%1", status: "idle", index: 3 }),
+      mkWindow({ name: "b", paneId: "%2", status: "idle", index: 1 }),
+      mkWindow({ name: "c", paneId: "%3", status: "idle", index: 2 }),
+    ];
+    expect(sortPendingFirst(ws, ["%3", "%1"]).map((w) => w.name)).toEqual([
+      "c", // %3 first (pinned, position 0)
+      "a", // %1 second (pinned, position 1)
+      "b", // %2 third (unpinned, falls through to index 1)
+    ]);
+  });
+
+  it("does not let a pinned non-pending pane outrank a pending pane (bucket wins)", () => {
+    // THI-122 invariant: pending always floats to top regardless of pins.
+    // If a user pinned an idle pane to position 0 then another pane goes
+    // pending, the pending one still bumps to the top.
+    const ws = [
+      mkWindow({ name: "pinned-idle", paneId: "%1", status: "idle", index: 1 }),
+      mkWindow({
+        name: "pending",
+        paneId: "%2",
+        status: "running",
+        pendingInput: true,
+        index: 2,
+      }),
+    ];
+    expect(sortPendingFirst(ws, ["%1"]).map((w) => w.name)).toEqual([
+      "pending",
+      "pinned-idle",
+    ]);
+  });
+
+  it("sorts among pinned pending panes by pin order", () => {
+    // Two pending panes both pinned: pin order is the tie-breaker.
+    const ws = [
+      mkWindow({
+        name: "pending-A",
+        paneId: "%1",
+        status: "running",
+        pendingInput: true,
+        index: 1,
+      }),
+      mkWindow({
+        name: "pending-B",
+        paneId: "%2",
+        status: "running",
+        pendingInput: true,
+        index: 2,
+      }),
+    ];
+    expect(sortPendingFirst(ws, ["%2", "%1"]).map((w) => w.name)).toEqual([
+      "pending-B", // %2 pinned first
+      "pending-A",
+    ]);
+  });
+
+  it("ignores pin entries that don't match any present pane", () => {
+    // Killed panes leave their id in the saved pin list until next drag.
+    // Stale entries must simply be skipped, not break the comparator.
+    const ws = [
+      mkWindow({ name: "a", paneId: "%1", status: "idle", index: 1 }),
+      mkWindow({ name: "b", paneId: "%2", status: "idle", index: 2 }),
+    ];
+    expect(
+      sortPendingFirst(ws, ["%99-killed", "%2", "%88-killed"]).map((w) => w.name),
+    ).toEqual([
+      "b", // %2 pinned (position 1, but only present pin)
+      "a", // %1 unpinned, falls back to index
+    ]);
+  });
 });
