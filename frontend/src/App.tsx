@@ -24,7 +24,14 @@ import { TerminalModal } from "./components/TerminalModal";
 import { ToastStack } from "./components/ToastStack";
 import { Tour } from "./components/Tour";
 import type { ToastData } from "./components/Toast";
-import { applyFilter, parseQuery, type StatusFilter } from "./lib/filter";
+import {
+  applyFilter,
+  KIND_FILTERS,
+  parseQuery,
+  stripKindToken,
+  type KindFilter,
+  type StatusFilter,
+} from "./lib/filter";
 import { columnsForNav, navigateCard, type NavDirection } from "./lib/cardNav";
 import {
   applySessionOrder,
@@ -66,6 +73,15 @@ export function App() {
     STATUS_FILTERS.includes(filterParam as StatusFilter) ? filterParam : "all"
   ) as StatusFilter;
   const setFilter = (v: StatusFilter) => setFilterParam(v);
+
+  // Kind chip filter (THI-130). URL-synced for back/forward + shareable links;
+  // not localStorage-backed, matching the status filter convention. Unknown
+  // values fall back to "" (no chip selected).
+  const [kindParam, setKindParam] = useURLParam("kind", "");
+  const kindFilter: KindFilter = (
+    KIND_FILTERS.includes(kindParam as KindFilter) ? kindParam : ""
+  ) as KindFilter;
+  const setKindFilter = (v: KindFilter) => setKindParam(v);
 
   const [query, setQuery] = useURLParam("q", "");
   const [openId, setOpenId] = useURLParam("open", "");
@@ -124,8 +140,22 @@ export function App() {
 
   const parsed = useMemo(() => parseQuery(query), [query]);
   const visible = useMemo(
-    () => applyFilter(windows, filter, parsed),
-    [windows, filter, parsed],
+    () => applyFilter(windows, filter, kindFilter, parsed),
+    [windows, filter, kindFilter, parsed],
+  );
+
+  // Chip-click handler (THI-130). Toggle semantics: click the active chip to
+  // clear it; click the inactive chip to switch. Clears any conflicting
+  // `kind:` token from the search box so the chip and the search input never
+  // show competing kind filters.
+  const onChipClick = useCallback(
+    (next: KindFilter) => {
+      if (parsed.tokens.kind && parsed.tokens.kind !== next) {
+        setQuery(stripKindToken(query));
+      }
+      setKindFilter(kindFilter === next ? "" : next);
+    },
+    [parsed.tokens.kind, query, kindFilter, setQuery, setKindFilter],
   );
   const pendingWindows = useMemo(
     () => windows.filter((w) => w.pendingInput),
@@ -329,10 +359,17 @@ export function App() {
     const el = document.documentElement;
     el.setAttribute("data-theme", settings.theme);
     el.setAttribute("data-density", settings.density);
+    el.setAttribute("data-column-size", settings.columnSize);
     el.setAttribute("data-show-previews", String(settings.density === "preview"));
     el.setAttribute("data-reduced-motion", String(settings.reducedMotion));
     applyAccent(settings.accent);
-  }, [settings.theme, settings.density, settings.reducedMotion, settings.accent]);
+  }, [
+    settings.theme,
+    settings.density,
+    settings.columnSize,
+    settings.reducedMotion,
+    settings.accent,
+  ]);
 
   // Pending-input badge in the browser tab title.
   useEffect(() => {
@@ -548,6 +585,8 @@ export function App() {
         query={query}
         setQuery={setQuery}
         counts={counts}
+        kindFilter={kindFilter}
+        onChipClick={onChipClick}
       />
       <main className="main">
         <Kanban

@@ -5,6 +5,7 @@ import {
   ACCENT_TOKENS,
   accentColor,
   type Accent,
+  type ColumnSize,
   type Density,
   POLL_MAX_S,
   POLL_MIN_S,
@@ -228,6 +229,23 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
                 <option value="compact">Compact</option>
                 <option value="comfy">Comfy</option>
                 <option value="preview">Preview</option>
+              </select>
+              <span />
+            </div>
+            <div className="settings-row">
+              <span>
+                <div className="name">Column width</div>
+                <div className="desc">Width of each kanban column. Narrow / Normal / Wide.</div>
+              </span>
+              <select
+                value={settings.columnSize}
+                onChange={(e) =>
+                  updateSettings({ columnSize: e.target.value as ColumnSize })
+                }
+              >
+                <option value="narrow">Narrow</option>
+                <option value="normal">Normal</option>
+                <option value="wide">Wide</option>
               </select>
               <span />
             </div>

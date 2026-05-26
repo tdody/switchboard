@@ -14,12 +14,17 @@ export type Theme = "dark" | "light" | "contrast" | "phosphor";
 export type Accent = "aurora" | "amber" | "sky" | "magenta" | "lilac";
 export type Density = "compact" | "comfy" | "preview";
 export type Layout = "kanban" | "grid" | "list";
+export type ColumnSize = "narrow" | "normal" | "wide";
+/** Ordered narrow → normal → wide so +/- controls can step linearly (THI-128). */
+export const COLUMN_SIZE_ORDER: readonly ColumnSize[] = ["narrow", "normal", "wide"];
 
 export interface Settings {
   theme: Theme;
   accent: Accent;
   density: Density;
   layout: Layout;
+  /** Kanban column width (THI-128). Orthogonal to `density`. */
+  columnSize: ColumnSize;
   reducedMotion: boolean;
   pollIntervalMs: number;
   wsStreamEnabled: boolean;
@@ -64,6 +69,7 @@ export const DEFAULT_SETTINGS: Settings = {
   accent: "aurora",
   density: "comfy",
   layout: "kanban",
+  columnSize: "normal",
   // Honor the OS preference out of the box; the user can still override it.
   reducedMotion: prefersReducedMotion(),
   pollIntervalMs: 3000,

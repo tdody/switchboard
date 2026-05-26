@@ -1,6 +1,11 @@
 import type { Window } from "../types";
 
 export type StatusFilter = "all" | "waiting" | "running" | "idle";
+// Chip-driven kind filter. "" means "no chip selected" (show all kinds).
+// Scoped to agent/shell only per THI-130; other kinds remain reachable via
+// the search-box `kind:` token.
+export type KindFilter = "" | "agent" | "shell";
+export const KIND_FILTERS: KindFilter[] = ["", "agent", "shell"];
 
 export interface ParsedQuery {
   tokens: { kind?: string; status?: string; session?: string };
@@ -26,12 +31,14 @@ export function parseQuery(q: string): ParsedQuery {
 export function applyFilter(
   windows: Window[],
   filter: StatusFilter,
+  kindFilter: KindFilter,
   parsed: ParsedQuery,
 ): Window[] {
   const { tokens, freeText } = parsed;
   const q = freeText.toLowerCase();
   return windows.filter((w) => {
     if (filter !== "all" && w.status !== filter) return false;
+    if (kindFilter && w.kind !== kindFilter) return false;
     if (tokens.kind && w.kind !== tokens.kind) return false;
     if (tokens.status && w.status !== tokens.status) return false;
     if (tokens.session && w.session !== tokens.session) return false;
@@ -44,6 +51,14 @@ export function applyFilter(
       (w.cmd ?? "").toLowerCase().includes(q)
     );
   });
+}
+
+// Strip every `kind:value` token (case-insensitive) from a search-box string,
+// preserving the rest. Used when the chip-click handler needs to clear a
+// competing `kind:` token so the chip and the search box don't visually
+// disagree (THI-130).
+export function stripKindToken(q: string): string {
+  return q.replace(/\bkind:\S+\s*/gi, "").trim();
 }
 
 // Coarse buckets keep Claude panes from shuffling mid-poll: a window
