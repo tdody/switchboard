@@ -39,6 +39,12 @@ class Agent(_CamelModel):
     # just opened, or scrolled past). Serializes as `contextPct` via the
     # `to_camel` alias generator (THI-131).
     context_pct: int | None = None
+    # Running USD cost for THIS pane's claude session, scraped from the `💰`
+    # marker in the TUI status line by `_scan_session_cost`. None when the
+    # marker isn't visible (fresh session before the first billed turn, or
+    # a non-conversation TUI screen). The frontend sums these across visible
+    # agent panes for the header pill (THI-139).
+    session_cost_usd: float | None = None
 
 
 class PromptChoice(_CamelModel):

@@ -26,6 +26,11 @@ export interface Agent {
   // scraped from the TUI footer (THI-131). Optional/absent when the parser
   // hasn't seen the `Context:` line in the recent capture.
   contextPct?: number;
+  // Running USD cost for THIS pane's claude session, scraped from the `💰`
+  // marker in the TUI status line (THI-139). Null when the marker isn't
+  // visible (fresh session, or a TUI screen that doesn't render the footer).
+  // Frontend sums these across visible agent panes for the header pill.
+  sessionCostUsd?: number;
 }
 
 export interface Window {

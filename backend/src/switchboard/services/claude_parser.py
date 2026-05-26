@@ -66,6 +66,17 @@ _CONTEXT_RE_OLD = re.compile(
     re.IGNORECASE,
 )
 
+# Per-session dollar cost reported by Claude Code's status line, e.g.
+#   `📨 6 📤 542 | session: 155.4k in / 542 out 💰 $8.33 🤖 opus …`
+# Captured as a float for the running session of THIS pane (THI-139). Summed
+# across visible agent panes in the frontend to drive the header pill.
+# Comma-separated thousands tolerated for future-proofing (current Claude
+# builds don't seem to use them, but the cost can climb high enough that
+# they'd be reasonable). 💰 is U+1F4B0.
+_SESSION_COST_RE = re.compile(
+    r"\U0001F4B0\s*\$([\d,]+(?:\.\d+)?)",
+)
+
 # Recap: assistant-message marker, then the message body.
 _RECAP_RE = re.compile(r"^\s*[●✓✗][\s ]+(.+?)\s*$")
 
@@ -135,6 +146,29 @@ def _scan_context_pct(lines: list[str]) -> int | None:
             # Out-of-range: keep scanning upward; a corrupt tail shouldn't
             # mask a valid older line. (Spec test treats sole 101% as None,
             # which falls through this loop to the final return.)
+    return None
+
+
+def _scan_session_cost(lines: list[str]) -> float | None:
+    """Per-session USD cost as reported by Claude Code's status line (THI-139).
+
+    Matches `💰 $X.XX` in the last ~30 lines, bottom-up so a fresh reading
+    wins over a stale one that scrolled. Returns the running total for this
+    pane's session (the same number Claude shows in its TUI footer); the
+    frontend sums these across visible agent panes for the header pill.
+    `None` when the line isn't present (fresh session before the first
+    billed turn, or a TUI screen that doesn't render the footer).
+    """
+    for raw in reversed(lines[-30:]):
+        line = _strip_ansi(raw)
+        m = _SESSION_COST_RE.search(line)
+        if m:
+            try:
+                return float(m.group(1).replace(",", ""))
+            except ValueError:
+                # Capture matched the pattern but isn't a parseable number —
+                # keep scanning upward in case a cleaner line sits above.
+                continue
     return None
 
 
@@ -327,6 +361,7 @@ def parse_pane(lines: list[str], cwd: str | None) -> tuple[Status, bool, Agent |
     recap = _scan_recap(lines)
     prompt = parse_prompt(lines)
     context_pct = _scan_context_pct(lines)
+    session_cost_usd = _scan_session_cost(lines)
     pending = prompt is not None
     action = prompt.question if prompt is not None else None
     # Active spinner overrides pending — Claude is still working.
@@ -344,5 +379,6 @@ def parse_pane(lines: list[str], cwd: str | None) -> tuple[Status, bool, Agent |
         recap=recap,
         action=action,
         context_pct=context_pct,
+        session_cost_usd=session_cost_usd,
     )
     return status, pending, agent

@@ -4,6 +4,7 @@ import {
   ACTIVE_TOKEN_DANGER_THRESHOLD,
   ACTIVE_TOKEN_WARN_THRESHOLD,
   activeTokens,
+  fmtCost,
   fmtResetCountdown,
   fmtTokens,
   meterTone,
@@ -89,5 +90,22 @@ describe("meterTone", () => {
     expect(meterTone(89)).toBe("warn");
     expect(meterTone(90)).toBe("danger");
     expect(meterTone(100)).toBe("danger");
+  });
+});
+
+describe("fmtCost", () => {
+  it("formats zero as $0.00 (stable two-decimal pill width)", () => {
+    expect(fmtCost(0)).toBe("$0.00");
+  });
+
+  it("rounds to two decimals", () => {
+    expect(fmtCost(0.6592)).toBe("$0.66");
+    expect(fmtCost(12.345)).toBe("$12.35");
+  });
+
+  it("groups thousands with a comma", () => {
+    // The cost can climb fast on a long session; thousands-grouping keeps
+    // the pill readable at scale.
+    expect(fmtCost(1234.5)).toBe("$1,234.50");
   });
 });

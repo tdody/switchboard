@@ -18,6 +18,10 @@ interface Props {
   /** Claude rolling-window usage; null while the first /api/usage poll is in
    *  flight. Pill hides itself when usage data isn't available (THI-110). */
   usage?: UsageResponse | null;
+  /** Sum of `agent.sessionCostUsd` across the currently-visible agent panes,
+   *  computed in App.tsx (THI-139). Drives the cost figure in the usage pill;
+   *  0 when no claude pane reports a `💰` line yet. */
+  activeSessionCostUsd?: number;
   onHelp: () => void;
   onSettings: () => void;
   onOpenDocs: () => void;
@@ -29,6 +33,7 @@ export function Header({
   serverAddr,
   inEmpty,
   usage,
+  activeSessionCostUsd,
   onHelp,
   onSettings,
   onOpenDocs,
@@ -75,7 +80,9 @@ export function Header({
 
       <div className="hdr-spacer" />
 
-      {!inEmpty && <UsagePill usage={usage ?? null} />}
+      {!inEmpty && (
+        <UsagePill usage={usage ?? null} activeSessionCostUsd={activeSessionCostUsd ?? 0} />
+      )}
 
       <div className="hdr-cta">
         {inEmpty && onRetry && (

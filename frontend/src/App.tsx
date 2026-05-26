@@ -153,6 +153,16 @@ export function App() {
     [windows],
   );
 
+  // Sum of per-pane Claude session costs scraped from each agent's TUI `💰`
+  // line (THI-139). Drives the cost figure in the header usage pill — exactly
+  // the same dollar total the user gets if they read `💰` across every
+  // visible claude pane and add them up.
+  const activeSessionCostUsd = useMemo(
+    () =>
+      windows.reduce((sum, w) => sum + (w.agent?.sessionCostUsd ?? 0), 0),
+    [windows],
+  );
+
   const parsed = useMemo(() => parseQuery(query), [query]);
   const visible = useMemo(
     () => applyFilter(windows, filter, kindFilter, parsed),
@@ -607,6 +617,7 @@ export function App() {
         serverAddr={SERVER_ADDR}
         inEmpty={false}
         usage={usage}
+        activeSessionCostUsd={activeSessionCostUsd}
         onHelp={() => setShowShortcuts(true)}
         onSettings={() => setShowSettings(true)}
         onOpenDocs={() => setShowDocs(true)}

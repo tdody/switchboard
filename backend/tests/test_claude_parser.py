@@ -484,3 +484,65 @@ def test_parse_pane_context_pct_none_when_absent() -> None:
     _, _, agent = claude_parser.parse_pane(["● Done."], cwd=None)
     assert agent is not None
     assert agent.context_pct is None
+
+
+# THI-139: per-agent session cost. `_scan_session_cost` reads the `💰 $X.XX`
+# marker from the Claude Code TUI status line (the same figure Claude shows
+# inside each pane) and the frontend sums these across visible agent panes
+# for the header usage pill.
+def test_scan_session_cost_modern_status_line() -> None:
+    # Real captured status line: 💰 lives between session counters and the
+    # model name. Scanner returns it as a float regardless of surrounding
+    # emojis / counters.
+    line = (
+        "📁 frontend 🌿 thibaultdody/thi-139  |  "
+        "🧠 █░░░░░░░░░ 16% 📨 6 📤 542 | session: 155.4k in / 542 out "
+        "💰 $8.33 🤖 opus  ⏵⏵ auto mode on"
+    )
+    assert claude_parser._scan_session_cost([line]) == 8.33
+
+
+def test_scan_session_cost_no_decimal() -> None:
+    # A round number is rare but should parse cleanly.
+    assert claude_parser._scan_session_cost(["💰 $42"]) == 42.0
+
+
+def test_scan_session_cost_with_thousands_comma() -> None:
+    # Defensive: if Claude ever uses thousands separators (some locales /
+    # future versions might), parse them too rather than silently truncating.
+    assert claude_parser._scan_session_cost(["💰 $1,234.56"]) == 1234.56
+
+
+def test_scan_session_cost_most_recent_wins() -> None:
+    # Bottom-up scan: the freshest 💰 line wins over an earlier reading.
+    lines = ["💰 $1.00", "(filler)", "💰 $7.42"]
+    assert claude_parser._scan_session_cost(lines) == 7.42
+
+
+def test_scan_session_cost_strips_ansi() -> None:
+    # Real captures wrap the status line in dim/colour ANSI sequences.
+    assert claude_parser._scan_session_cost(["\x1b[2m💰 $5.25\x1b[0m"]) == 5.25
+
+
+def test_scan_session_cost_returns_none_when_absent() -> None:
+    # Fresh session before the first billed turn — no 💰 marker yet.
+    assert claude_parser._scan_session_cost(["just a chat line"]) is None
+
+
+def test_parse_pane_threads_session_cost_into_agent() -> None:
+    # End-to-end: parse_pane includes session_cost_usd on the Agent payload
+    # and the `to_camel` alias generator serializes it as `sessionCostUsd`.
+    lines = [
+        "● Done.",
+        "💰 $3.27 🤖 opus",
+    ]
+    _, _, agent = claude_parser.parse_pane(lines, cwd=None)
+    assert agent is not None
+    assert agent.session_cost_usd == 3.27
+    assert agent.model_dump(by_alias=True)["sessionCostUsd"] == 3.27
+
+
+def test_parse_pane_session_cost_none_when_absent() -> None:
+    _, _, agent = claude_parser.parse_pane(["● Done."], cwd=None)
+    assert agent is not None
+    assert agent.session_cost_usd is None
