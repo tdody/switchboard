@@ -48,6 +48,7 @@ import {
 } from "./lib/windowOrder";
 import { applyAccent, useSettings } from "./lib/settings";
 import { pickPollInterval } from "./lib/pollTier";
+import { useInputActive } from "./lib/useInputActive";
 import { useURLParam } from "./lib/urlState";
 import type { Window } from "./types";
 
@@ -56,12 +57,15 @@ const SERVER_ADDR = "127.0.0.1:8765";
 const STATUS_FILTERS: StatusFilter[] = ["all", "waiting", "running", "idle"];
 // While the terminal modal is open we still want the header / status pill /
 // pending flag to update promptly, but the original 100 ms cadence (THI-105)
-// burned enough backend work — see THI-142 — to stack `/api/state` handlers
-// faster than they could complete, exhausting the FD budget. 500 ms = 2 Hz,
-// which still reads as live for single-chip changes (humans don't notice
-// sub-200 ms updates on a status pill) and gives the backend 5× of the
-// FD-budget headroom on top of the single-flight wrapper. Pane bytes still
-// stream over WebSocket; this only affects /api/state metadata.
+// caused two distinct problems: it burned enough React render budget on a
+// busy dashboard to make typing in *other* modals lag (THI-138), and it
+// stacked `/api/state` handlers on the backend faster than they could
+// complete, exhausting the FD budget (THI-142, fixed by single-flight on
+// the backend). 500 ms = 2 Hz, which still reads as live for single-chip
+// changes (humans don't notice sub-200 ms updates on a status pill), frees
+// 5× of the main thread for input handling, and gives the backend's FD
+// budget another 5× headroom on top of the single-flight wrapper. Pane
+// bytes still stream over WebSocket; this only affects /api/state metadata.
 const MODAL_OPEN_POLL_MS = 500;
 // Claude usage is server-side-cached for 30 s; polling more often would just
 // hand the cached value back. Decoupled from the /api/state cadence so a busy
@@ -107,6 +111,11 @@ export function App() {
   const [pollIntervalMs, setPollIntervalMs] = useState(settings.pollIntervalMs);
   const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, pollIntervalMs);
   const { data: usage } = usePolling(fetchUsage, USAGE_POLL_MS);
+  // Input-active backoff (THI-138). True while the user is typing into a
+  // non-xterm text input within the last 800 ms. Threaded through the
+  // pollTier effect below so a typing burst widens the /api/state cadence
+  // and keystrokes don't compete with polling-driven renders.
+  const inputActive = useInputActive();
   const { quickCreating, handleQuickCreate } = useQuickCreate(refresh);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
@@ -402,19 +411,21 @@ export function App() {
   );
 
   // THI-127 tier picker. Recomputes the /api/state poll cadence whenever the
-  // modal-open state, the windows list, or the user-configured cadence
-  // changes. `pickPollInterval` is pure — see lib/pollTier.ts and the spec
-  // tier table for the exact decision rules. The setState short-circuits on
-  // identical values so we don't churn `usePolling`'s [ms] dep.
+  // modal-open state, the windows list, the user-configured cadence, or
+  // the input-active flag (THI-138) changes. `pickPollInterval` is pure —
+  // see lib/pollTier.ts and the spec tier table for the exact decision
+  // rules. The setState short-circuits on identical values so we don't
+  // churn `usePolling`'s [ms] dep.
   useEffect(() => {
     const next = pickPollInterval(
       Boolean(openId),
       windows,
       settings.pollIntervalMs,
       MODAL_OPEN_POLL_MS,
+      inputActive,
     );
     setPollIntervalMs((prev) => (prev === next ? prev : next));
-  }, [openId, windows, settings.pollIntervalMs]);
+  }, [openId, windows, settings.pollIntervalMs, inputActive]);
 
   // Apply persisted appearance settings to <html>. The theme/density/
   // reduced-motion CSS ships in styles.css; accent is written as CSS vars.
