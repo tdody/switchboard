@@ -65,7 +65,33 @@
    * centered. */
   align-items: flex-start;
   justify-content: center;
+  /* `position: relative` lets `.docs-secondary` absolutely pin itself
+   * to the body's bottom edge — see the V1 layout in THI-143. */
+  position: relative;
 }
+
+/* "Also visible —" footer strip (THI-143). Pinned to the bottom of the
+ * docs-body so it doesn't move when the diagram above changes height
+ * between tabs. Mono-font, dim hairline above, centered list of bold
+ * label + muted-text pairs separated by dim dots. */
+.docs-secondary {
+  position: absolute;
+  bottom: 24px;
+  left: 24px;
+  right: 24px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-mute);
+}
+.docs-secondary-hd { color: var(--text-dim); }
+.docs-secondary b { color: var(--text); font-weight: 600; }
+.docs-secondary-dot { color: var(--text-dim); }
 
 .docs-foot {
   display: flex; align-items: center; gap: 10px; justify-content: flex-end;

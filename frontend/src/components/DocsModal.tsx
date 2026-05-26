@@ -2,19 +2,23 @@ import { useEffect, useState } from "react";
 
 import { useScrimClose } from "../lib/useScrimClose";
 import "../styles/docs.css";
-import { AgentDiagram } from "./docs/AgentDiagram";
+import { AgentCardArt } from "./docs/AgentCardArt";
+import { AgentTileCallouts } from "./docs/AgentTileCallouts";
+import { DocsSecondary, type DocsSecondaryItem } from "./docs/DocsSecondary";
 import { HeaderDiagram } from "./docs/HeaderDiagram";
-import { ShellDiagram } from "./docs/ShellDiagram";
+import { ShellCardArt } from "./docs/ShellCardArt";
+import { ShellTileCallouts } from "./docs/ShellTileCallouts";
 import { Icon } from "./Icon";
 import { SwitchboardMark } from "./SwitchboardMark";
 
 /**
- * In-app Documentation modal (THI-136).
+ * In-app Documentation modal (THI-136 shell, THI-143 V1 callouts).
  *
- * Modeled on `SettingsModal`: scrim with click-to-close, Esc-to-close,
- * pinned header / footer rows around a scrollable body. Each tab renders
- * a hand-authored SVG diagram annotated with callouts; geometry lives in
- * the diagram components, themed colors in styles/docs.css.
+ * Scrim with click-to-close, Esc-to-close, pinned header / tabs / footer
+ * rows around a body that hosts one of three reference diagrams. Each
+ * diagram now follows the V1 idiom (THI-143): centered card / bar in a
+ * 1240×480 viewBox, all callouts L-with-leg routed through shared rails,
+ * secondary annotations relegated to a footer strip below the SVG.
  */
 
 type DocsTab = "header" | "agent" | "shell";
@@ -33,6 +37,32 @@ const TABS: TabDef[] = [
   { id: "agent", label: "Agent tile" },
   { id: "shell", label: "Shell tile" },
 ];
+
+// "Also visible —" strip content per tab. Items mirror the parts that
+// have no primary callout: conditional / duplicative / low-information
+// affordances the user should know about but that don't warrant a leg
+// on the diagram. Session header keeps its own self-contained diagram
+// (no strip) — it had no obvious demotions and the iterated L-shape
+// layout works without one.
+const AGENT_SECONDARY: ReadonlyArray<DocsSecondaryItem> = [
+  { label: "Spinner", desc: "activity + elapsed" },
+  { label: "Recap", desc: "last assistant line" },
+  { label: "CPU / mem", desc: "when elevated" },
+  { label: "Age", desc: "since last output" },
+];
+const SHELL_SECONDARY: ReadonlyArray<DocsSecondaryItem> = [
+  { label: "CPU / mem", desc: "when elevated" },
+  { label: "Age", desc: "since last output" },
+];
+
+// Card placement inside the 1240×480 SVG body. Agent (400-tall) and
+// Shell (330-tall) cards both use cx=470 so their left edges align
+// vertically; cy differs so each sits visually centered.
+const VIEWBOX_W = 1240;
+const VIEWBOX_H = 480;
+const CARD_CX = 470;
+const AGENT_CY = 40; // (480-400)/2 = 40
+const SHELL_CY = 75; // (480-330)/2 = 75
 
 export function DocsModal({ onClose }: Props) {
   const scrimProps = useScrimClose(onClose);
@@ -78,9 +108,37 @@ export function DocsModal({ onClose }: Props) {
         </nav>
 
         <div className="docs-body" role="tabpanel">
-          {tab === "header" && <HeaderDiagram />}
-          {tab === "agent" && <AgentDiagram />}
-          {tab === "shell" && <ShellDiagram />}
+          {tab === "header" ? (
+            // Session header keeps its self-contained diagram with its own
+            // viewBox — the rotated V1 idiom (top/bottom rails) tried for
+            // this tab looked busier than the L-shaped layout we'd already
+            // iterated to, so we kept the original (THI-136 + earlier
+            // crossings-fix iteration in this session).
+            <HeaderDiagram />
+          ) : (
+            <svg
+              className="docs-diagram"
+              viewBox={`0 0 ${VIEWBOX_W} ${VIEWBOX_H}`}
+              xmlns="http://www.w3.org/2000/svg"
+              preserveAspectRatio="xMidYMid meet"
+              aria-label={`${TABS.find((t) => t.id === tab)?.label} diagram`}
+            >
+              {tab === "agent" && (
+                <>
+                  <AgentCardArt cx={CARD_CX} cy={AGENT_CY} />
+                  <AgentTileCallouts cx={CARD_CX} cy={AGENT_CY} />
+                </>
+              )}
+              {tab === "shell" && (
+                <>
+                  <ShellCardArt cx={CARD_CX} cy={SHELL_CY} />
+                  <ShellTileCallouts cx={CARD_CX} cy={SHELL_CY} />
+                </>
+              )}
+            </svg>
+          )}
+          {tab === "agent" && <DocsSecondary items={AGENT_SECONDARY} />}
+          {tab === "shell" && <DocsSecondary items={SHELL_SECONDARY} />}
         </div>
 
         <div className="docs-foot">
