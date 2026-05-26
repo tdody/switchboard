@@ -74,6 +74,12 @@ export interface ClaudeUsage {
   outputTokens: number;
   totalTokens: number;
   resetAt: number | null;
+  /** Rolling-window USD cost (THI-139). 0.0 if no priced records. */
+  costUsd: number;
+  /** Model ids that had no entry in the backend pricing table — their
+   *  tokens still count toward `*Tokens` totals but contribute 0 cost,
+   *  so the pill tooltip can surface a "pricing missing for X" hint. */
+  unknownModels: string[];
 }
 
 // One row of the `claude /usage` TUI; populated only when the optional scrape

@@ -76,3 +76,23 @@ export function meterTone(percent: number): Tone {
   if (percent >= 70) return "warn";
   return "ok";
 }
+
+/**
+ * USD cost formatter for the usage pill (THI-139).
+ *   0       -> "$0.00"
+ *   0.6592  -> "$0.66"
+ *   12.345  -> "$12.35"
+ *   1234.5  -> "$1,234.50"
+ *
+ * `Intl.NumberFormat` handles the grouping and rounding; we ask for 2
+ * fraction digits unconditionally so the field width is stable on the pill.
+ */
+const _USD = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+export function fmtCost(usd: number): string {
+  return _USD.format(usd);
+}

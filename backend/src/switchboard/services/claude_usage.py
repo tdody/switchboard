@@ -31,6 +31,7 @@ from pathlib import Path
 
 from switchboard.config import settings
 from switchboard.schemas import ClaudeUsage, UsageMeter, UsageScrape
+from switchboard.services import pricing
 
 log = logging.getLogger(__name__)
 
@@ -77,6 +78,8 @@ def compute_claude_usage(
     cutoff = (now if now is not None else time.time()) - window_hours * 3600
     fresh = cache_w = cache_r = out = msgs = 0
     earliest_msg_ts: float | None = None
+    cost_usd = 0.0
+    unknown_models: set[str] = set()
 
     for jsonl in root.glob("*/*.jsonl"):
         # mtime pre-filter: a file last touched before the cutoff can't contain
@@ -105,18 +108,40 @@ def compute_claude_usage(
                         continue
                     if ts < cutoff:
                         continue
-                    usage = ((rec.get("message") or {}).get("usage")) or {}
+                    message = rec.get("message") or {}
+                    usage = message.get("usage") or {}
                     if not usage:
                         # `user` records and assistant tool-call placeholders
                         # carry no `usage` block — only fully-billed turns do.
                         continue
-                    fresh += int(usage.get("input_tokens") or 0)
-                    cache_w += int(usage.get("cache_creation_input_tokens") or 0)
-                    cache_r += int(usage.get("cache_read_input_tokens") or 0)
-                    out += int(usage.get("output_tokens") or 0)
+                    rec_input = int(usage.get("input_tokens") or 0)
+                    rec_cache_w = int(usage.get("cache_creation_input_tokens") or 0)
+                    rec_cache_r = int(usage.get("cache_read_input_tokens") or 0)
+                    rec_out = int(usage.get("output_tokens") or 0)
+                    fresh += rec_input
+                    cache_w += rec_cache_w
+                    cache_r += rec_cache_r
+                    out += rec_out
                     msgs += 1
                     if earliest_msg_ts is None or ts < earliest_msg_ts:
                         earliest_msg_ts = ts
+                    # Dollar cost (THI-139). Token counts above are still
+                    # accumulated for unknown models so the "tok" pill stays
+                    # honest; the unknown-models set lets the UI surface the
+                    # gap rather than under-counting silently.
+                    model = message.get("model") or ""
+                    prices = pricing.lookup(model)
+                    if prices is None:
+                        if model:
+                            unknown_models.add(model)
+                    else:
+                        cost_usd += pricing.cost_for(
+                            prices,
+                            input_tokens=rec_input,
+                            cache_creation_tokens=rec_cache_w,
+                            cache_read_tokens=rec_cache_r,
+                            output_tokens=rec_out,
+                        )
         except OSError:
             continue
 
@@ -131,6 +156,8 @@ def compute_claude_usage(
         output_tokens=out,
         total_tokens=fresh + cache_w + cache_r + out,
         reset_at=reset_at,
+        cost_usd=round(cost_usd, 4),
+        unknown_models=sorted(unknown_models),
     )
 
 

@@ -14,6 +14,8 @@ const baseTokens = {
   outputTokens: 150,
   totalTokens: 1_400,
   resetAt: null as number | null,
+  costUsd: 0.0,
+  unknownModels: [] as string[],
 };
 
 afterEach(cleanup);
@@ -141,5 +143,39 @@ describe("UsagePill", () => {
     const { container } = render(<UsagePill usage={usage} />);
     const pill = container.querySelector(".usage-pill");
     expect(pill?.className).toContain("usage-pill-danger");
+  });
+
+  it("renders the USD cost next to the token total (THI-139)", () => {
+    const usage: UsageResponse = {
+      tokens: { ...baseTokens, costUsd: 4.32 },
+      scrape: null,
+    };
+    render(<UsagePill usage={usage} />);
+    expect(screen.getByText("· $4.32")).toBeTruthy();
+  });
+
+  it("renders $0.00 when cost is zero (no priced records yet)", () => {
+    // Zero-cost should still paint the field — hiding it would read as
+    // a broken pill the moment the user runs their first message.
+    const usage: UsageResponse = {
+      tokens: { ...baseTokens, costUsd: 0.0 },
+      scrape: null,
+    };
+    render(<UsagePill usage={usage} />);
+    expect(screen.getByText("· $0.00")).toBeTruthy();
+  });
+
+  it("lists unknown models in the tooltip when pricing is incomplete", () => {
+    const usage: UsageResponse = {
+      tokens: {
+        ...baseTokens,
+        costUsd: 1.23,
+        unknownModels: ["claude-future-9-9-20991231"],
+      },
+      scrape: null,
+    };
+    const { container } = render(<UsagePill usage={usage} />);
+    const title = container.querySelector(".usage-pill")?.getAttribute("title") || "";
+    expect(title).toContain("pricing missing for: claude-future-9-9-20991231");
   });
 });

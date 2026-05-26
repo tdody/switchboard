@@ -214,6 +214,9 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--text);
   font-weight: 500;
 }
+.usage-pill .usage-cost {
+  color: var(--text-mute);
+}
 .usage-pill .usage-reset {
   color: var(--text-dim);
 }

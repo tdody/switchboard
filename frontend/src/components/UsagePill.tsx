@@ -1,6 +1,7 @@
 import type { UsageMeter, UsageResponse } from "../types";
 import {
   activeTokens,
+  fmtCost,
   fmtResetCountdown,
   fmtTokens,
   meterTone,
@@ -58,10 +59,12 @@ export function UsagePill({ usage }: Props) {
     const active = activeTokens(usage.tokens);
     const tone = tokenTone(active);
     const countdown = fmtResetCountdown(usage.tokens.resetAt);
+    const cost = fmtCost(usage.tokens.costUsd);
     return (
       <span className={`usage-pill usage-pill-${tone}`} title={pillTitle(usage)}>
         <span className="usage-window">5h</span>
         <span className="usage-total">{fmtTokens(active)}</span>
+        <span className="usage-cost">· {cost}</span>
         {countdown && <span className="usage-reset">· resets {countdown}</span>}
       </span>
     );
@@ -99,7 +102,13 @@ function pillTitle(usage: UsageResponse): string {
     `    cache create: ${t.cacheCreationTokens.toLocaleString()}`,
     `    output:       ${t.outputTokens.toLocaleString()}`,
     `  ${t.cacheReadTokens.toLocaleString()} cache reads (discounted, excluded from pill)`,
+    `  ${fmtCost(t.costUsd)} estimated USD cost`,
   ];
+  // Surface pricing gaps so users know the cost is incomplete rather than
+  // wondering why their $ figure looks low after a future Anthropic release.
+  if (t.unknownModels.length > 0) {
+    parts.push(`    pricing missing for: ${t.unknownModels.join(", ")}`);
+  }
   return parts.join("\n");
 }
 
