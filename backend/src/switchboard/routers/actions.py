@@ -81,6 +81,16 @@ def post_window(session: str, name: str) -> dict[str, object]:
     return {"ok": True, "index": index, "id": f"{session}:{index}"}
 
 
+@router.post("/session")
+def post_session(name: str) -> dict[str, object]:
+    # tmux's own duplicate-name guard does the existence check; we only need
+    # to translate the boolean back into 409 so the UI can surface the
+    # name-in-use case distinctly from a transport error.
+    if not tmux.new_session(name):
+        raise HTTPException(status_code=409, detail="session name in use or invalid")
+    return {"ok": True, "name": name}
+
+
 @router.post("/detach")
 def post_detach(tty: str) -> dict[str, bool]:
     ok = tmux.detach_client(tty)

@@ -119,6 +119,20 @@ export async function renameSession(session: string, name: string): Promise<bool
   return r.ok;
 }
 
+/** new-session for `name`. Resolves `"ok"` on success, `"in-use"` when tmux
+ *  rejects the name as a duplicate (HTTP 409), or `"error"` otherwise. The
+ *  in-use case is split so NewSessionOverlay can show a name-specific hint
+ *  instead of a generic failure (THI-144). */
+export async function createSession(name: string): Promise<"ok" | "in-use" | "error"> {
+  const r = await fetch(
+    `${BASE}/session?name=${encodeURIComponent(name)}`,
+    { method: "POST", headers: { ...csrfHeaders() } },
+  );
+  if (r.ok) return "ok";
+  if (r.status === 409) return "in-use";
+  return "error";
+}
+
 /** new-window in `session`; resolves the new window's id, or null on failure. */
 export async function createWindow(
   session: string,

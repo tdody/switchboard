@@ -48,6 +48,7 @@ def _csrf(client: TestClient) -> dict[str, str]:
         ("post", "/api/send?session=x&index=0"),
         ("post", "/api/paste-image?session=x&index=0"),
         ("post", "/api/rename-session?session=x"),
+        ("post", "/api/session?name=y"),
     ],
 )
 def test_mutations_require_csrf(client: TestClient, method: str, path: str) -> None:
@@ -108,6 +109,24 @@ def test_post_window_ok_returns_new_id(client: TestClient, monkeypatch) -> None:
     r = client.post("/api/window?session=dev&name=tests", headers=_csrf(client))
     assert r.status_code == 200
     assert r.json() == {"ok": True, "index": 4, "id": "dev:4"}
+
+
+def test_post_session_ok(client: TestClient, monkeypatch) -> None:
+    seen: list[str] = []
+    monkeypatch.setattr(
+        "switchboard.services.tmux.new_session",
+        lambda name: seen.append(name) or True,
+    )
+    r = client.post("/api/session?name=feat", headers=_csrf(client))
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "name": "feat"}
+    assert seen == ["feat"]
+
+
+def test_post_session_409_on_duplicate(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr("switchboard.services.tmux.new_session", lambda name: False)
+    r = client.post("/api/session?name=dev", headers=_csrf(client))
+    assert r.status_code == 409
 
 
 def test_post_detach_ok(client: TestClient, monkeypatch) -> None:

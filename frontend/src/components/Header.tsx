@@ -25,6 +25,7 @@ interface Props {
   onHelp: () => void;
   onSettings: () => void;
   onOpenDocs: () => void;
+  onNewSession: () => void;
   onRetry?: () => void;
 }
 
@@ -37,6 +38,7 @@ export function Header({
   onHelp,
   onSettings,
   onOpenDocs,
+  onNewSession,
   onRetry,
 }: Props) {
   return (
@@ -90,6 +92,11 @@ export function Header({
             <Icon name="spinner" /> Retry
           </button>
         )}
+        <Tooltip content="Create a new tmux session">
+          <button className="btn" onClick={onNewSession} aria-label="New session">
+            <Icon name="plus" /> Session
+          </button>
+        </Tooltip>
         <Tooltip content="Keyboard shortcuts" shortcut="?">
           <button className="btn btn-icon btn-ghost" onClick={onHelp} data-tour="kbar-hint">
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, lineHeight: 1 }}>?</span>
