@@ -47,10 +47,19 @@ branch="$1"
 # Last `/`-segment: strips e.g. "thibaultdody/" from the branch name.
 tail="${branch##*/}"
 
-# Resolve the repo root from this script's location so `wt` works from
-# anywhere (including from inside another worktree).
+# Resolve the MAIN repo's root (not the current worktree's). Worktrees
+# each have their own `--show-toplevel`, so a `wt` call from inside one
+# would otherwise nest the new worktree under the caller's `.worktrees/`
+# instead of creating it as a sibling under the main repo. `--git-common-dir`
+# always points at the main repo's `.git`, regardless of where it's called
+# from. From the main repo the result may be relative (".git"); from a
+# linked worktree it's absolute. Normalize either way.
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root="$(git -C "$script_dir" rev-parse --show-toplevel)"
+common_dir="$(git -C "$script_dir" rev-parse --git-common-dir)"
+if [[ "$common_dir" != /* ]]; then
+  common_dir="$script_dir/$common_dir"
+fi
+root="$(cd "$(dirname "$common_dir")" && pwd)"
 wt_dir="$root/.worktrees/$tail"
 
 if [[ -d "$wt_dir" ]]; then
@@ -64,7 +73,13 @@ fi
 git -C "$root" fetch origin main >/dev/null
 
 if $create_new; then
-  git -C "$root" worktree add -b "$branch" "$wt_dir" origin/main
+  # `--no-track` keeps git from auto-setting the new branch's upstream to
+  # origin/main (the default behaviour when branching off a remote-tracking
+  # ref + branch.autoSetupMerge=true). Without it, the first `git push` from
+  # the new worktree would target origin/main, not a same-named new remote
+  # branch — surprising at best, and dangerous on repos without main
+  # protection.
+  git -C "$root" worktree add --no-track -b "$branch" "$wt_dir" origin/main
 else
   # Resolve the branch against the local ref set, then origin. Fail with a
   # more actionable hint than git's bare "fatal: invalid reference" when
