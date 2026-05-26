@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import threading
 import time
 import uuid
+from concurrent.futures import Future
 
 import libtmux
 
@@ -21,6 +23,13 @@ from switchboard.schemas import Client, Kind, Session, StateResponse, Status, Wi
 from switchboard.services import claude_parser
 
 log = logging.getLogger(__name__)
+
+# Single-flight slot for /api/state collection (THI-142). When a scan is in
+# flight, concurrent callers wait on this Future instead of each spawning
+# their own batch of tmux subprocesses — bounds peak FD usage to one scan's
+# worth and prevents the OSError [Errno 24] cascade under modal-open polling.
+_inflight_lock = threading.Lock()
+_inflight: Future[StateResponse] | None = None
 
 
 def get_server() -> libtmux.Server | None:
@@ -205,6 +214,46 @@ def collect_state() -> StateResponse:
             )
 
     return StateResponse(sessions=sessions, windows=windows, server_running=True)
+
+
+def collect_state_singleflight() -> StateResponse:
+    """Single-flight wrapper around `collect_state` (THI-142).
+
+    Bounds concurrent tmux-subprocess spawning so repeated /api/state polling
+    under the modal-open cadence can't exhaust file descriptors.
+
+    Behaviour:
+    - First caller becomes the leader, runs `collect_state`, and resolves
+      a shared `Future` with the result (or exception).
+    - Concurrent followers block on `Future.result()` and receive the
+      leader's outcome — identical state object, or identical exception.
+    - After the leader finishes, the in-flight slot clears so the next
+      caller starts a fresh scan; there is no caching across scans.
+    """
+    global _inflight
+    with _inflight_lock:
+        existing = _inflight
+        if existing is None:
+            future: Future[StateResponse] = Future()
+            _inflight = future
+    if existing is not None:
+        # Follower path. `.result()` blocks until the leader resolves the
+        # future; if the leader raised, the same exception propagates.
+        return existing.result()
+    # Leader path. Set the result (or exception) on the future BEFORE
+    # clearing the in-flight slot — a follower that's already past the
+    # lock and into `.result()` would otherwise miss the resolution and
+    # block forever.
+    try:
+        state = collect_state()
+        future.set_result(state)
+        return state
+    except BaseException as exc:
+        future.set_exception(exc)
+        raise
+    finally:
+        with _inflight_lock:
+            _inflight = None
 
 
 # --- pane lookup + actions ---------------------------------------------------

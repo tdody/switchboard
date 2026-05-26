@@ -329,6 +329,11 @@ input, textarea, select { font: inherit; color: inherit; }
   position: relative;
   overflow: hidden;
   min-height: 0;
+  /* Pin to the last (1fr) row of `.app` so the canvas always claims remaining
+   * viewport regardless of whether the optional NeedsStrip is rendered. Without
+   * this, dropping NeedsStrip leaves <main> in an `auto` row and the kanban
+   * collapses to zero height (THI-137). */
+  grid-row-end: -1;
 }
 
 /* ─── Kanban ───────────────────────────────────────────────── */
