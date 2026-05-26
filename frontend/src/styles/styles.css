@@ -716,13 +716,10 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .chip-row { display: flex; gap: 5px; flex-wrap: wrap; }
 .card-agent .chip-row {
-  /* Reserve one chip-row's height even when empty (THI-129). Also prevent
-   * wrap when both branch + spinner chips are present — the branch chip
-   * shrinks/ellipses instead of pushing the spinner to a new row, which
-   * would visibly grow the card mid-state. */
+  /* Reserve one chip-row's height even when empty (THI-129). Branch and
+   * spinner live in separate rows (.branch-row / .spinner-row) so the
+   * spinner appearing/disappearing doesn't move the branch chip. */
   min-height: 22px;
-  flex-wrap: nowrap;
-  min-width: 0;
 }
 .chip {
   display: inline-flex; align-items: center; gap: 5px;
