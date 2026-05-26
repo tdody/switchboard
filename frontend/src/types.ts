@@ -22,6 +22,10 @@ export interface Agent {
   duration: string | null;
   recap: string | null;
   action: string | null;
+  // Claude Code's current context-window usage, 0..100 integer percent,
+  // scraped from the TUI footer (THI-131). Optional/absent when the parser
+  // hasn't seen the `Context:` line in the recent capture.
+  contextPct?: number;
 }
 
 export interface Window {
