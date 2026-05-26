@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 
 export interface PollingState<T> {
   data: T | null;
@@ -40,15 +40,23 @@ export function usePolling<T>(
       try {
         const v = await fnRef.current(ctrl.signal);
         if (!alive || ctrl.signal.aborted) return;
-        setData(v);
-        setError(null);
-        setConsecutiveErrors(0);
+        // startTransition marks these as non-urgent so React can interrupt
+        // the resulting render commit to handle user input (typing in a
+        // modal, palette search) ahead of the polling update. Polling is
+        // background work; keystrokes are not. (THI-138)
+        startTransition(() => {
+          setData(v);
+          setError(null);
+          setConsecutiveErrors(0);
+        });
       } catch (e) {
         if (!alive || ctrl.signal.aborted) return;
         const err = e as Error;
         if (err.name === "AbortError") return;
-        setError(err);
-        setConsecutiveErrors((n) => n + 1);
+        startTransition(() => {
+          setError(err);
+          setConsecutiveErrors((n) => n + 1);
+        });
       } finally {
         if (inflight === ctrl) inflight = null;
       }

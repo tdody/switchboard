@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ACTIVE_POLL_MS, pickPollInterval } from "./pollTier";
+import { ACTIVE_POLL_MS, INPUT_ACTIVE_MIN_MS, pickPollInterval } from "./pollTier";
 import type { Status, Window } from "../types";
 
 const MODAL_OPEN_POLL_MS = 100;
@@ -110,5 +110,52 @@ describe("pickPollInterval", () => {
         MODAL_OPEN_POLL_MS,
       ),
     ).toBe(12000);
+  });
+
+  // ── THI-138: input-active backoff ─────────────────────────────────
+  // Each tier above gets clamped to INPUT_ACTIVE_MIN_MS when the user is
+  // typing, so polling renders yield to keystrokes regardless of tier.
+
+  it("clamps the modal-open tier to INPUT_ACTIVE_MIN_MS while typing", () => {
+    expect(
+      pickPollInterval(true, [], 3000, MODAL_OPEN_POLL_MS, true),
+    ).toBe(INPUT_ACTIVE_MIN_MS);
+    expect(INPUT_ACTIVE_MIN_MS).toBe(1500);
+  });
+
+  it("clamps the active tier to INPUT_ACTIVE_MIN_MS while typing", () => {
+    expect(
+      pickPollInterval(
+        false,
+        [makeWindow("running")],
+        3000,
+        MODAL_OPEN_POLL_MS,
+        true,
+      ),
+    ).toBe(INPUT_ACTIVE_MIN_MS);
+  });
+
+  it("leaves slow tiers alone when their base already exceeds the clamp", () => {
+    // Idle tier returns 8000, which is already > 1500, so the clamp is a
+    // no-op. Regression guard against accidentally setting *down* to the
+    // clamp floor.
+    expect(
+      pickPollInterval(
+        false,
+        [makeWindow("done")],
+        3000,
+        MODAL_OPEN_POLL_MS,
+        true,
+      ),
+    ).toBe(8000);
+  });
+
+  it("is a no-op when inputActive is false (default arg)", () => {
+    // The bare 4-arg call (existing call sites pre-THI-138) keeps
+    // behaving exactly as before — the inputActive parameter defaults
+    // to false so older callers don't see a behavior change.
+    expect(
+      pickPollInterval(true, [], 3000, MODAL_OPEN_POLL_MS),
+    ).toBe(MODAL_OPEN_POLL_MS);
   });
 });
