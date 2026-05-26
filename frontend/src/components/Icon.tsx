@@ -280,25 +280,15 @@ export function Icon({ name, size = 14, style, className }: IconProps) {
         </svg>
       );
     case "agent":
+      // Claude Code mark from @lobehub/icons (claudecode.svg). Square 24×24
+      // viewBox preserves the original aspect ratio inside the square slot.
       return (
-        <svg {...props} viewBox="0 0 18 12">
-          {/*
-            Claude Code mark — see THI-135 spec for the half-cell matrix.
-            Each cell is 2×2 in the 18×12 viewBox so the shape fills the box.
-          */}
-          <g fill="currentColor" stroke="none">
-            {/* row 0 */}
-            <rect x="4" y="0" width="10" height="2" />
-            {/* row 1 */}
-            <rect x="2" y="2" width="14" height="2" />
-            {/* row 2 */}
-            <rect x="2" y="4" width="14" height="2" />
-            {/* row 3 */}
-            <rect x="0" y="6" width="18" height="2" />
-            {/* row 4 — two paired blocks (eyes) */}
-            <rect x="4" y="8" width="4" height="2" />
-            <rect x="12" y="8" width="4" height="2" />
-          </g>
+        <svg {...props} viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <path
+            fillRule="evenodd"
+            clipRule="evenodd"
+            d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"
+          />
         </svg>
       );
     case "editor":
