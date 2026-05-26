@@ -50,12 +50,16 @@ const FAIL_THRESHOLD = 3;
 const SERVER_ADDR = "127.0.0.1:8765";
 const STATUS_FILTERS: StatusFilter[] = ["all", "waiting", "running", "idle"];
 // While the terminal modal is open we still want the header / status pill /
-// pending flag to update promptly, but the original 100 ms cadence
-// (THI-105) burned enough render budget on a busy dashboard to make typing
-// in other modals lag (THI-138). 500 ms = 2 Hz, which still reads as live
-// for single-chip changes (humans don't notice sub-200 ms updates on a
-// status pill) and frees 5× of the main thread for input handling. Pane
-// bytes still stream over the WS — this only affects /api/state metadata.
+// pending flag to update promptly, but the original 100 ms cadence (THI-105)
+// caused two distinct problems: it burned enough React render budget on a
+// busy dashboard to make typing in *other* modals lag (THI-138), and it
+// stacked `/api/state` handlers on the backend faster than they could
+// complete, exhausting the FD budget (THI-142, fixed by single-flight on
+// the backend). 500 ms = 2 Hz, which still reads as live for single-chip
+// changes (humans don't notice sub-200 ms updates on a status pill), frees
+// 5× of the main thread for input handling, and gives the backend's FD
+// budget another 5× headroom on top of the single-flight wrapper. Pane
+// bytes still stream over WebSocket; this only affects /api/state metadata.
 const MODAL_OPEN_POLL_MS = 500;
 // Claude usage is server-side-cached for 30 s; polling more often would just
 // hand the cached value back. Decoupled from the /api/state cadence so a busy
