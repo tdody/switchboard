@@ -70,8 +70,30 @@ const rank = (w: Window): number => {
   return 2;
 };
 
-export function sortPendingFirst(ws: Window[]): Window[] {
-  // Secondary sort by tmux window-index pins within-bucket position to the
-  // same order the user sees in tmux — predictable for clicks + keyboard nav.
-  return [...ws].sort((a, b) => rank(a) - rank(b) || a.index - b.index);
+export function sortPendingFirst(
+  ws: Window[],
+  pinnedPaneIds: string[] = [],
+): Window[] {
+  // Within-bucket tie-break: pinned panes come first in pinned order,
+  // unpinned panes fall back to tmux window-index (THI-141). Pinned panes
+  // never outrank a higher bucket — a pending pane still floats above a
+  // pinned non-pending one, matching THI-122's "pending is always visible"
+  // rule.
+  //
+  // The Map turns Array.indexOf into O(1), which matters for sessions with
+  // many panes since the comparator runs N log N times.
+  const pinIndex = new Map<string, number>();
+  for (let i = 0; i < pinnedPaneIds.length; i++) {
+    pinIndex.set(pinnedPaneIds[i], i);
+  }
+  return [...ws].sort((a, b) => {
+    const rankDiff = rank(a) - rank(b);
+    if (rankDiff !== 0) return rankDiff;
+    const pa = pinIndex.get(a.paneId);
+    const pb = pinIndex.get(b.paneId);
+    if (pa !== undefined && pb !== undefined) return pa - pb;
+    if (pa !== undefined) return -1; // a pinned, b not: a first
+    if (pb !== undefined) return 1; //  b pinned, a not: b first
+    return a.index - b.index;
+  });
 }

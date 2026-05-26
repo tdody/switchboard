@@ -40,6 +40,12 @@ import {
   reorderSessions,
   saveSessionOrder,
 } from "./lib/sessionOrder";
+import {
+  loadWindowOrder,
+  reorderWindow,
+  saveWindowOrder,
+  type WindowOrderMap,
+} from "./lib/windowOrder";
 import { applyAccent, useSettings } from "./lib/settings";
 import { pickPollInterval } from "./lib/pollTier";
 import { useURLParam } from "./lib/urlState";
@@ -121,6 +127,10 @@ export function App() {
   // top-floating pin list — see `applySessionOrder` — so newly-spawned
   // sessions still appear automatically without manual reordering.
   const [sessionOrder, setSessionOrder] = useState<string[]>(() => loadSessionOrder());
+  // Per-session pin lists for tile drag-reorder (THI-141). Same shape as
+  // sessionOrder but keyed by sessionId. Kept lean: stale entries (killed
+  // panes) drop silently on next render; we don't proactively prune.
+  const [windowOrder, setWindowOrder] = useState<WindowOrderMap>(() => loadWindowOrder());
 
   const sessions = state?.sessions ?? [];
   const windows = state?.windows ?? [];
@@ -301,6 +311,20 @@ export function App() {
       });
     },
     [orderedSessions],
+  );
+
+  // Drag-drop reorder of tiles within a column (THI-141). Same shape as the
+  // session handler but keyed per session; `reorderWindow` is pure and
+  // handles unpinned src/dst gracefully (creates a fresh pin list).
+  const handleReorderWindow = useCallback(
+    (sessionId: string, src: string, dst: string, before: boolean) => {
+      setWindowOrder((prev) => {
+        const next = reorderWindow(prev, sessionId, src, dst, before);
+        saveWindowOrder(next);
+        return next;
+      });
+    },
+    [],
   );
 
   // `refresh` and `windows` are replaced on every poll. Read them through refs
@@ -653,6 +677,8 @@ export function App() {
           onKillSession={handleKillSession}
           onRenameSession={handleRenameSession}
           onReorderSession={handleReorderSession}
+          onReorderWindow={handleReorderWindow}
+          windowOrder={windowOrder}
           onQuickCreate={handleQuickCreate}
           quickCreating={quickCreating}
         />

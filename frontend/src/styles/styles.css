@@ -388,6 +388,19 @@ input, textarea, select { font: inherit; color: inherit; }
 .col-drop-right { box-shadow: inset -3px 0 0 0 var(--accent); }
 .col-hd[draggable="true"] { cursor: grab; }
 .col-hd[draggable="true"]:active { cursor: grabbing; }
+
+/* Tile-level drag (THI-141). The wrapper is the drag handle; the `card`
+ * inside takes the visual feedback so the inset accent shadow rides the
+ * actual card edge. Mirrors the column-drag idiom. */
+.card-drag-wrap[draggable="true"] { cursor: grab; }
+.card-drag-wrap[draggable="true"]:active { cursor: grabbing; }
+.card-drag-wrap.card-dragging .card { opacity: 0.55; }
+.card-drag-wrap[data-drop-side="top"] .card {
+  box-shadow: inset 0 3px 0 0 var(--accent);
+}
+.card-drag-wrap[data-drop-side="bottom"] .card {
+  box-shadow: inset 0 -3px 0 0 var(--accent);
+}
 .col-hd {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 12px;
