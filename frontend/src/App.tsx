@@ -10,6 +10,7 @@ import { usePolling } from "./api/usePolling";
 import { useQuickCreate } from "./lib/useQuickCreate";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { DocsModal } from "./components/DocsModal";
 import { EmptyState } from "./components/EmptyState";
 import { Header, type HeaderCounts } from "./components/Header";
 import { Kanban } from "./components/Kanban";
@@ -81,6 +82,9 @@ export function App() {
   const [showNeedsStrip, setShowNeedsStrip] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  // In-app Documentation modal (THI-136). Opened from the Header docs button
+  // and from the final step of the first-run tour.
+  const [showDocs, setShowDocs] = useState(false);
   const [paletteTargetId, setPaletteTargetId] = useState<string | null>(null);
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
   const [newWindowSession, setNewWindowSession] = useState<string | null>(null);
@@ -391,6 +395,7 @@ export function App() {
         renameTargetId ||
         showSettings ||
         showShortcuts ||
+        showDocs ||
         newWindowSession ||
         renameSessionTarget ||
         confirm;
@@ -482,6 +487,7 @@ export function App() {
     renameTargetId,
     showSettings,
     showShortcuts,
+    showDocs,
     newWindowSession,
     renameSessionTarget,
     confirm,
@@ -504,6 +510,10 @@ export function App() {
     <ShortcutsSheet onClose={() => setShowShortcuts(false)} />
   ) : null;
 
+  const docsModal = showDocs ? (
+    <DocsModal onClose={() => setShowDocs(false)} />
+  ) : null;
+
   if (inEmpty) {
     return (
       <div className="app">
@@ -513,6 +523,7 @@ export function App() {
           inEmpty
           onHelp={() => setShowShortcuts(true)}
           onSettings={() => setShowSettings(true)}
+          onOpenDocs={() => setShowDocs(true)}
           onRetry={refresh}
         />
         <main className="main">
@@ -520,6 +531,7 @@ export function App() {
         </main>
         {settingsModal}
         {shortcutsSheet}
+        {docsModal}
         <ToastStack toasts={toasts} />
       </div>
     );
@@ -534,6 +546,7 @@ export function App() {
         usage={usage}
         onHelp={() => setShowShortcuts(true)}
         onSettings={() => setShowSettings(true)}
+        onOpenDocs={() => setShowDocs(true)}
       />
       {pendingWindows.length > 0 && showNeedsStrip && (
         <NeedsStrip
@@ -614,10 +627,13 @@ export function App() {
       )}
       {settingsModal}
       {shortcutsSheet}
+      {docsModal}
       {/* First-run tour (THI-96). Suppressed while any overlay is up — the
        *  tour's data-tour anchors get covered when a modal is open, and the
        *  user is mid-interaction anyway. Also requires at least one visible
-       *  card so the `[data-tour="first-card"]` anchor exists. */}
+       *  card so the `[data-tour="first-card"]` anchor exists.
+       *  Final step renders a "More in Docs →" link via `onOpenDocs`
+       *  (THI-136). */}
       <Tour
         enabled={
           !!state &&
@@ -630,8 +646,10 @@ export function App() {
           !renameSessionTarget &&
           !showSettings &&
           !showShortcuts &&
+          !showDocs &&
           !confirm
         }
+        onOpenDocs={() => setShowDocs(true)}
       />
       <ToastStack toasts={toasts} />
     </div>
