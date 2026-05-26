@@ -2,7 +2,27 @@
 
 **Linear:** [THI-143](https://linear.app/thibault-dody/issue/THI-143/update-documentation-ui)
 **Date:** 2026-05-26
-**Status:** Draft
+**Status:** Draft (revised 2026-05-26 after first visual review)
+
+## Revision note
+
+After a first pass that applied the V1 handoff faithfully (shared rails
+on every tab), visual review surfaced two issues:
+
+1. **Agent / Shell:** the shared rail collapsed all per-side verticals
+   into a single dotted column, making it hard to trace any one callout
+   from anchor to label. Fix: each callout keeps the L-with-leg shape
+   but uses its **own** bend x, staggered across the gutter so the
+   verticals fan slightly instead of stacking. Orthogonal-only line
+   constraint preserved; shared-rail aesthetic dropped.
+2. **Session header:** the rotated-rail (top/bottom) V1 variant looked
+   busier than the L-shape iteration we'd already settled on for this
+   tab earlier in the session. Fix: revert the Session header tab to
+   the previous `HeaderDiagram` component verbatim. The V1 idiom only
+   applies to the two vertical-card tabs.
+
+The rest of this spec is the original V1 design; the deltas above
+override the corresponding sections.
 
 ## Summary
 

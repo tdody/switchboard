@@ -5,8 +5,7 @@ import "../styles/docs.css";
 import { AgentCardArt } from "./docs/AgentCardArt";
 import { AgentTileCallouts } from "./docs/AgentTileCallouts";
 import { DocsSecondary, type DocsSecondaryItem } from "./docs/DocsSecondary";
-import { HeaderBarArt } from "./docs/HeaderBarArt";
-import { HeaderBarCallouts } from "./docs/HeaderBarCallouts";
+import { HeaderDiagram } from "./docs/HeaderDiagram";
 import { ShellCardArt } from "./docs/ShellCardArt";
 import { ShellTileCallouts } from "./docs/ShellTileCallouts";
 import { Icon } from "./Icon";
@@ -42,8 +41,9 @@ const TABS: TabDef[] = [
 // "Also visible —" strip content per tab. Items mirror the parts that
 // have no primary callout: conditional / duplicative / low-information
 // affordances the user should know about but that don't warrant a leg
-// on the diagram. Header's strip cross-references THI-141 since drag-
-// reorder is a related affordance that lives outside the bar itself.
+// on the diagram. Session header keeps its own self-contained diagram
+// (no strip) — it had no obvious demotions and the iterated L-shape
+// layout works without one.
 const AGENT_SECONDARY: ReadonlyArray<DocsSecondaryItem> = [
   { label: "Spinner", desc: "activity + elapsed" },
   { label: "Recap", desc: "last assistant line" },
@@ -54,20 +54,15 @@ const SHELL_SECONDARY: ReadonlyArray<DocsSecondaryItem> = [
   { label: "CPU / mem", desc: "when elevated" },
   { label: "Age", desc: "since last output" },
 ];
-const HEADER_SECONDARY: ReadonlyArray<DocsSecondaryItem> = [
-  { label: "Tile drag", desc: "reorders panes within a column (THI-141)" },
-];
 
-// Card placement inside the 1240×480 SVG body. The Agent / Shell cards
-// (300×400 and 300×330) and the Header bar (300×44) all use cx=470 so
-// their left edges line up vertically. cy differs per shape so each
-// sits visually centered in the viewBox.
+// Card placement inside the 1240×480 SVG body. Agent (400-tall) and
+// Shell (330-tall) cards both use cx=470 so their left edges align
+// vertically; cy differs so each sits visually centered.
 const VIEWBOX_W = 1240;
 const VIEWBOX_H = 480;
 const CARD_CX = 470;
-const AGENT_CY = 40; // 400-tall card; (480-400)/2 = 40
-const SHELL_CY = 75; // 330-tall card; (480-330)/2 = 75
-const HEADER_CY = 218; // 44-tall bar; (480-44)/2 = 218
+const AGENT_CY = 40; // (480-400)/2 = 40
+const SHELL_CY = 75; // (480-330)/2 = 75
 
 export function DocsModal({ onClose }: Props) {
   const scrimProps = useScrimClose(onClose);
@@ -113,33 +108,35 @@ export function DocsModal({ onClose }: Props) {
         </nav>
 
         <div className="docs-body" role="tabpanel">
-          <svg
-            className="docs-diagram"
-            viewBox={`0 0 ${VIEWBOX_W} ${VIEWBOX_H}`}
-            xmlns="http://www.w3.org/2000/svg"
-            preserveAspectRatio="xMidYMid meet"
-            aria-label={`${TABS.find((t) => t.id === tab)?.label} diagram`}
-          >
-            {tab === "header" && (
-              <>
-                <HeaderBarArt cx={CARD_CX} cy={HEADER_CY} />
-                <HeaderBarCallouts cx={CARD_CX} cy={HEADER_CY} />
-              </>
-            )}
-            {tab === "agent" && (
-              <>
-                <AgentCardArt cx={CARD_CX} cy={AGENT_CY} />
-                <AgentTileCallouts cx={CARD_CX} cy={AGENT_CY} />
-              </>
-            )}
-            {tab === "shell" && (
-              <>
-                <ShellCardArt cx={CARD_CX} cy={SHELL_CY} />
-                <ShellTileCallouts cx={CARD_CX} cy={SHELL_CY} />
-              </>
-            )}
-          </svg>
-          {tab === "header" && <DocsSecondary items={HEADER_SECONDARY} />}
+          {tab === "header" ? (
+            // Session header keeps its self-contained diagram with its own
+            // viewBox — the rotated V1 idiom (top/bottom rails) tried for
+            // this tab looked busier than the L-shaped layout we'd already
+            // iterated to, so we kept the original (THI-136 + earlier
+            // crossings-fix iteration in this session).
+            <HeaderDiagram />
+          ) : (
+            <svg
+              className="docs-diagram"
+              viewBox={`0 0 ${VIEWBOX_W} ${VIEWBOX_H}`}
+              xmlns="http://www.w3.org/2000/svg"
+              preserveAspectRatio="xMidYMid meet"
+              aria-label={`${TABS.find((t) => t.id === tab)?.label} diagram`}
+            >
+              {tab === "agent" && (
+                <>
+                  <AgentCardArt cx={CARD_CX} cy={AGENT_CY} />
+                  <AgentTileCallouts cx={CARD_CX} cy={AGENT_CY} />
+                </>
+              )}
+              {tab === "shell" && (
+                <>
+                  <ShellCardArt cx={CARD_CX} cy={SHELL_CY} />
+                  <ShellTileCallouts cx={CARD_CX} cy={SHELL_CY} />
+                </>
+              )}
+            </svg>
+          )}
           {tab === "agent" && <DocsSecondary items={AGENT_SECONDARY} />}
           {tab === "shell" && <DocsSecondary items={SHELL_SECONDARY} />}
         </div>
