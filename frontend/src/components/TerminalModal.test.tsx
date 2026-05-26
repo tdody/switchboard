@@ -26,6 +26,7 @@ const { mockTerminals, MockTerminal } = vi.hoisted(() => {
     loadAddon: () => void;
     attachCustomKeyEventHandler: () => void;
     onData: () => { dispose: () => void };
+    registerLinkProvider: () => { dispose: () => void };
   }> = [];
 
   class MockTerminal {
@@ -46,6 +47,7 @@ const { mockTerminals, MockTerminal } = vi.hoisted(() => {
     loadAddon = () => {};
     attachCustomKeyEventHandler = () => {};
     onData = () => ({ dispose: () => {} });
+    registerLinkProvider = () => ({ dispose: () => {} });
     constructor() {
       mockTerminals.push(this);
     }

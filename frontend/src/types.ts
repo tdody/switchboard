@@ -54,7 +54,14 @@ export interface Window {
   // (not just agents) so shell tiles on a branch with an open PR also get a
   // CI-tinted chip. Null when there's no branch or no open PR.
   pr: number | null;
+  // Direct URL to the PR — fetched by the backend's `gh pr view --json url`
+  // alongside the number. Drives the clickable PR chip (THI-146 PR 2).
+  prUrl: string | null;
   ci: CIState | null;
+  // Normalized `https://github.com/owner/repo` for the pane's cwd, or null if
+  // the cwd isn't inside a github repo. The xterm linkProvider appends
+  // `/pull/N` to this base when linkifying `PR #N` mentions in the pane.
+  repoUrl: string | null;
   agent: Agent | null;
   preview: string[];
 }
