@@ -715,6 +715,12 @@ input, textarea, select { font: inherit; color: inherit; }
   border-top: 1px solid var(--hairline);
 }
 .chip-row { display: flex; gap: 5px; flex-wrap: wrap; }
+.card-agent .chip-row {
+  /* Reserve one chip-row's height even when empty (THI-129). Branch and
+   * spinner live in separate rows (.branch-row / .spinner-row) so the
+   * spinner appearing/disappearing doesn't move the branch chip. */
+  min-height: 22px;
+}
 .chip {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 2px 7px;
