@@ -327,6 +327,9 @@ input, textarea, select { font: inherit; color: inherit; }
   overflow: hidden;
   position: relative;
 }
+/* Column-width preset (THI-128). "normal" inherits the default .col rule above. */
+[data-column-size="narrow"] .col { flex: 0 0 280px; }
+[data-column-size="wide"]   .col { flex: 0 0 400px; }
 .col::after {
   content: "";
   position: absolute;
