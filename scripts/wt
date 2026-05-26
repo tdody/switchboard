@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# scripts/wt — create (or locate) a git worktree under .worktrees/.
+#
+# Convention: every feature branch's worktree lives at
+#   <repo-root>/.worktrees/<branch-tail>/
+# where <branch-tail> is the last `/`-segment of the branch name —
+# e.g. `thibaultdody/thi-142-fd-leak` → `.worktrees/thi-142-fd-leak/`.
+# `.worktrees/` is gitignored.
+#
+# Usage:
+#   scripts/wt <branch>          # check out an existing branch
+#   scripts/wt -b <branch>       # create the branch off origin/main first
+#
+# After running, `cd` to the printed path. (A subshell can't change the
+# parent shell's cwd, so this script tells you instead of doing it.)
+
+set -euo pipefail
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [-b] <branch>
+
+  Without -b:  branch must already exist (locally or as origin/<branch>).
+  With    -b:  creates the branch off origin/main, then a worktree for it.
+
+Worktrees land at <repo-root>/.worktrees/<branch-tail>/.
+EOF
+}
+
+create_new=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -b)         create_new=true; shift ;;
+    -h|--help)  usage; exit 0 ;;
+    --)         shift; break ;;
+    -*)         echo "unknown flag: $1" >&2; usage; exit 2 ;;
+    *)          break ;;
+  esac
+done
+
+if [[ $# -ne 1 ]]; then
+  usage
+  exit 2
+fi
+
+branch="$1"
+# Last `/`-segment: strips e.g. "thibaultdody/" from the branch name.
+tail="${branch##*/}"
+
+# Resolve the repo root from this script's location so `wt` works from
+# anywhere (including from inside another worktree).
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(git -C "$script_dir" rev-parse --show-toplevel)"
+wt_dir="$root/.worktrees/$tail"
+
+if [[ -d "$wt_dir" ]]; then
+  echo "worktree already exists: $wt_dir"
+  echo "  cd $wt_dir"
+  exit 0
+fi
+
+# Always start from a fresh main reference — relevant for the -b path,
+# and a cheap no-op for the existing-branch path.
+git -C "$root" fetch origin main >/dev/null
+
+if $create_new; then
+  git -C "$root" worktree add -b "$branch" "$wt_dir" origin/main
+else
+  # Resolve the branch against the local ref set, then origin. Fail with a
+  # more actionable hint than git's bare "fatal: invalid reference" when
+  # neither exists — most of the time the user meant to pass -b.
+  if ! git -C "$root" show-ref --verify --quiet "refs/heads/$branch" \
+     && ! git -C "$root" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    echo "branch not found locally or on origin: $branch" >&2
+    echo "  to create it off origin/main, re-run with -b:" >&2
+    echo "    $(basename "$0") -b $branch" >&2
+    exit 1
+  fi
+  git -C "$root" worktree add "$wt_dir" "$branch"
+fi
+
+echo
+echo "created: $wt_dir"
+echo "  cd $wt_dir"
