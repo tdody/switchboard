@@ -68,7 +68,7 @@ function WindowCardImpl({
         <StatusPill status={w.status} />
       </div>
 
-      {(agent || w.branch) && (
+      {(w.kind === "agent" || agent || w.branch) && (
         <div className="card-agent">
           <div className="chip-row">
             {(w.branch || w.pr) && (
@@ -91,7 +91,9 @@ function WindowCardImpl({
               </Chip>
             )}
           </div>
-          {agent?.recap && <div className="recap">{agent.recap}</div>}
+          {(w.kind === "agent" || agent?.recap) && (
+            <div className="recap">{agent?.recap || " "}</div>
+          )}
           {pending && agent?.action && (
             <div className="pending">
               <span className="glyph">›</span>
