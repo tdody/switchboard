@@ -28,7 +28,7 @@
   --tone-cyan:   oklch(0.78 0.13 220);
   --tone-amber:  oklch(0.80 0.14 80);
   --tone-green:  oklch(0.78 0.13 145);
-  --tone-red:    oklch(0.72 0.16 25);
+  --tone-red:    #CC6666;
   --tone-gray:   oklch(0.65 0.01 250);
   --tone-magenta: oklch(0.72 0.16 330);
   --tone-lilac:  oklch(0.74 0.12 295);
