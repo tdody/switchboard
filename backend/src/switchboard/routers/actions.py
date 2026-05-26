@@ -1,3 +1,5 @@
+import os
+import subprocess
 import tempfile
 import time
 import uuid
@@ -147,3 +149,99 @@ async def post_paste_image(session: str, index: int, request: Request) -> dict[s
     if not tmux.deliver_text(session, index, f"@{path} ", bracketed=True):
         raise HTTPException(status_code=404, detail="pane not found")
     return {"ok": True, "path": str(path), "bytes": len(body)}
+
+
+# --- open file in IDE (THI-146 PR 3) ---------------------------------------
+#
+# Security model:
+#  * `ide_cmd` MUST be a member of `settings.IDE_ALLOWLIST` (a frozenset of
+#    known GUI editor binaries). An unset / unknown value disables the route.
+#  * `path` is resolved against the pane's cwd. Both sides are passed through
+#    `os.path.realpath` and the resolved file must share `os.path.commonpath`
+#    with the resolved cwd — symlinks pointing outside the cwd are rejected.
+#  * The file must exist and be a regular file (not a dir, FIFO, device).
+#  * Dispatch is `subprocess.Popen([ide_cmd, "--", real_path], shell=False)`.
+#    The `--` separator ensures a path like `--version` can't be reinterpreted
+#    as an editor flag. `shell=False` prevents shell metacharacter expansion.
+#  * Existing CSRF + loopback Host middleware applies — no extra checks here.
+
+
+def _open_file_in_ide(session: str, index: int, raw_path: str) -> str:
+    """Validate `raw_path` against the pane's cwd, spawn the IDE if allowed,
+    and return the absolute path that was opened. Raises HTTPException with
+    a precise status code on any failure so the route's response is uniform.
+    """
+    if not settings.ide_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "SWITCHBOARD_IDE_CMD is unset or not in the known editor "
+                "allowlist; the /api/open route is disabled."
+            ),
+        )
+
+    cwd = tmux.pane_cwd(session, index)
+    if not cwd:
+        raise HTTPException(status_code=404, detail="pane not found or has no cwd")
+
+    if not raw_path or "\x00" in raw_path:
+        raise HTTPException(status_code=422, detail="invalid path")
+
+    # `expanduser` lets a `~/notes.md` link from a Claude footer resolve to the
+    # user's home — common in agent output. After expansion, the containment
+    # check below still applies, so this doesn't relax the cwd guard.
+    expanded = os.path.expanduser(raw_path)
+    candidate = expanded if os.path.isabs(expanded) else os.path.join(cwd, expanded)
+
+    real_file = os.path.realpath(candidate)
+    real_cwd = os.path.realpath(cwd)
+    try:
+        common = os.path.commonpath([real_cwd, real_file])
+    except ValueError:
+        # Different drives / mixed separators (Windows). Treat as escape.
+        raise HTTPException(status_code=422, detail="path escapes pane cwd") from None
+    if common != real_cwd:
+        raise HTTPException(status_code=422, detail="path escapes pane cwd")
+
+    if not os.path.isfile(real_file):
+        raise HTTPException(status_code=404, detail="file not found")
+
+    # List form + `--` separator: argv[0] is the trusted binary name, argv[1]
+    # is the literal separator, argv[2] is the (cwd-contained) absolute path.
+    # No path on this argv can become a flag, and no shell parses the string.
+    try:
+        subprocess.Popen(  # noqa: S603 — args list is fixed; no shell
+            [settings.ide_cmd, "--", real_file],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"IDE binary `{settings.ide_cmd}` not on PATH",
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"failed to spawn IDE: {exc}") from exc
+
+    return real_file
+
+
+@router.post("/open")
+def post_open(session: str, index: int, path: str) -> dict[str, object]:
+    real_file = _open_file_in_ide(session, index, path)
+    return {"ok": True, "path": real_file}
+
+
+@router.get("/ide-config")
+def get_ide_config() -> dict[str, object]:
+    """Read-only knobs for the frontend's file-path linkifier. Lets the UI
+    decide whether to render `[file.py]` substrings as clickable links and to
+    show the current launcher in Settings — without exposing a write surface
+    that could repoint the binary at runtime."""
+    return {
+        "enabled": settings.ide_enabled,
+        "command": settings.ide_cmd if settings.ide_enabled else None,
+        "allowed": sorted(settings.IDE_ALLOWLIST),
+    }

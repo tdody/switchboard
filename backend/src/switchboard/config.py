@@ -40,11 +40,47 @@ class Settings(BaseSettings):
     # don't want any background claude invocations (THI-110 commit 2).
     usage_scrape_enabled: bool = True
 
+    # Binary invoked by POST /api/open to launch the user's IDE on a clicked
+    # file path (THI-146 PR 3). Restricted to a known whitelist of GUI editor
+    # launchers — Switchboard MUST NOT spawn arbitrary commands on behalf of a
+    # mutating HTTP request, because any compromise of the loopback origin
+    # (e.g. a malicious local script with the CSRF cookie) would otherwise
+    # land as full RCE. Set to "" or any non-whitelisted name to disable the
+    # endpoint entirely; the frontend hides file-path linkification when
+    # disabled. Env: SWITCHBOARD_IDE_CMD.
+    ide_cmd: str = "code"
+
     model_config = SettingsConfigDict(env_prefix="SWITCHBOARD_", env_file=".env")
+
+    # GUI editor launchers — extend cautiously. Anything added here can be
+    # spawned with an attacker-supplied (but cwd-contained) path argument; do
+    # not include shells or arbitrary "runners".
+    IDE_ALLOWLIST: frozenset[str] = frozenset(
+        {
+            "code",
+            "code-insiders",
+            "cursor",
+            "subl",
+            "idea",
+            "pycharm",
+            "webstorm",
+            "rubymine",
+            "goland",
+            "rider",
+            "clion",
+            "phpstorm",
+        }
+    )
 
     @property
     def loopback_mode(self) -> bool:
         return is_loopback_host(self.host)
+
+    @property
+    def ide_enabled(self) -> bool:
+        """True only when `ide_cmd` is a known GUI editor binary. Frontend
+        hides the file-path linkifier when this is false (THI-146 PR 3)."""
+        return self.ide_cmd in self.IDE_ALLOWLIST
 
     @property
     def auth_enabled(self) -> bool:

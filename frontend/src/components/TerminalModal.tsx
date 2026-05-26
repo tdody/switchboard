@@ -3,7 +3,9 @@ import { FitAddon } from "xterm-addon-fit";
 import { Terminal } from "xterm";
 import "xterm/css/xterm.css";
 
-import { fetchPane, openPaneWS, pasteImage } from "../api/client";
+import { fetchPane, openInIde, openPaneWS, pasteImage } from "../api/client";
+import { filePathLinkProvider } from "../lib/filePathLinks";
+import { useIdeConfig } from "../lib/useIdeConfig";
 import {
   COLUMN_SIZE_ORDER,
   TERM_FONT_DEFAULT,
@@ -76,6 +78,28 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   const [conn, setConn] = useState<Connection>("connecting");
   const [prompt, setPrompt] = useState<Prompt | null>(null);
   const { wsStreamEnabled: wsEnabled, terminalFontSize, columnSize } = useSettings();
+
+  // THI-146 PR 3: IDE-launch config + click handler refs. Reading config
+  // through a ref lets the linkProvider toggle live on the first /api/ide-
+  // config response without rebuilding the terminal.
+  const ideConfig = useIdeConfig();
+  const ideEnabledRef = useRef(false);
+  ideEnabledRef.current = ideConfig?.enabled === true;
+  const onPathClickRef = useRef<(p: string) => void>(() => {});
+  onPathClickRef.current = (path: string) => {
+    void openInIde(win.session, win.index, path).then((status) => {
+      if (status === "ok") return;
+      if (status === "disabled") {
+        onToast("Open-in-IDE disabled — set SWITCHBOARD_IDE_CMD");
+      } else if (status === "not-found") {
+        onToast(`File not found: ${path}`);
+      } else if (status === "escaped") {
+        onToast("Path resolved outside the pane's cwd");
+      } else {
+        onToast(`Couldn't open ${path}`);
+      }
+    });
+  };
 
   // Shared Esc handler — used both by xterm's customKeyEventHandler (when the
   // terminal has focus) and by PromptOverlay (when it grabs focus). Same
@@ -154,6 +178,17 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // THI-146 PR 3: linkify file paths in pane content (e.g. `src/foo.py:42`
+    // in a stack trace). Routes the click to POST /api/open which spawns the
+    // configured IDE. The provider gates on `ideEnabledRef` so paths render
+    // as plain text when the launcher is unconfigured / off-allowlist.
+    term.registerLinkProvider(
+      filePathLinkProvider(
+        term,
+        () => ideEnabledRef.current,
+        (path) => onPathClickRef.current(path),
+      ),
+    );
     // xterm's keydown handler calls stopPropagation on keys it owns, so
     // document-level listeners never see Cmd-combos or Esc. Anything that
     // needs to override xterm's default byte emission has to live here.

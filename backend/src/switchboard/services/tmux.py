@@ -273,6 +273,16 @@ def get_pane(session: str, index: int):
     return win.active_pane if win is not None else None
 
 
+def pane_cwd(session: str, index: int) -> str | None:
+    """Return the active pane's cwd for `session:index`, or None when the
+    pane can't be found. Used by POST /api/open to scope file-path opens to
+    a pane-local directory (THI-146 PR 3)."""
+    pane = get_pane(session, index)
+    if pane is None:
+        return None
+    return pane.pane_current_path or None
+
+
 def pane_kind(session: str, index: int) -> Kind | None:
     """Infer the Kind of a window's active pane; None when it can't be found.
 
