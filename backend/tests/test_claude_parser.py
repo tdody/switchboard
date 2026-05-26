@@ -403,8 +403,26 @@ def test_gh_pr_returns_none_on_gh_failure(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 # THI-131: per-agent context% accent. `_scan_context_pct` reads the Claude Code
-# TUI footer (`Context: NN%` modern, `context window used: NN%` legacy) bottom-up
-# so the freshest reading wins. parse_pane threads the result into Agent.contextPct.
+# TUI footer in three phrasings (brain-emoji status bar, `Context: NN%` text,
+# `context window used: NN%` legacy) bottom-up so the freshest reading wins.
+# parse_pane threads the result into Agent.contextPct.
+def test_scan_context_pct_brain_emoji_phrasing() -> None:
+    # Modern Claude Code status bar: brain emoji + Block Elements bar + percent.
+    # Captured from a real `tmux capture-pane` while debugging THI-131.
+    line = (
+        "📁 frontend 🌿 thibaultdody/thi-131-usage-coloring  |  "
+        "🧠 █░░░░░░░░░ 16% 📨 6 📤 542 | session: 155.4k in / 542 out "
+        "💰 $8.33 🤖 opus  ⏵⏵ auto mode on (shift+tab to cycle) · PR #42"
+    )
+    assert claude_parser._scan_context_pct([line]) == 16
+
+
+def test_scan_context_pct_brain_emoji_full_bar() -> None:
+    # All-full bar (10× █) at high context. Confirms the bar-char class covers
+    # the full Block Elements range, not just the partial-fill characters.
+    assert claude_parser._scan_context_pct(["🧠 ██████████ 97%"]) == 97
+
+
 def test_scan_context_pct_modern_phrasing() -> None:
     assert claude_parser._scan_context_pct(["Context: 73% (~144k / 200k tokens)"]) == 73
 

@@ -47,11 +47,16 @@ _ENTER_PATTERNS: Final = [
     re.compile(r"\bcontinue\?\s*$", re.IGNORECASE),
 ]
 
-# Context-window percent: two phrasings Claude Code uses across recent builds.
-# `Context: 73% (~144k / 200k tokens)` (modern 5.x) and
-# `(200k context window used: 73%)` (legacy scroll). Patterns are tail fragments
-# — the line may have other content (box-drawing, ANSI residue, spinner pre)
-# before the marker, so the scanner uses `.search`, not `.match`.
+# Context-window percent: three phrasings Claude Code uses across builds.
+#   `🧠 █░░░░░░░░░ 16%` — modern status bar (brain emoji + Block Elements bar)
+#   `Context: 73% (~144k / 200k tokens)` — text variant on some 5.x builds
+#   `(200k context window used: 73%)` — legacy scroll line
+# Patterns are tail fragments — the line may have other content (box-drawing,
+# ANSI residue, spinner pre) before the marker, so the scanner uses `.search`.
+# Brain emoji is U+1F9E0; bar chars live in Block Elements U+2580..U+259F.
+_CONTEXT_RE_BRAIN = re.compile(
+    r"\U0001F9E0[\s▀-▟]*(\d{1,3})\s*%",
+)
 _CONTEXT_RE_NEW = re.compile(
     r"Context:\s+(\d{1,3})\s*%",
     re.IGNORECASE,
@@ -112,13 +117,17 @@ def _scan_context_pct(lines: list[str]) -> int | None:
     """Most recent Claude context-window percent, or None if not found.
 
     Scans the last ~30 lines bottom-up so a stale Context line that scrolled
-    off the visible TUI doesn't beat a fresh one. Tolerates both modern
-    (`Context: 73%`) and legacy (`context window used: 73%`) phrasings.
+    off the visible TUI doesn't beat a fresh one. Tolerates the three
+    phrasings Claude Code has used over time (see _CONTEXT_RE_* above).
     Values outside 0..100 (corrupt captures, mid-redraw garbage) return None.
     """
     for raw in reversed(lines[-30:]):
         line = _strip_ansi(raw)
-        m = _CONTEXT_RE_NEW.search(line) or _CONTEXT_RE_OLD.search(line)
+        m = (
+            _CONTEXT_RE_BRAIN.search(line)
+            or _CONTEXT_RE_NEW.search(line)
+            or _CONTEXT_RE_OLD.search(line)
+        )
         if m:
             pct = int(m.group(1))
             if 0 <= pct <= 100:
