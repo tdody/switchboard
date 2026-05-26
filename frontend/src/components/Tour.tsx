@@ -54,6 +54,10 @@ interface Props {
    *  by `App.tsx` to suppress the tour while a modal/overlay is open or when
    *  there are no windows to anchor steps to. */
   enabled: boolean;
+  /** Optional handler wired from `App.tsx` — opens the Documentation modal
+   *  (THI-136). When provided, the final tour step renders a "More in Docs →"
+   *  link that dismisses the tour and opens the docs modal in one click. */
+  onOpenDocs?: () => void;
 }
 
 /**
@@ -72,7 +76,7 @@ interface Props {
  * advances past that step automatically rather than blocking on a missing
  * element.
  */
-export function Tour({ enabled }: Props) {
+export function Tour({ enabled, onOpenDocs }: Props) {
   // Defer the visibility decision to mount so the dismissed-state read isn't
   // re-evaluated on every parent re-render — once you've seen it for the
   // session, it stays seen.
@@ -246,6 +250,18 @@ export function Tour({ enabled }: Props) {
         <p id="tour-body" className="tour-body">
           {step.body}
         </p>
+        {stepIdx === STEPS.length - 1 && onOpenDocs && (
+          <button
+            type="button"
+            className="tour-docs-link"
+            onClick={() => {
+              dismiss(true);
+              onOpenDocs();
+            }}
+          >
+            More in Docs →
+          </button>
+        )}
         <div className="tour-actions">
           <button
             type="button"

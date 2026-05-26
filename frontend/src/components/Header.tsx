@@ -20,6 +20,7 @@ interface Props {
   usage?: UsageResponse | null;
   onHelp: () => void;
   onSettings: () => void;
+  onOpenDocs: () => void;
   onRetry?: () => void;
 }
 
@@ -30,6 +31,7 @@ export function Header({
   usage,
   onHelp,
   onSettings,
+  onOpenDocs,
   onRetry,
 }: Props) {
   return (
@@ -84,6 +86,15 @@ export function Header({
         <Tooltip content="Keyboard shortcuts" shortcut="?">
           <button className="btn btn-icon btn-ghost" onClick={onHelp} data-tour="kbar-hint">
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, lineHeight: 1 }}>?</span>
+          </button>
+        </Tooltip>
+        <Tooltip content="Documentation">
+          <button
+            className="btn btn-icon btn-ghost"
+            onClick={onOpenDocs}
+            aria-label="Open documentation"
+          >
+            <Icon name="docs" size={15} />
           </button>
         </Tooltip>
         <Tooltip content="Settings">

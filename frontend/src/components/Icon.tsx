@@ -37,7 +37,8 @@ export type IconName =
   | "editor"
   | "server"
   | "logs"
-  | "shell";
+  | "shell"
+  | "docs";
 
 interface IconProps {
   name: IconName;
@@ -316,6 +317,16 @@ export function Icon({ name, size = 14, style, className }: IconProps) {
       return (
         <svg {...props}>
           <path d="m3 4 3 4-3 4M8 12h5" />
+        </svg>
+      );
+    case "docs":
+      // Small book/manual: spine on the left, two facing pages with a few
+      // text lines. ~6 strokes, consistent with the rest of the set.
+      return (
+        <svg {...props}>
+          <path d="M3 3h4a2 2 0 0 1 2 2v8a1.5 1.5 0 0 0-1.5-1.5H3V3Z" />
+          <path d="M13 3H9a2 2 0 0 0-2 2v8a1.5 1.5 0 0 1 1.5-1.5H13V3Z" />
+          <path d="M4.5 6h2.2M4.5 8h2.2M9.3 6h2.2M9.3 8h2.2" />
         </svg>
       );
     default:

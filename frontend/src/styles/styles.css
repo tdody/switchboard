@@ -1918,6 +1918,25 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .tour-skip { color: var(--text-dim); }
 .tour-skip:hover { color: var(--text); }
+/* "More in Docs →" link on the final tour step (THI-136). Inline text-link
+ * style — distinct from the button row so it reads as supplementary. */
+.tour-docs-link {
+  display: inline-block;
+  margin: 0 0 12px;
+  padding: 0;
+  font-size: 12px;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.tour-docs-link:hover { text-decoration: underline; }
+.tour-docs-link:focus-visible {
+  outline: 1.5px solid var(--accent-edge);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
 
 /* ─── Status legend (THI-96) ───────────────────────────────── */
 /* `i` trigger next to the status filter chips in the subhead; click opens a
