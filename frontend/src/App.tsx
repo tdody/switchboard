@@ -48,11 +48,15 @@ import type { Window } from "./types";
 const FAIL_THRESHOLD = 3;
 const SERVER_ADDR = "127.0.0.1:8765";
 const STATUS_FILTERS: StatusFilter[] = ["all", "waiting", "running", "idle"];
-// While the terminal modal is open we want the header / status pill / pending
-// flag to reflect the open pane within ~one xterm frame, not the user-chosen
-// dashboard cadence. Pane bytes already stream over the WS; this only affects
-// the metadata sourced from /api/state (THI-105).
-const MODAL_OPEN_POLL_MS = 100;
+// While the terminal modal is open we still want the header / status pill /
+// pending flag to update promptly, but the original 100 ms cadence (THI-105)
+// burned enough backend work — see THI-142 — to stack `/api/state` handlers
+// faster than they could complete, exhausting the FD budget. 500 ms = 2 Hz,
+// which still reads as live for single-chip changes (humans don't notice
+// sub-200 ms updates on a status pill) and gives the backend 5× of the
+// FD-budget headroom on top of the single-flight wrapper. Pane bytes still
+// stream over WebSocket; this only affects /api/state metadata.
+const MODAL_OPEN_POLL_MS = 500;
 // Claude usage is server-side-cached for 30 s; polling more often would just
 // hand the cached value back. Decoupled from the /api/state cadence so a busy
 // modal-open dashboard doesn't pile up jsonl walks (THI-110).
