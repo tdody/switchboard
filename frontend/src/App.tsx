@@ -15,6 +15,7 @@ import { EmptyState } from "./components/EmptyState";
 import { Header, type HeaderCounts } from "./components/Header";
 import { Kanban } from "./components/Kanban";
 import { NeedsStrip } from "./components/NeedsStrip";
+import { NewSessionOverlay } from "./components/NewSessionOverlay";
 import { NewWindowOverlay } from "./components/NewWindowOverlay";
 import { RenameOverlay } from "./components/RenameOverlay";
 import { RenameSessionOverlay } from "./components/RenameSessionOverlay";
@@ -130,6 +131,7 @@ export function App() {
   const [paletteTargetId, setPaletteTargetId] = useState<string | null>(null);
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
   const [newWindowSession, setNewWindowSession] = useState<string | null>(null);
+  const [showNewSession, setShowNewSession] = useState(false);
   const [renameSessionTarget, setRenameSessionTarget] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   // User-pinned session order (drag-to-reorder, THI-115). Treated as a
@@ -505,6 +507,7 @@ export function App() {
         showShortcuts ||
         showDocs ||
         newWindowSession ||
+        showNewSession ||
         renameSessionTarget ||
         confirm;
 
@@ -597,6 +600,7 @@ export function App() {
     showShortcuts,
     showDocs,
     newWindowSession,
+    showNewSession,
     renameSessionTarget,
     confirm,
     navCols,
@@ -622,6 +626,14 @@ export function App() {
     <DocsModal onClose={() => setShowDocs(false)} />
   ) : null;
 
+  const newSessionOverlay = showNewSession ? (
+    <NewSessionOverlay
+      existingNames={sessions.map((s) => s.name)}
+      onClose={() => setShowNewSession(false)}
+      onApplied={refresh}
+    />
+  ) : null;
+
   if (inEmpty) {
     return (
       <div className="app">
@@ -632,6 +644,7 @@ export function App() {
           onHelp={() => setShowShortcuts(true)}
           onSettings={() => setShowSettings(true)}
           onOpenDocs={() => setShowDocs(true)}
+          onNewSession={() => setShowNewSession(true)}
           onRetry={refresh}
         />
         <main className="main">
@@ -640,6 +653,7 @@ export function App() {
         {settingsModal}
         {shortcutsSheet}
         {docsModal}
+        {newSessionOverlay}
         <ToastStack toasts={toasts} />
       </div>
     );
@@ -656,6 +670,7 @@ export function App() {
         onHelp={() => setShowShortcuts(true)}
         onSettings={() => setShowSettings(true)}
         onOpenDocs={() => setShowDocs(true)}
+        onNewSession={() => setShowNewSession(true)}
       />
       {pendingWindows.length > 0 && showNeedsStrip && (
         <NeedsStrip
@@ -741,6 +756,7 @@ export function App() {
       {settingsModal}
       {shortcutsSheet}
       {docsModal}
+      {newSessionOverlay}
       {/* First-run tour (THI-96). Suppressed while any overlay is up — the
        *  tour's data-tour anchors get covered when a modal is open, and the
        *  user is mid-interaction anyway. Also requires at least one visible
@@ -756,6 +772,7 @@ export function App() {
           !paletteTargetId &&
           !renameTargetId &&
           !newWindowSession &&
+          !showNewSession &&
           !renameSessionTarget &&
           !showSettings &&
           !showShortcuts &&

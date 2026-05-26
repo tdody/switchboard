@@ -379,6 +379,24 @@ def test_new_window_none_without_server(monkeypatch) -> None:
     assert tmux.new_window("dev", "logs") is None
 
 
+def test_new_session_invokes_tmux_detached(monkeypatch) -> None:
+    # THI-144: bypass get_server's is_alive guard so the button works from
+    # the empty state (tmux new-session starts the server on demand). We
+    # still want the exact argv to be the detached form.
+    srv, calls = _recording_server()
+    monkeypatch.setattr(tmux.libtmux, "Server", lambda: srv)
+    assert tmux.new_session("feat") is True
+    assert calls == [("new-session", "-d", "-s", "feat")]
+
+
+def test_new_session_returns_false_on_stderr(monkeypatch) -> None:
+    def cmd(*args: str, **_kwargs):
+        return SimpleNamespace(stdout=[], stderr=["duplicate session: feat"])
+
+    monkeypatch.setattr(tmux.libtmux, "Server", lambda: SimpleNamespace(cmd=cmd))
+    assert tmux.new_session("feat") is False
+
+
 def test_rename_session_invokes_tmux_with_old_and_new(monkeypatch) -> None:
     srv, calls = _recording_server()
     monkeypatch.setattr(tmux, "get_server", lambda: srv)

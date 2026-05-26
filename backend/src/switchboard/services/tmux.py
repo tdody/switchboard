@@ -596,6 +596,17 @@ def new_window(session: str, name: str) -> int | None:
         return None
 
 
+def new_session(name: str) -> bool:
+    """new-session -d -s `name`. False on tmux error (duplicate name, etc).
+
+    Intentionally bypasses `get_server()` — `tmux new-session` starts a tmux
+    server on demand, so the "New Session" button in the header (THI-144)
+    works from the empty state too.
+    """
+    srv = libtmux.Server()
+    return _cmd_ok(srv, "new-session", "-d", "-s", name)
+
+
 def detach_client(tty: str) -> bool:
     """detach-client for a specific client tty. False when no such client.
 

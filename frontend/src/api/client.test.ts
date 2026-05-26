@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createWindowWithBoot, openPaneWS, pasteImage } from "./client";
+import { createSession, createWindowWithBoot, openPaneWS, pasteImage } from "./client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -93,6 +93,34 @@ describe("createWindowWithBoot", () => {
     const win = await createWindowWithBoot("dev", "claude");
     expect(win).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1); // only the failed createWindow
+  });
+});
+
+describe("createSession", () => {
+  it("POSTs /api/session with the name and CSRF header, resolves 'ok' on 2xx", async () => {
+    document.cookie = "sb_csrf=tok-abc";
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await createSession("my-feat");
+
+    expect(result).toBe("ok");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/session?name=my-feat");
+    expect(init.method).toBe("POST");
+    expect(init.headers["x-csrf-token"]).toBe("tok-abc");
+  });
+
+  it("resolves 'in-use' on 409 so the overlay can show a name-specific hint", async () => {
+    document.cookie = "sb_csrf=tok-abc";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 409 }));
+    expect(await createSession("dev")).toBe("in-use");
+  });
+
+  it("resolves 'error' on any other non-2xx", async () => {
+    document.cookie = "sb_csrf=tok-abc";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+    expect(await createSession("dev")).toBe("error");
   });
 });
 
