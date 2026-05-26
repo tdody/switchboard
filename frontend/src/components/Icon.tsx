@@ -281,9 +281,24 @@ export function Icon({ name, size = 14, style, className }: IconProps) {
       );
     case "agent":
       return (
-        <svg {...props}>
-          <circle cx="8" cy="6.5" r="3.5" />
-          <path d="M3.5 13.5c.5-2 2.3-3 4.5-3s4 1 4.5 3M8 5.2v.1M6.5 4.8v.1M9.5 4.8v.1" />
+        <svg {...props} viewBox="0 0 18 12">
+          {/*
+            Claude Code mark — see THI-135 spec for the half-cell matrix.
+            Each cell is 2×2 in the 18×12 viewBox so the shape fills the box.
+          */}
+          <g fill="currentColor" stroke="none">
+            {/* row 0 */}
+            <rect x="4" y="0" width="10" height="2" />
+            {/* row 1 */}
+            <rect x="2" y="2" width="14" height="2" />
+            {/* row 2 */}
+            <rect x="2" y="4" width="14" height="2" />
+            {/* row 3 */}
+            <rect x="0" y="6" width="18" height="2" />
+            {/* row 4 — two paired blocks (eyes) */}
+            <rect x="4" y="8" width="4" height="2" />
+            <rect x="12" y="8" width="4" height="2" />
+          </g>
         </svg>
       );
     case "editor":
