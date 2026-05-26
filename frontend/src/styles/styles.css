@@ -263,6 +263,10 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--text);
   border-radius: 8px;
   font-size: 12px;
+  /* Keep labels on one line so a tight flex parent (e.g. .term-foot when the
+     modal is narrow) doesn't wrap the text and crop it under the 28px height. */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .btn:hover { border-color: var(--hairline-strong); background: var(--panel-2); }
 .btn:focus-visible { outline: 1.5px solid var(--accent-edge); outline-offset: 1px; }
@@ -1187,6 +1191,16 @@ input, textarea, select { font: inherit; color: inherit; }
   border-radius: 999px;
   background: rgba(255,255,255,.05);
   color: var(--text);
+}
+/* The cwd path is the only naturally long item in the footer; mark it as the
+   shrinkable element so a narrow modal squeezes the path (with ellipsis)
+   rather than the fixed buttons next to it (THI-145). */
+.term-cwd {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .term-foot .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--tone-green); }
 .term-foot .input {
