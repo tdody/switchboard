@@ -36,6 +36,51 @@ log = logging.getLogger(__name__)
 _PROMPT_POLL_ACTIVE = 0.15
 _PROMPT_POLL_IDLE = 1.0
 
+
+def _strip_screen_titles(buf: bytes, pending: bytes) -> tuple[bytes, bytes]:
+    """Strip screen/tmux `ESC k <title> ESC \\` title-set sequences.
+
+    oh-my-zsh's termsupport emits these whenever TERM is `screen-*` or
+    `tmux-*` (which is the default inside a tmux pane). A real tmux client
+    never sees them — tmux intercepts and consumes them — but `pipe-pane`
+    gives us the raw shell stream, so they reach xterm.js. xterm.js's
+    parser doesn't recognise `ESC k`, discards the ESC, and then renders
+    the title bytes as printable text on the current row — corrupting
+    every line of command output (e.g. `ls -al` showing `lstotal 272`
+    on the first output line).
+
+    `pending` carries any partial sequence held back from the previous
+    chunk (incomplete `\\x1bk...` without terminator, or a lone trailing
+    ESC that might start one). Returns (clean, new_pending). Only the
+    `ESC k` form is held; other sequences pass through unmodified.
+    """
+    data = pending + buf
+    out = bytearray()
+    i = 0
+    n = len(data)
+    while i < n:
+        if data[i] == 0x1B:
+            if i + 1 >= n:
+                # Trailing lone ESC could start `ESC k …`; hold.
+                return bytes(out), bytes(data[i:])
+            if data[i + 1] == 0x6B:  # 'k'
+                # Search for ST (`ESC \\`) terminator.
+                j = i + 2
+                end = -1
+                while j + 1 < n:
+                    if data[j] == 0x1B and data[j + 1] == 0x5C:
+                        end = j + 2
+                        break
+                    j += 1
+                if end == -1:
+                    # Incomplete sequence — hold the rest for next chunk.
+                    return bytes(out), bytes(data[i:])
+                i = end
+                continue
+        out.append(data[i])
+        i += 1
+    return bytes(out), b""
+
 # FIFO naming: `sb-pane-<pid>-<uuid>.fifo` under the system tmp dir. The PID
 # scope is what makes the orphan sweep safe under `uvicorn --workers >1`: each
 # worker only sweeps its own FIFOs, never a sibling's live ones. Exposed as
@@ -188,13 +233,18 @@ class PaneStreamer:
             fd = -1  # ownership transferred
             await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), file_obj)
 
+            # Buffer for partial `ESC k …` sequences that span FIFO reads.
+            title_pending = b""
             while True:
                 chunk = await reader.read(8192)
                 if not chunk:
                     # FIFO writer closed (pane gone or pipe-pane stopped) — exit.
                     return
+                clean, title_pending = _strip_screen_titles(chunk, title_pending)
+                if not clean:
+                    continue
                 try:
-                    await self.ws.send_bytes(chunk)
+                    await self.ws.send_bytes(clean)
                 except Exception as e:  # noqa: BLE001
                     log.debug("ws send_bytes failed: %s", e)
                     return

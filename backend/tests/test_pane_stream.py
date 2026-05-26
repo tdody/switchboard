@@ -185,3 +185,61 @@ def test_install_fifo_cleanup_hook_is_idempotent(monkeypatch) -> None:
     pane_stream.install_fifo_cleanup_hook()
     assert seen == [pane_stream.cleanup_orphaned_fifos]
     assert pane_stream._atexit_hooked is True
+
+
+# ---------------------------------------------------------------------------
+# Screen/tmux title-set stripping (`ESC k … ESC \`)
+# ---------------------------------------------------------------------------
+
+
+def test_strip_screen_titles_removes_complete_sequence() -> None:
+    # The exact pattern observed via pipe-pane after `ls\r` under oh-my-zsh
+    # with `TERM=screen-*` — the title-set escape sits between the CRLF and
+    # the first output line and would otherwise render as printable text.
+    clean, pending = pane_stream._strip_screen_titles(
+        b"\r\n\x1bkls\x1b\\total 272\r\n", b""
+    )
+    assert clean == b"\r\ntotal 272\r\n"
+    assert pending == b""
+
+
+def test_strip_screen_titles_passes_non_title_bytes_through() -> None:
+    payload = b"plain text\r\n\x1b[31mred\x1b[0m\r\n"
+    clean, pending = pane_stream._strip_screen_titles(payload, b"")
+    assert clean == payload
+    assert pending == b""
+
+
+def test_strip_screen_titles_holds_partial_across_chunks() -> None:
+    # The FIFO read could split anywhere inside `ESC k … ESC \`. Holding
+    # the partial as pending and rejoining on the next chunk is what makes
+    # the filter robust against 8KB-boundary splits.
+    clean1, pending = pane_stream._strip_screen_titles(b"prefix\x1bkpart", b"")
+    assert clean1 == b"prefix"
+    assert pending == b"\x1bkpart"
+
+    clean2, pending = pane_stream._strip_screen_titles(b"ial\x1b\\suffix", pending)
+    assert clean2 == b"suffix"
+    assert pending == b""
+
+
+def test_strip_screen_titles_holds_lone_trailing_esc() -> None:
+    # A chunk ending with bare ESC might be the start of `ESC k` — hold it
+    # so the next chunk's `k` doesn't render as printable text.
+    clean, pending = pane_stream._strip_screen_titles(b"abc\x1b", b"")
+    assert clean == b"abc"
+    assert pending == b"\x1b"
+
+    # Followup chunk: turns out to be `ESC [` (CSI), not a title — release.
+    clean2, pending = pane_stream._strip_screen_titles(b"[31mhi", pending)
+    assert clean2 == b"\x1b[31mhi"
+    assert pending == b""
+
+
+def test_strip_screen_titles_strips_multiple_in_one_chunk() -> None:
+    # Two title sets back to back (rare in practice, but easy to support):
+    clean, pending = pane_stream._strip_screen_titles(
+        b"\x1bkecho\x1b\\\x1bkls\x1b\\ok", b""
+    )
+    assert clean == b"ok"
+    assert pending == b""
