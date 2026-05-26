@@ -40,6 +40,7 @@ import {
   saveSessionOrder,
 } from "./lib/sessionOrder";
 import { applyAccent, useSettings } from "./lib/settings";
+import { pickPollInterval } from "./lib/pollTier";
 import { useURLParam } from "./lib/urlState";
 import type { Window } from "./types";
 
@@ -86,7 +87,13 @@ export function App() {
   const [query, setQuery] = useURLParam("q", "");
   const [openId, setOpenId] = useURLParam("open", "");
 
-  const pollIntervalMs = openId ? MODAL_OPEN_POLL_MS : settings.pollIntervalMs;
+  // Activity-aware /api/state cadence (THI-127). `pickPollInterval` is pure and
+  // lives in lib/pollTier.ts; we forward the *previous* tick's windows here so
+  // the helper can classify activity. The first tick has no state yet — the
+  // helper defaults to `configured` (normal tier) in that case. Subsequent
+  // renders update `pollIntervalMs` via the effect below, which re-arms the
+  // interval inside `usePolling` via its `[ms]` dep.
+  const [pollIntervalMs, setPollIntervalMs] = useState(settings.pollIntervalMs);
   const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, pollIntervalMs);
   const { data: usage } = usePolling(fetchUsage, USAGE_POLL_MS);
   const { quickCreating, handleQuickCreate } = useQuickCreate(refresh);
@@ -351,6 +358,21 @@ export function App() {
     },
     [messageToast, setOpenId],
   );
+
+  // THI-127 tier picker. Recomputes the /api/state poll cadence whenever the
+  // modal-open state, the windows list, or the user-configured cadence
+  // changes. `pickPollInterval` is pure — see lib/pollTier.ts and the spec
+  // tier table for the exact decision rules. The setState short-circuits on
+  // identical values so we don't churn `usePolling`'s [ms] dep.
+  useEffect(() => {
+    const next = pickPollInterval(
+      Boolean(openId),
+      windows,
+      settings.pollIntervalMs,
+      MODAL_OPEN_POLL_MS,
+    );
+    setPollIntervalMs((prev) => (prev === next ? prev : next));
+  }, [openId, windows, settings.pollIntervalMs]);
 
   // Apply persisted appearance settings to <html>. The theme/density/
   // reduced-motion CSS ships in styles.css; accent is written as CSS vars.
