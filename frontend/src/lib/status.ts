@@ -60,3 +60,16 @@ export function memLevel(m: number): "" | "warn" | "danger" {
   if (m >= 1024) return "warn";
   return "";
 }
+
+// Per-agent context-window usage band (THI-131). Drives the left-edge accent
+// strip on agent cards. Conventional traffic-light pacing: 50/75/90. Tune
+// thresholds here — no backend change required.
+export type ContextBand = "" | "ctx-low" | "ctx-mid" | "ctx-high" | "ctx-crit";
+
+export function contextBand(pct: number | null | undefined): ContextBand {
+  if (pct == null) return "";
+  if (pct >= 90) return "ctx-crit";
+  if (pct >= 75) return "ctx-high";
+  if (pct >= 50) return "ctx-mid";
+  return "ctx-low";
+}

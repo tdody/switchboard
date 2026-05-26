@@ -33,6 +33,12 @@ class Agent(_CamelModel):
     duration: str | None = None
     recap: str | None = None
     action: str | None = None
+    # Claude Code's current context-window usage as a 0..100 integer percent,
+    # scraped from the TUI footer by `services/claude_parser._scan_context_pct`.
+    # None when the line isn't visible in the recent capture (e.g. the pane was
+    # just opened, or scrolled past). Serializes as `contextPct` via the
+    # `to_camel` alias generator (THI-131).
+    context_pct: int | None = None
 
 
 class PromptChoice(_CamelModel):

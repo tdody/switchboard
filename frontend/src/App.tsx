@@ -25,7 +25,14 @@ import { TerminalModal } from "./components/TerminalModal";
 import { ToastStack } from "./components/ToastStack";
 import { Tour } from "./components/Tour";
 import type { ToastData } from "./components/Toast";
-import { applyFilter, parseQuery, type StatusFilter } from "./lib/filter";
+import {
+  applyFilter,
+  KIND_FILTERS,
+  parseQuery,
+  stripKindToken,
+  type KindFilter,
+  type StatusFilter,
+} from "./lib/filter";
 import { columnsForNav, navigateCard, type NavDirection } from "./lib/cardNav";
 import {
   applySessionOrder,
@@ -34,6 +41,7 @@ import {
   saveSessionOrder,
 } from "./lib/sessionOrder";
 import { applyAccent, useSettings } from "./lib/settings";
+import { pickPollInterval } from "./lib/pollTier";
 import { useURLParam } from "./lib/urlState";
 import type { Window } from "./types";
 
@@ -68,10 +76,25 @@ export function App() {
   ) as StatusFilter;
   const setFilter = (v: StatusFilter) => setFilterParam(v);
 
+  // Kind chip filter (THI-130). URL-synced for back/forward + shareable links;
+  // not localStorage-backed, matching the status filter convention. Unknown
+  // values fall back to "" (no chip selected).
+  const [kindParam, setKindParam] = useURLParam("kind", "");
+  const kindFilter: KindFilter = (
+    KIND_FILTERS.includes(kindParam as KindFilter) ? kindParam : ""
+  ) as KindFilter;
+  const setKindFilter = (v: KindFilter) => setKindParam(v);
+
   const [query, setQuery] = useURLParam("q", "");
   const [openId, setOpenId] = useURLParam("open", "");
 
-  const pollIntervalMs = openId ? MODAL_OPEN_POLL_MS : settings.pollIntervalMs;
+  // Activity-aware /api/state cadence (THI-127). `pickPollInterval` is pure and
+  // lives in lib/pollTier.ts; we forward the *previous* tick's windows here so
+  // the helper can classify activity. The first tick has no state yet — the
+  // helper defaults to `configured` (normal tier) in that case. Subsequent
+  // renders update `pollIntervalMs` via the effect below, which re-arms the
+  // interval inside `usePolling` via its `[ms]` dep.
+  const [pollIntervalMs, setPollIntervalMs] = useState(settings.pollIntervalMs);
   const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, pollIntervalMs);
   const { data: usage } = usePolling(fetchUsage, USAGE_POLL_MS);
   const { quickCreating, handleQuickCreate } = useQuickCreate(refresh);
@@ -128,8 +151,22 @@ export function App() {
 
   const parsed = useMemo(() => parseQuery(query), [query]);
   const visible = useMemo(
-    () => applyFilter(windows, filter, parsed),
-    [windows, filter, parsed],
+    () => applyFilter(windows, filter, kindFilter, parsed),
+    [windows, filter, kindFilter, parsed],
+  );
+
+  // Chip-click handler (THI-130). Toggle semantics: click the active chip to
+  // clear it; click the inactive chip to switch. Clears any conflicting
+  // `kind:` token from the search box so the chip and the search input never
+  // show competing kind filters.
+  const onChipClick = useCallback(
+    (next: KindFilter) => {
+      if (parsed.tokens.kind && parsed.tokens.kind !== next) {
+        setQuery(stripKindToken(query));
+      }
+      setKindFilter(kindFilter === next ? "" : next);
+    },
+    [parsed.tokens.kind, query, kindFilter, setQuery, setKindFilter],
   );
   const pendingWindows = useMemo(
     () => windows.filter((w) => w.pendingInput),
@@ -326,6 +363,21 @@ export function App() {
     [messageToast, setOpenId],
   );
 
+  // THI-127 tier picker. Recomputes the /api/state poll cadence whenever the
+  // modal-open state, the windows list, or the user-configured cadence
+  // changes. `pickPollInterval` is pure — see lib/pollTier.ts and the spec
+  // tier table for the exact decision rules. The setState short-circuits on
+  // identical values so we don't churn `usePolling`'s [ms] dep.
+  useEffect(() => {
+    const next = pickPollInterval(
+      Boolean(openId),
+      windows,
+      settings.pollIntervalMs,
+      MODAL_OPEN_POLL_MS,
+    );
+    setPollIntervalMs((prev) => (prev === next ? prev : next));
+  }, [openId, windows, settings.pollIntervalMs]);
+
   // Apply persisted appearance settings to <html>. The theme/density/
   // reduced-motion CSS ships in styles.css; accent is written as CSS vars.
   // Previews show only at `preview` density.
@@ -333,10 +385,17 @@ export function App() {
     const el = document.documentElement;
     el.setAttribute("data-theme", settings.theme);
     el.setAttribute("data-density", settings.density);
+    el.setAttribute("data-column-size", settings.columnSize);
     el.setAttribute("data-show-previews", String(settings.density === "preview"));
     el.setAttribute("data-reduced-motion", String(settings.reducedMotion));
     applyAccent(settings.accent);
-  }, [settings.theme, settings.density, settings.reducedMotion, settings.accent]);
+  }, [
+    settings.theme,
+    settings.density,
+    settings.columnSize,
+    settings.reducedMotion,
+    settings.accent,
+  ]);
 
   // Pending-input badge in the browser tab title.
   useEffect(() => {
@@ -561,6 +620,8 @@ export function App() {
         query={query}
         setQuery={setQuery}
         counts={counts}
+        kindFilter={kindFilter}
+        onChipClick={onChipClick}
       />
       <main className="main">
         <Kanban

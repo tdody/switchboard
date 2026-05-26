@@ -1,7 +1,7 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import type { Window } from "../types";
 import { formatAgo, formatMem } from "../lib/format";
-import { cpuLevel, kindIcon, memLevel } from "../lib/status";
+import { contextBand, cpuLevel, kindIcon, memLevel } from "../lib/status";
 import { Chip } from "./Chip";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
@@ -39,9 +39,13 @@ function WindowCardImpl({
   const cpu = cpuLevel(w.cpu);
   const mem = memLevel(w.mem);
   const showResources = !!cpu || !!mem;
+  // Context-window usage band (THI-131). Drives the left-edge accent strip;
+  // the empty-string return on missing data collapses the conditional below.
+  const ctxBand = useMemo(() => contextBand(agent?.contextPct), [agent?.contextPct]);
   const className =
     `card ${pending ? "card-pending" : ""} ${isFocused ? "card-focused" : ""}` +
-    (isHighlighted ? " card-hl" : "");
+    (isHighlighted ? " card-hl" : "") +
+    (ctxBand ? ` ${ctxBand}` : "");
   return (
     <div
       className={className}
@@ -57,6 +61,11 @@ function WindowCardImpl({
         }
       }}
     >
+      {ctxBand && (
+        <Tooltip content={`Context: ${agent?.contextPct}%`}>
+          <span className="ctx-accent" aria-hidden="true" />
+        </Tooltip>
+      )}
       <div className="card-head">
         <span className={`card-kind kind-${w.kind}`} title={w.kind}>
           <Icon name={kindIcon(w.kind)} size={12} />
@@ -68,9 +77,9 @@ function WindowCardImpl({
         <StatusPill status={w.status} />
       </div>
 
-      {(agent || w.branch) && (
+      {(w.kind === "agent" || agent || w.branch) && (
         <div className="card-agent">
-          <div className="chip-row">
+          <div className="chip-row branch-row">
             {(w.branch || w.pr) && (
               <Chip
                 className={`branch-pr ${w.ci ? `ci-${w.ci}` : ""}`}
@@ -83,14 +92,18 @@ function WindowCardImpl({
                 {w.pr && <span className="pr-num">#{w.pr}</span>}
               </Chip>
             )}
-            {agent?.spinner && (
-              <Chip className="spinner" title="agent activity">
-                <span className="spin" />
-                <span>{agent.spinner}</span>
-                {agent.duration && <span className="dur">{agent.duration}</span>}
-              </Chip>
-            )}
           </div>
+          {w.kind === "agent" && (
+            <div className="chip-row spinner-row">
+              {agent?.spinner && (
+                <Chip className="spinner" title="agent activity">
+                  <span className="spin" />
+                  <span>{agent.spinner}</span>
+                  {agent.duration && <span className="dur">{agent.duration}</span>}
+                </Chip>
+              )}
+            </div>
+          )}
           {agent?.recap && <div className="recap">{agent.recap}</div>}
           {pending && agent?.action && (
             <div className="pending">
@@ -186,6 +199,7 @@ export const WindowCard = memo(WindowCardImpl, (prev, next) => {
     a.agent?.spinner === b.agent?.spinner &&
     a.agent?.duration === b.agent?.duration &&
     a.agent?.recap === b.agent?.recap &&
-    a.agent?.action === b.agent?.action
+    a.agent?.action === b.agent?.action &&
+    a.agent?.contextPct === b.agent?.contextPct
   );
 });
