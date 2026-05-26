@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mkAgent, mkWindow } from "../test/factories";
-import { applyFilter, parseQuery, sortPendingFirst } from "./filter";
+import { applyFilter, parseQuery, sortPendingFirst, stripKindToken } from "./filter";
 
 describe("parseQuery", () => {
   it("extracts kind/status/session tokens, lowercased", () => {
@@ -35,39 +35,90 @@ describe("applyFilter", () => {
   const noQuery = parseQuery("");
 
   it("status filter narrows to one status", () => {
-    expect(applyFilter(windows, "waiting", noQuery).map((w) => w.name)).toEqual(["agent-x"]);
+    expect(applyFilter(windows, "waiting", "", noQuery).map((w) => w.name)).toEqual(["agent-x"]);
   });
 
   it("'all' returns everything", () => {
-    expect(applyFilter(windows, "all", noQuery)).toHaveLength(3);
+    expect(applyFilter(windows, "all", "", noQuery)).toHaveLength(3);
   });
 
   it("kind token filters by kind", () => {
-    const r = applyFilter(windows, "all", parseQuery("kind:agent"));
+    const r = applyFilter(windows, "all", "", parseQuery("kind:agent"));
     expect(r.map((w) => w.name)).toEqual(["agent-x"]);
   });
 
   it("session token filters by session", () => {
-    expect(applyFilter(windows, "all", parseQuery("session:main"))).toHaveLength(2);
+    expect(applyFilter(windows, "all", "", parseQuery("session:main"))).toHaveLength(2);
   });
 
   it("free text matches the window name", () => {
-    const r = applyFilter(windows, "all", parseQuery("buil"));
+    const r = applyFilter(windows, "all", "", parseQuery("buil"));
     expect(r.map((w) => w.name)).toEqual(["build"]);
   });
 
   it("free text matches the agent branch", () => {
     const ws = [mkWindow({ name: "a", agent: mkAgent({ branch: "feat/login" }) })];
-    expect(applyFilter(ws, "all", parseQuery("login"))).toHaveLength(1);
+    expect(applyFilter(ws, "all", "", parseQuery("login"))).toHaveLength(1);
   });
 
   it("composes status chip + token + free text with AND", () => {
-    const r = applyFilter(windows, "running", parseQuery("kind:server build"));
+    const r = applyFilter(windows, "running", "", parseQuery("kind:server build"));
     expect(r.map((w) => w.name)).toEqual(["build"]);
   });
 
   it("returns nothing when free text matches no field", () => {
-    expect(applyFilter(windows, "all", parseQuery("zzzznomatch"))).toHaveLength(0);
+    expect(applyFilter(windows, "all", "", parseQuery("zzzznomatch"))).toHaveLength(0);
+  });
+
+  // THI-130 — kind chip behavior.
+  it("kind chip empty leaves all kinds visible", () => {
+    expect(applyFilter(windows, "all", "", noQuery).map((w) => w.name)).toEqual([
+      "build",
+      "agent-x",
+      "shell",
+    ]);
+  });
+
+  it("kind chip=agent narrows to agent kind", () => {
+    expect(applyFilter(windows, "all", "agent", noQuery).map((w) => w.name)).toEqual(["agent-x"]);
+  });
+
+  it("kind chip=shell narrows to shell kind", () => {
+    expect(applyFilter(windows, "all", "shell", noQuery).map((w) => w.name)).toEqual(["shell"]);
+  });
+
+  it("kind chip AND-composes with status filter", () => {
+    expect(
+      applyFilter(windows, "waiting", "agent", noQuery).map((w) => w.name),
+    ).toEqual(["agent-x"]);
+  });
+
+  it("kind chip and conflicting kind: search token AND to empty", () => {
+    expect(applyFilter(windows, "all", "agent", parseQuery("kind:shell"))).toHaveLength(0);
+  });
+
+  it("kind chip and redundant matching kind: token still narrows", () => {
+    expect(
+      applyFilter(windows, "all", "agent", parseQuery("kind:agent")).map((w) => w.name),
+    ).toEqual(["agent-x"]);
+  });
+});
+
+describe("stripKindToken", () => {
+  it("removes a kind:value token and trims whitespace", () => {
+    expect(stripKindToken("foo kind:agent bar")).toBe("foo bar");
+  });
+
+  it("removes every kind: token, leaving an empty string", () => {
+    expect(stripKindToken("kind:agent kind:shell")).toBe("");
+  });
+
+  it("is case-insensitive on the key", () => {
+    expect(stripKindToken("Kind:Agent extra")).toBe("extra");
+  });
+
+  it("leaves text without kind: tokens unchanged", () => {
+    expect(stripKindToken("hello world")).toBe("hello world");
   });
 });
 

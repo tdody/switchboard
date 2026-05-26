@@ -1,4 +1,4 @@
-import type { StatusFilter } from "../lib/filter";
+import type { KindFilter, StatusFilter } from "../lib/filter";
 import type { HeaderCounts } from "./Header";
 import { Icon } from "./Icon";
 import { StatusLegend } from "./StatusLegend";
@@ -10,9 +10,19 @@ interface Props {
   query: string;
   setQuery: (v: string) => void;
   counts: HeaderCounts;
+  kindFilter: KindFilter;
+  onChipClick: (next: KindFilter) => void;
 }
 
-export function Subhead({ filter, setFilter, query, setQuery, counts }: Props) {
+export function Subhead({
+  filter,
+  setFilter,
+  query,
+  setQuery,
+  counts,
+  kindFilter,
+  onChipClick,
+}: Props) {
   const Tab = ({
     id,
     label,
@@ -61,6 +71,25 @@ export function Subhead({ filter, setFilter, query, setQuery, counts }: Props) {
         />
         <Tab id="running" label="Running" n={counts.running} tone="cyan" />
         <Tab id="idle" label="Idle" n={counts.idle} tone="gray" />
+      </span>
+      {/* Kind chips (THI-130). Radio-style: click toggles; only one can be
+       *  active. The chip and the per-card kind glyph share icons from
+       *  `kindIcon()` so they stay visually identical. */}
+      <span className="kind-tabs" style={{ display: "inline-flex", gap: 2 }}>
+        <button
+          className={`tab ${kindFilter === "agent" ? "is-active" : ""}`}
+          onClick={() => onChipClick("agent")}
+        >
+          <Icon name="agent" size={11} />
+          <span>Agent</span>
+        </button>
+        <button
+          className={`tab ${kindFilter === "shell" ? "is-active" : ""}`}
+          onClick={() => onChipClick("shell")}
+        >
+          <Icon name="shell" size={11} />
+          <span>Shell</span>
+        </button>
       </span>
       <StatusLegend />
       <span className="hdr-spacer" />
