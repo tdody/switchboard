@@ -47,6 +47,11 @@ import {
   saveWindowOrder,
   type WindowOrderMap,
 } from "./lib/windowOrder";
+import {
+  detectPendingEdges,
+  emptyNotifyState,
+  type NotifyState,
+} from "./lib/pendingNotify";
 import { applyAccent, useSettings } from "./lib/settings";
 import { pickPollInterval } from "./lib/pollTier";
 import { useInputActive } from "./lib/useInputActive";
@@ -453,6 +458,48 @@ export function App() {
     const n = pendingWindows.length;
     document.title = settings.notifyBadge && n > 0 ? `(${n}) Switchboard` : "Switchboard";
   }, [settings.notifyBadge, pendingWindows.length]);
+
+  // Native browser notifications on pendingInput edge (THI-78). Edge detection
+  // is a pure module (lib/pendingNotify); we keep the per-tick NotifyState in
+  // a ref so it survives re-renders. Reset the ref whenever the toggle flips
+  // off so re-enabling later doesn't replay every currently-pending pane.
+  const notifyStateRef = useRef<NotifyState>(emptyNotifyState());
+  useEffect(() => {
+    if (!settings.notifyBrowser || typeof Notification === "undefined") {
+      notifyStateRef.current = emptyNotifyState();
+      return;
+    }
+    if (Notification.permission !== "granted") return;
+    // No state yet → first poll hasn't returned. Skip; the next tick will
+    // run hydration via detectPendingEdges.
+    if (!state) return;
+
+    const { edges, state: next } = detectPendingEdges(
+      windows,
+      notifyStateRef.current,
+      Date.now(),
+    );
+    notifyStateRef.current = next;
+    for (const e of edges) {
+      // `tag` collapses repeated notifications for the same pane on most
+      // platforms — belt-and-braces with the in-module dedup window.
+      const n = new Notification(`${e.session}/${e.windowName}`, {
+        body: e.action ?? "waiting on input",
+        tag: e.paneId,
+      });
+      n.onclick = () => {
+        // Bring the tab to the front (Chrome / Safari honor this on a
+        // notification click since the click is a user gesture). Then drive
+        // tmux's `select-window` and open the modal — same pair as a card
+        // click in the kanban.
+        window.focus();
+        void focusWindow(e.session, e.index);
+        setOpenId(e.paneId);
+        setHighlightedId(e.paneId);
+        n.close();
+      };
+    }
+  }, [windows, state, settings.notifyBrowser, setOpenId]);
 
   // Auto-dismiss the terminal modal when its pane disappears from /api/state —
   // the pane was killed externally (someone ran `tmux kill-pane` from a
