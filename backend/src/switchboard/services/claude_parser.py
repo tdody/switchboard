@@ -47,6 +47,20 @@ _ENTER_PATTERNS: Final = [
     re.compile(r"\bcontinue\?\s*$", re.IGNORECASE),
 ]
 
+# Context-window percent: two phrasings Claude Code uses across recent builds.
+# `Context: 73% (~144k / 200k tokens)` (modern 5.x) and
+# `(200k context window used: 73%)` (legacy scroll). Patterns are tail fragments
+# — the line may have other content (box-drawing, ANSI residue, spinner pre)
+# before the marker, so the scanner uses `.search`, not `.match`.
+_CONTEXT_RE_NEW = re.compile(
+    r"Context:\s+(\d{1,3})\s*%",
+    re.IGNORECASE,
+)
+_CONTEXT_RE_OLD = re.compile(
+    r"context\s+window\s+used:\s+(\d{1,3})\s*%",
+    re.IGNORECASE,
+)
+
 # Recap: assistant-message marker, then the message body.
 _RECAP_RE = re.compile(r"^\s*[●✓✗][\s ]+(.+?)\s*$")
 
@@ -92,6 +106,27 @@ def _scan_spinner(lines: list[str]) -> tuple[str | None, str | None]:
             duration = d.group(1).replace(" ", "").lower()
         return label, duration
     return None, None
+
+
+def _scan_context_pct(lines: list[str]) -> int | None:
+    """Most recent Claude context-window percent, or None if not found.
+
+    Scans the last ~30 lines bottom-up so a stale Context line that scrolled
+    off the visible TUI doesn't beat a fresh one. Tolerates both modern
+    (`Context: 73%`) and legacy (`context window used: 73%`) phrasings.
+    Values outside 0..100 (corrupt captures, mid-redraw garbage) return None.
+    """
+    for raw in reversed(lines[-30:]):
+        line = _strip_ansi(raw)
+        m = _CONTEXT_RE_NEW.search(line) or _CONTEXT_RE_OLD.search(line)
+        if m:
+            pct = int(m.group(1))
+            if 0 <= pct <= 100:
+                return pct
+            # Out-of-range: keep scanning upward; a corrupt tail shouldn't
+            # mask a valid older line. (Spec test treats sole 101% as None,
+            # which falls through this loop to the final return.)
+    return None
 
 
 def _scan_recap(lines: list[str]) -> str | None:
@@ -282,6 +317,7 @@ def parse_pane(lines: list[str], cwd: str | None) -> tuple[Status, bool, Agent |
     spinner, duration = _scan_spinner(lines)
     recap = _scan_recap(lines)
     prompt = parse_prompt(lines)
+    context_pct = _scan_context_pct(lines)
     pending = prompt is not None
     action = prompt.question if prompt is not None else None
     # Active spinner overrides pending — Claude is still working.
@@ -298,5 +334,6 @@ def parse_pane(lines: list[str], cwd: str | None) -> tuple[Status, bool, Agent |
         duration=duration,
         recap=recap,
         action=action,
+        context_pct=context_pct,
     )
     return status, pending, agent

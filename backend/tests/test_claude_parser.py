@@ -400,3 +400,69 @@ def test_gh_pr_returns_none_on_gh_failure(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(claude_parser, "_PR_CACHE", {})
 
     assert claude_parser._gh_pr("/some/repo", "no-pr-branch") == (None, None)
+
+
+# THI-131: per-agent context% accent. `_scan_context_pct` reads the Claude Code
+# TUI footer (`Context: NN%` modern, `context window used: NN%` legacy) bottom-up
+# so the freshest reading wins. parse_pane threads the result into Agent.contextPct.
+def test_scan_context_pct_modern_phrasing() -> None:
+    assert claude_parser._scan_context_pct(["Context: 73% (~144k / 200k tokens)"]) == 73
+
+
+def test_scan_context_pct_legacy_phrasing() -> None:
+    assert claude_parser._scan_context_pct(["(200k context window used: 12%)"]) == 12
+
+
+def test_scan_context_pct_zero_is_valid() -> None:
+    # 0% must be treated as a real reading, not as "missing" — the band helper
+    # maps 0 to ctx-low. Test a tail with a recap-style line above it so the
+    # scanner has to walk past non-matching content first.
+    assert claude_parser._scan_context_pct(["⏵⏵ accept edits", "Context: 0%"]) == 0
+
+
+def test_scan_context_pct_out_of_range_returns_none() -> None:
+    # Corrupt capture: `101%` is impossible. Guard rejects it, and with no
+    # other Context line in the tail, the scanner returns None.
+    assert claude_parser._scan_context_pct(["Context: 101%"]) is None
+
+
+def test_scan_context_pct_no_match_returns_none() -> None:
+    assert claude_parser._scan_context_pct(["no context line here"]) is None
+
+
+def test_scan_context_pct_most_recent_wins() -> None:
+    # Bottom-up scan: the freshest `Context:` line — the one closest to the
+    # tail — wins over a stale reading that scrolled up earlier.
+    lines = ["Context: 50%", *(["padding"] * 80), "Context: 22%"]
+    # Only the last 30 lines are scanned; pad with "Context: 22%" near the tail.
+    tail = ["Context: 50%", *(["padding"] * 28), "Context: 22%"]
+    assert claude_parser._scan_context_pct(tail) == 22
+    # Sanity: the long-tail variant also resolves to 22 (it sits inside the
+    # 30-line window because it's the very last line).
+    assert claude_parser._scan_context_pct(lines) == 22
+
+
+def test_scan_context_pct_strips_ansi() -> None:
+    # ANSI color codes wrap the Context footer in real captures. The scanner
+    # strips them before applying the regex.
+    assert claude_parser._scan_context_pct(["\x1b[2mContext: 41%\x1b[0m"]) == 41
+
+
+def test_parse_pane_threads_context_pct_into_agent() -> None:
+    # End-to-end: parse_pane includes context_pct on the Agent payload, and the
+    # `to_camel` alias generator serializes it as `contextPct` over the wire.
+    lines = [
+        "● Done. Refactor complete.",
+        "Context: 64% (~128k / 200k tokens)",
+    ]
+    _, _, agent = claude_parser.parse_pane(lines, cwd=None)
+    assert agent is not None
+    assert agent.context_pct == 64
+    # Pin the wire shape — Agent serializes the field as `contextPct`.
+    assert agent.model_dump(by_alias=True)["contextPct"] == 64
+
+
+def test_parse_pane_context_pct_none_when_absent() -> None:
+    _, _, agent = claude_parser.parse_pane(["● Done."], cwd=None)
+    assert agent is not None
+    assert agent.context_pct is None
