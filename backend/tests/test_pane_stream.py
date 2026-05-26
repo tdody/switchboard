@@ -196,9 +196,7 @@ def test_strip_screen_titles_removes_complete_sequence() -> None:
     # The exact pattern observed via pipe-pane after `ls\r` under oh-my-zsh
     # with `TERM=screen-*` — the title-set escape sits between the CRLF and
     # the first output line and would otherwise render as printable text.
-    clean, pending = pane_stream._strip_screen_titles(
-        b"\r\n\x1bkls\x1b\\total 272\r\n", b""
-    )
+    clean, pending = pane_stream._strip_screen_titles(b"\r\n\x1bkls\x1b\\total 272\r\n", b"")
     assert clean == b"\r\ntotal 272\r\n"
     assert pending == b""
 
@@ -238,8 +236,6 @@ def test_strip_screen_titles_holds_lone_trailing_esc() -> None:
 
 def test_strip_screen_titles_strips_multiple_in_one_chunk() -> None:
     # Two title sets back to back (rare in practice, but easy to support):
-    clean, pending = pane_stream._strip_screen_titles(
-        b"\x1bkecho\x1b\\\x1bkls\x1b\\ok", b""
-    )
+    clean, pending = pane_stream._strip_screen_titles(b"\x1bkecho\x1b\\\x1bkls\x1b\\ok", b"")
     assert clean == b"ok"
     assert pending == b""

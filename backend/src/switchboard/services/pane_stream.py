@@ -81,6 +81,7 @@ def _strip_screen_titles(buf: bytes, pending: bytes) -> tuple[bytes, bytes]:
         i += 1
     return bytes(out), b""
 
+
 # FIFO naming: `sb-pane-<pid>-<uuid>.fifo` under the system tmp dir. The PID
 # scope is what makes the orphan sweep safe under `uvicorn --workers >1`: each
 # worker only sweeps its own FIFOs, never a sibling's live ones. Exposed as
