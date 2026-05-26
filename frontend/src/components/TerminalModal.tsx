@@ -5,6 +5,7 @@ import "xterm/css/xterm.css";
 
 import { fetchPane, openPaneWS, pasteImage } from "../api/client";
 import {
+  COLUMN_SIZE_ORDER,
   TERM_FONT_DEFAULT,
   TERM_FONT_MAX,
   TERM_FONT_MIN,
@@ -74,7 +75,7 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   onCloseRef.current = onClose;
   const [conn, setConn] = useState<Connection>("connecting");
   const [prompt, setPrompt] = useState<Prompt | null>(null);
-  const { wsStreamEnabled: wsEnabled, terminalFontSize } = useSettings();
+  const { wsStreamEnabled: wsEnabled, terminalFontSize, columnSize } = useSettings();
 
   // Shared Esc handler — used both by xterm's customKeyEventHandler (when the
   // terminal has focus) and by PromptOverlay (when it grabs focus). Same
@@ -480,6 +481,19 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   const zoomReset = () => updateSettings({ terminalFontSize: TERM_FONT_DEFAULT });
   const zoomPct = Math.round((terminalFontSize / TERM_FONT_DEFAULT) * 100);
 
+  // Modal pane size — shares the `columnSize` setting with the kanban subhead
+  // ColumnSizeControl. The CSS width change is picked up by the existing
+  // ResizeObserver on the xterm host (see effect above), which refits xterm
+  // and forwards the new cols/rows to tmux — no extra wiring needed here.
+  const sizeIdx = COLUMN_SIZE_ORDER.indexOf(columnSize);
+  const atNarrow = sizeIdx <= 0;
+  const atWide = sizeIdx >= COLUMN_SIZE_ORDER.length - 1;
+  const sizeStep = (delta: -1 | 1) => {
+    const next = COLUMN_SIZE_ORDER[sizeIdx + delta];
+    if (next) updateSettings({ columnSize: next });
+  };
+  const sizeReset = () => updateSettings({ columnSize: "normal" });
+
   return (
     <div className="scrim" {...scrimProps}>
       <div className="term-modal" onClick={(e) => e.stopPropagation()}>
@@ -579,7 +593,8 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
               <span>Kill window</span>
             </button>
           )}
-          <span className="term-zoom">
+          <span className="term-zoom" aria-label="Font zoom">
+            <span className="term-cluster-label">Zoom</span>
             <button
               className="btn btn-icon btn-ghost"
               onClick={() => zoomBy(-ZOOM_STEP)}
@@ -600,6 +615,34 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
               onClick={() => zoomBy(ZOOM_STEP)}
               disabled={terminalFontSize >= TERM_FONT_MAX}
               title="Zoom in (⌘=)"
+            >
+              <Icon name="plus" size={12} />
+            </button>
+          </span>
+          <span className="term-zoom" aria-label="Pane size">
+            <span className="term-cluster-label">Size</span>
+            <button
+              className="btn btn-icon btn-ghost"
+              onClick={() => sizeStep(-1)}
+              disabled={atNarrow}
+              title={`Narrower pane (current: ${columnSize})`}
+              aria-label="Narrower pane"
+            >
+              <Icon name="minus" size={12} />
+            </button>
+            <button
+              className="zoom-level"
+              onClick={sizeReset}
+              title="Reset to normal"
+            >
+              {columnSize}
+            </button>
+            <button
+              className="btn btn-icon btn-ghost"
+              onClick={() => sizeStep(1)}
+              disabled={atWide}
+              title={`Wider pane (current: ${columnSize})`}
+              aria-label="Wider pane"
             >
               <Icon name="plus" size={12} />
             </button>

@@ -329,10 +329,17 @@ export function App() {
     const el = document.documentElement;
     el.setAttribute("data-theme", settings.theme);
     el.setAttribute("data-density", settings.density);
+    el.setAttribute("data-column-size", settings.columnSize);
     el.setAttribute("data-show-previews", String(settings.density === "preview"));
     el.setAttribute("data-reduced-motion", String(settings.reducedMotion));
     applyAccent(settings.accent);
-  }, [settings.theme, settings.density, settings.reducedMotion, settings.accent]);
+  }, [
+    settings.theme,
+    settings.density,
+    settings.columnSize,
+    settings.reducedMotion,
+    settings.accent,
+  ]);
 
   // Pending-input badge in the browser tab title.
   useEffect(() => {
