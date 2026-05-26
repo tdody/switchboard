@@ -15,6 +15,8 @@ export type Accent = "aurora" | "amber" | "sky" | "magenta" | "lilac";
 export type Density = "compact" | "comfy" | "preview";
 export type Layout = "kanban" | "grid" | "list";
 export type ColumnSize = "narrow" | "normal" | "wide";
+/** Ordered narrow → normal → wide so +/- controls can step linearly (THI-128). */
+export const COLUMN_SIZE_ORDER: readonly ColumnSize[] = ["narrow", "normal", "wide"];
 
 export interface Settings {
   theme: Theme;

@@ -993,7 +993,9 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 
 .term-modal {
-  width: min(1200px, 96vw);
+  /* Width is driven by columnSize via data-column-size on <html> (THI-128 v0.2).
+     vw-based with no px cap so 27"+ monitors actually benefit from "wide". */
+  width: 85vw;
   height: min(82vh, 820px);
   background: #050608;
   border-radius: var(--r-lg);
@@ -1004,7 +1006,10 @@ input, textarea, select { font: inherit; color: inherit; }
   grid-template-rows: auto 1fr auto;
   position: relative;
   animation: rise .22s ease-out;
+  transition: width .15s ease;
 }
+[data-column-size="narrow"] .term-modal { width: 70vw; }
+[data-column-size="wide"]   .term-modal { width: 97vw; }
 @keyframes rise { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 .term-hd {
@@ -1118,12 +1123,22 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .term-zoom {
   display: inline-flex; align-items: center; gap: 2px;
+  margin-left: 8px;
 }
 .term-zoom .btn-icon { width: 22px; height: 22px; }
 .term-zoom .btn-icon:disabled { opacity: .35; cursor: default; }
+.term-cluster-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-dim);
+  padding: 0 6px 0 2px;
+  user-select: none;
+}
 .zoom-level {
-  min-width: 42px;
-  padding: 2px 4px;
+  min-width: 56px;
+  padding: 2px 6px;
   background: transparent;
   border: 0;
   border-radius: 4px;

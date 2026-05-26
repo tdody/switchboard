@@ -1,5 +1,5 @@
 import type { StatusFilter } from "../lib/filter";
-import { type ColumnSize, updateSettings, useSettings } from "../lib/settings";
+import { COLUMN_SIZE_ORDER, updateSettings, useSettings } from "../lib/settings";
 import type { HeaderCounts } from "./Header";
 import { Icon } from "./Icon";
 import { StatusLegend } from "./StatusLegend";
@@ -12,9 +12,6 @@ interface Props {
   setQuery: (v: string) => void;
   counts: HeaderCounts;
 }
-
-// Ordered narrow → normal → wide so + / − can step linearly (THI-128).
-const COLUMN_SIZE_ORDER: ColumnSize[] = ["narrow", "normal", "wide"];
 
 function ColumnSizeControl() {
   const { columnSize } = useSettings();
