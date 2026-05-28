@@ -47,6 +47,7 @@ import {
   saveWindowOrder,
   type WindowOrderMap,
 } from "./lib/windowOrder";
+import { faviconDataUrl } from "./lib/favicon";
 import {
   detectPendingEdges,
   emptyNotifyState,
@@ -468,6 +469,18 @@ export function App() {
   useEffect(() => {
     const n = pendingWindows.length;
     document.title = settings.notifyBadge && n > 0 ? `(${n}) Switchboard` : "Switchboard";
+  }, [settings.notifyBadge, pendingWindows.length]);
+
+  // Favicon red-dot count (THI-78 PR 2). Same gate as the title badge — both
+  // pieces of glanceable feedback turn off together when the user disables
+  // notifications. Updates the existing <link rel="icon"> in index.html in
+  // place so it works across all browsers (Chrome / Firefox / Safari all
+  // honor an href swap on the existing link element).
+  useEffect(() => {
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) return;
+    const count = settings.notifyBadge ? pendingWindows.length : 0;
+    link.href = faviconDataUrl(count);
   }, [settings.notifyBadge, pendingWindows.length]);
 
   // Native browser notifications on pendingInput edge (THI-78). Edge detection
