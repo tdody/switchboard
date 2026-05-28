@@ -321,9 +321,7 @@ def _git_branch(cwd: str | None) -> str | None:
     return branch
 
 
-def _gh_pr(
-    cwd: str | None, branch: str | None
-) -> tuple[int | None, CIState | None, str | None]:
+def _gh_pr(cwd: str | None, branch: str | None) -> tuple[int | None, CIState | None, str | None]:
     if not cwd or not branch:
         return None, None, None
     key = (cwd, branch)

@@ -190,9 +190,7 @@ def collect_state() -> StateResponse:
             # Shell tiles on a branch with an open PR get the same CI-tinted
             # chip the kanban agent card shows. `pr_url` lights up the chip
             # as a link (THI-146 PR 2).
-            pr, ci, pr_url = (
-                claude_parser._gh_pr(cwd, branch) if branch else (None, None, None)
-            )
+            pr, ci, pr_url = claude_parser._gh_pr(cwd, branch) if branch else (None, None, None)
             # Repo URL is computed independently of PR existence so the in-pane
             # `PR #N` linkifier still has a base URL on branches with no open
             # PR. Pure local git, cached 5 min.
