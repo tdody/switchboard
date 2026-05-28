@@ -46,7 +46,7 @@ const TABS: TabDef[] = [
 // layout works without one.
 const AGENT_SECONDARY: ReadonlyArray<DocsSecondaryItem> = [
   { label: "Spinner", desc: "activity + elapsed" },
-  { label: "Recap", desc: "last assistant line" },
+  { label: "Recap", desc: "last assistant line — comfy / preview density only" },
   { label: "CPU / mem", desc: "when elevated" },
   { label: "Age", desc: "since last output" },
 ];

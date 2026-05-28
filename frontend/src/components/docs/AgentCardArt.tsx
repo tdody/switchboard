@@ -158,7 +158,11 @@ export const AGENT_PARTS: ReadonlyArray<{ id: string; title: string; desc: strin
   { id: "status", title: "Status pill", desc: "running · waiting · idle · done · error." },
   { id: "branch", title: "Branch + PR chip", desc: "Git branch › PR. The dot color shows the CI state." },
   { id: "spinner", title: "Spinner chip", desc: "Agent activity label and elapsed time while it works." },
-  { id: "recap", title: "Recap line", desc: "Last assistant message — clamped to two lines." },
+  {
+    id: "recap",
+    title: "Recap line",
+    desc: "Last assistant message — two-line clamp; hidden at density = compact.",
+  },
   { id: "pending", title: "Pending block", desc: "Amber card border + this row mean the agent is waiting on you." },
   { id: "preview", title: "Terminal preview", desc: "Last captured stdout — hide via density = compact." },
   { id: "resources", title: "CPU / memory", desc: "Only shown when elevated — amber ≥ 60% / 1 GB · red ≥ 85% / 2 GB." },
