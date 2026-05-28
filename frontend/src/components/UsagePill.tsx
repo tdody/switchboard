@@ -139,7 +139,7 @@ function scrapeTitle(usage: UsageResponse, costUsd: number): string {
     if (m.resets) parts.push(`    resets ${m.resets}`);
   }
   if (costUsd > 0) {
-    parts.push(`  ${fmtCost(costUsd)} sum of 💰 across visible claude panes (THI-139)`);
+    parts.push(`  ${fmtCost(costUsd)} sum of 💰 across visible claude panes`);
   }
   return parts.join("\n");
 }

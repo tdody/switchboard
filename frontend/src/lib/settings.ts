@@ -32,6 +32,10 @@ export interface Settings {
   notifyBrowser: boolean;
   /** xterm.js font size for the terminal modal, in px. Zoomed via THI-102. */
   terminalFontSize: number;
+  /** User-picked IDE for "Open in IDE" (THI-146 PR 4). Empty string ⇒ use
+   *  the server's default (env-var or first probed). The Settings dropdown
+   *  writes this; TerminalModal reads it and forwards as `ide=` to /api/open. */
+  selectedIde: string;
 }
 
 // OKLCH lightness/chroma/hue for each accent preset.
@@ -77,6 +81,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyBadge: true,
   notifyBrowser: false,
   terminalFontSize: 13,
+  selectedIde: "",
 };
 
 export const POLL_MIN_S = 1;
