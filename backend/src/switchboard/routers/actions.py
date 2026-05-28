@@ -156,9 +156,16 @@ async def post_paste_image(session: str, index: int, request: Request) -> dict[s
 # Security model:
 #  * `ide_cmd` MUST be a member of `settings.IDE_ALLOWLIST` (a frozenset of
 #    known GUI editor binaries). An unset / unknown value disables the route.
-#  * `path` is resolved against the pane's cwd. Both sides are passed through
-#    `os.path.realpath` and the resolved file must share `os.path.commonpath`
-#    with the resolved cwd — symlinks pointing outside the cwd are rejected.
+#  * Path resolution depends on whether the input is absolute or relative:
+#    - Absolute paths (after `expanduser`) are trusted. The user reads the
+#      full path in the pane output before clicking; the agent can't hide
+#      an absolute path behind a relative-looking reference. Common case:
+#      monorepo where the pane is in `backend/` and the agent prints an
+#      absolute path inside `frontend/`. Realpath is still followed (so
+#      symlinks resolve), but the cwd-containment check is skipped.
+#    - Relative paths are constrained to the pane's cwd. `../../etc/passwd`
+#      style traversal and symlinks pointing outside the cwd are rejected
+#      via `os.path.realpath` + `os.path.commonpath`.
 #  * The file must exist and be a regular file (not a dir, FIFO, device).
 #  * Dispatch is `subprocess.Popen([ide_cmd, "--", real_path], shell=False)`.
 #    The `--` separator ensures a path like `--version` can't be reinterpreted
@@ -204,21 +211,27 @@ def _open_file_in_ide(
     if not raw_path or "\x00" in raw_path:
         raise HTTPException(status_code=422, detail="invalid path")
 
-    # `expanduser` lets a `~/notes.md` link from a Claude footer resolve to the
-    # user's home — common in agent output. After expansion, the containment
-    # check below still applies, so this doesn't relax the cwd guard.
+    # `expanduser` lets a `~/notes.md` link from a Claude footer resolve to
+    # the user's home — common in agent output. The result is absolute and
+    # follows the absolute-path trust path below.
     expanded = os.path.expanduser(raw_path)
-    candidate = expanded if os.path.isabs(expanded) else os.path.join(cwd, expanded)
-
+    is_absolute = os.path.isabs(expanded)
+    candidate = expanded if is_absolute else os.path.join(cwd, expanded)
     real_file = os.path.realpath(candidate)
-    real_cwd = os.path.realpath(cwd)
-    try:
-        common = os.path.commonpath([real_cwd, real_file])
-    except ValueError:
-        # Different drives / mixed separators (Windows). Treat as escape.
-        raise HTTPException(status_code=422, detail="path escapes pane cwd") from None
-    if common != real_cwd:
-        raise HTTPException(status_code=422, detail="path escapes pane cwd")
+
+    if not is_absolute:
+        # Relative paths are constrained to the pane's cwd. This catches
+        # `../../etc/passwd`-style traversal AND symlinks that point outside
+        # the cwd (because realpath chases links). Absolute paths skip this
+        # check — the user typed/saw the full path before clicking.
+        real_cwd = os.path.realpath(cwd)
+        try:
+            common = os.path.commonpath([real_cwd, real_file])
+        except ValueError:
+            # Different drives / mixed separators (Windows). Treat as escape.
+            raise HTTPException(status_code=422, detail="path escapes pane cwd") from None
+        if common != real_cwd:
+            raise HTTPException(status_code=422, detail="path escapes pane cwd")
 
     if not os.path.isfile(real_file):
         raise HTTPException(status_code=404, detail="file not found")

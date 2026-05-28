@@ -203,6 +203,42 @@ def test_open_invokes_ide_with_list_argv_and_dashdash(
     assert captured["kwargs"].get("shell") is not True
 
 
+def test_open_accepts_absolute_path_outside_cwd(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Absolute paths are explicit — the user reads the full path in the
+    pane output before clicking. The agent can't disguise an absolute path
+    behind a relative-looking reference, so we lift the cwd-containment
+    check for them. Common case: monorepo with `backend/` + `frontend/`
+    siblings — the agent prints `/abs/path/to/frontend/x.ts` while the
+    pane is in `backend/`. Previously rejected; now opens.
+
+    Relative paths (next test) are still constrained to the pane's cwd —
+    that's where the symlink-disguise attack vector actually lives.
+    """
+    # Pane cwd is a fresh tmp dir; the target lives in a sibling tmp dir.
+    pane_cwd = tmp_path / "backend"
+    pane_cwd.mkdir()
+    sibling = tmp_path / "frontend"
+    sibling.mkdir()
+    target = sibling / "vite.config.ts"
+    target.write_text("export default {}")
+
+    monkeypatch.setattr("switchboard.services.tmux.pane_cwd", lambda s, i: str(pane_cwd))
+
+    captured: dict[str, object] = {}
+
+    class FakePopen:
+        def __init__(self, args, **_kwargs):
+            captured["args"] = args
+
+    monkeypatch.setattr("switchboard.routers.actions.subprocess.Popen", FakePopen)
+
+    r = client.post(f"/api/open?session=dev&index=0&path={target}", headers=_csrf(client))
+    assert r.status_code == 200
+    assert captured["args"][2] == os.path.realpath(target)
+
+
 def test_open_accepts_absolute_path_inside_cwd(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
