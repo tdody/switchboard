@@ -188,8 +188,13 @@ def collect_state() -> StateResponse:
             # PR / CI rollup is keyed by (cwd, branch) and 60 s-cached, so the
             # same lookup serves every pane on that branch — agent or shell.
             # Shell tiles on a branch with an open PR get the same CI-tinted
-            # chip the kanban agent card shows.
-            pr, ci = claude_parser._gh_pr(cwd, branch) if branch else (None, None)
+            # chip the kanban agent card shows. `pr_url` lights up the chip
+            # as a link (THI-146 PR 2).
+            pr, ci, pr_url = claude_parser._gh_pr(cwd, branch) if branch else (None, None, None)
+            # Repo URL is computed independently of PR existence so the in-pane
+            # `PR #N` linkifier still has a base URL on branches with no open
+            # PR. Pure local git, cached 5 min.
+            repo_url = claude_parser._git_repo_url(cwd) if cwd else None
 
             idx = _to_int(w.window_index)
             windows.append(
@@ -207,7 +212,9 @@ def collect_state() -> StateResponse:
                     pending_input=pending,
                     branch=branch,
                     pr=pr,
+                    pr_url=pr_url,
                     ci=ci,
+                    repo_url=repo_url,
                     agent=agent,
                     preview=capture[-8:] if capture else [],
                 )

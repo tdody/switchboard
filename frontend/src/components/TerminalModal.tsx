@@ -4,6 +4,8 @@ import { WebLinksAddon } from "xterm-addon-web-links";
 import { Terminal } from "xterm";
 import "xterm/css/xterm.css";
 
+import { prNumberLinkProvider } from "../lib/prNumberLinks";
+
 import { fetchPane, openPaneWS, pasteImage } from "../api/client";
 import {
   COLUMN_SIZE_ORDER,
@@ -74,6 +76,11 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   // update the callback without tearing down the terminal + WS.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // Same trick for repoUrl — the registerLinkProvider callback closes over
+  // a single value at terminal-construction time, but we want a `git remote
+  // set-url` (very rare) to take effect without rebuilding the terminal.
+  const repoUrlRef = useRef(win.repoUrl);
+  repoUrlRef.current = win.repoUrl;
   // Same trick for `onToast` — the select-to-copy mouseup listener fires
   // long after the construction effect runs, and the parent often hands us
   // a new function identity each render (App's pushToast).
@@ -160,6 +167,11 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // Linkify `PR #N` mentions in pane content (THI-146 PR 2). The provider
+    // reads `repoUrlRef.current` each call, so the link target follows a live
+    // remote change without rebuilding the terminal. Skipped silently when
+    // the pane has no repoUrl (non-github cwd, or no git at all).
+    term.registerLinkProvider(prNumberLinkProvider(term, () => repoUrlRef.current));
     // Clickable http(s) URLs (THI-146). Open in a new tab; `noopener` keeps
     // the popup from gaining a `window.opener` handle back to the dashboard.
     term.loadAddon(
@@ -571,7 +583,19 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
                 {win.branch && <Icon name="git-branch" size={10} />}
                 {win.branch && <span>{win.branch}</span>}
                 {win.branch && win.pr && <span className="pr-sep">›</span>}
-                {win.pr && <span className="pr-num">#{win.pr}</span>}
+                {win.pr && win.prUrl ? (
+                  <a
+                    className="pr-num pr-link"
+                    href={win.prUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Open PR #${win.pr} on GitHub`}
+                  >
+                    #{win.pr}
+                  </a>
+                ) : (
+                  win.pr && <span className="pr-num">#{win.pr}</span>
+                )}
               </Chip>
             )}
             {win.agent?.spinner && (

@@ -26,6 +26,7 @@ const { mockTerminals, MockTerminal } = vi.hoisted(() => {
     loadAddon: () => void;
     attachCustomKeyEventHandler: () => void;
     onData: () => { dispose: () => void };
+    registerLinkProvider: () => { dispose: () => void };
     getSelection: () => string;
   }> = [];
 
@@ -47,6 +48,7 @@ const { mockTerminals, MockTerminal } = vi.hoisted(() => {
     loadAddon = () => {};
     attachCustomKeyEventHandler = () => {};
     onData = () => ({ dispose: () => {} });
+    registerLinkProvider = () => ({ dispose: () => {} });
     // Default to "no selection"; tests that exercise select-to-copy can
     // override this on a per-instance basis after construction.
     getSelection = (): string => "";
