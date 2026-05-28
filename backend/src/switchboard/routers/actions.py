@@ -210,7 +210,7 @@ def _open_file_in_ide(session: str, index: int, raw_path: str) -> str:
     # is the literal separator, argv[2] is the (cwd-contained) absolute path.
     # No path on this argv can become a flag, and no shell parses the string.
     try:
-        subprocess.Popen(  # noqa: S603 — args list is fixed; no shell
+        subprocess.Popen(
             [settings.ide_cmd, "--", real_file],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,

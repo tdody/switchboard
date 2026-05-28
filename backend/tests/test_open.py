@@ -66,23 +66,15 @@ def test_ide_config_disables_when_ide_not_in_allowlist(
 # --- POST /api/open: security guards --------------------------------------
 
 
-def test_open_400_when_ide_disabled(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_open_400_when_ide_disabled(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "ide_cmd", "nope-not-in-allowlist")
-    r = client.post(
-        "/api/open?session=dev&index=0&path=foo.py", headers=_csrf(client)
-    )
+    r = client.post("/api/open?session=dev&index=0&path=foo.py", headers=_csrf(client))
     assert r.status_code == 400
 
 
-def test_open_404_when_pane_has_no_cwd(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_open_404_when_pane_has_no_cwd(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("switchboard.services.tmux.pane_cwd", lambda s, i: None)
-    r = client.post(
-        "/api/open?session=ghost&index=99&path=foo.py", headers=_csrf(client)
-    )
+    r = client.post("/api/open?session=ghost&index=99&path=foo.py", headers=_csrf(client))
     assert r.status_code == 404
 
 
@@ -120,9 +112,7 @@ def test_open_422_when_symlink_escapes_cwd(
     link.symlink_to(secret)
 
     monkeypatch.setattr("switchboard.services.tmux.pane_cwd", lambda s, i: str(cwd))
-    r = client.post(
-        f"/api/open?session=dev&index=0&path=innocent.py", headers=_csrf(client)
-    )
+    r = client.post("/api/open?session=dev&index=0&path=innocent.py", headers=_csrf(client))
     assert r.status_code == 422
 
 
@@ -130,9 +120,7 @@ def test_open_422_on_empty_or_null_byte_path(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr("switchboard.services.tmux.pane_cwd", lambda s, i: str(tmp_path))
-    r1 = client.post(
-        "/api/open?session=dev&index=0&path=", headers=_csrf(client)
-    )
+    r1 = client.post("/api/open?session=dev&index=0&path=", headers=_csrf(client))
     # Pydantic / starlette parses "&path=" as "" — the validator rejects it.
     assert r1.status_code == 422
 
@@ -141,9 +129,7 @@ def test_open_404_when_file_does_not_exist(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr("switchboard.services.tmux.pane_cwd", lambda s, i: str(tmp_path))
-    r = client.post(
-        "/api/open?session=dev&index=0&path=ghost.py", headers=_csrf(client)
-    )
+    r = client.post("/api/open?session=dev&index=0&path=ghost.py", headers=_csrf(client))
     assert r.status_code == 404
 
 
@@ -155,9 +141,7 @@ def test_open_404_when_path_is_a_directory(
     sub = tmp_path / "src"
     sub.mkdir()
     monkeypatch.setattr("switchboard.services.tmux.pane_cwd", lambda s, i: str(tmp_path))
-    r = client.post(
-        "/api/open?session=dev&index=0&path=src", headers=_csrf(client)
-    )
+    r = client.post("/api/open?session=dev&index=0&path=src", headers=_csrf(client))
     assert r.status_code == 404
 
 
@@ -183,13 +167,9 @@ def test_open_invokes_ide_with_list_argv_and_dashdash(
             captured["args"] = args
             captured["kwargs"] = kwargs
 
-    monkeypatch.setattr(
-        "switchboard.routers.actions.subprocess.Popen", FakePopen
-    )
+    monkeypatch.setattr("switchboard.routers.actions.subprocess.Popen", FakePopen)
 
-    r = client.post(
-        "/api/open?session=dev&index=0&path=src/x.py", headers=_csrf(client)
-    )
+    r = client.post("/api/open?session=dev&index=0&path=src/x.py", headers=_csrf(client))
     assert r.status_code == 200
 
     args = captured["args"]
@@ -214,13 +194,9 @@ def test_open_accepts_absolute_path_inside_cwd(
         def __init__(self, *a, **k):
             pass
 
-    monkeypatch.setattr(
-        "switchboard.routers.actions.subprocess.Popen", NoopPopen
-    )
+    monkeypatch.setattr("switchboard.routers.actions.subprocess.Popen", NoopPopen)
 
-    r = client.post(
-        f"/api/open?session=dev&index=0&path={target}", headers=_csrf(client)
-    )
+    r = client.post(f"/api/open?session=dev&index=0&path={target}", headers=_csrf(client))
     assert r.status_code == 200
 
 
@@ -234,12 +210,8 @@ def test_open_500_when_ide_binary_missing(
     def fake_popen(*_args, **_kwargs):
         raise FileNotFoundError("code not on PATH")
 
-    monkeypatch.setattr(
-        "switchboard.routers.actions.subprocess.Popen", fake_popen
-    )
+    monkeypatch.setattr("switchboard.routers.actions.subprocess.Popen", fake_popen)
 
-    r = client.post(
-        "/api/open?session=dev&index=0&path=x.py", headers=_csrf(client)
-    )
+    r = client.post("/api/open?session=dev&index=0&path=x.py", headers=_csrf(client))
     assert r.status_code == 500
     assert "code" in r.json()["detail"]
