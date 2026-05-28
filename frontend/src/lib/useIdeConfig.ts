@@ -21,7 +21,9 @@ export function useIdeConfig(): IdeConfig | null {
       inflight = fetchIdeConfig().catch(() => ({
         enabled: false,
         command: null,
+        default: null,
         allowed: [],
+        available: [],
       }));
     }
     inflight.then((c) => {

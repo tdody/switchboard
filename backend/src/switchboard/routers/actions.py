@@ -166,19 +166,36 @@ async def post_paste_image(session: str, index: int, request: Request) -> dict[s
 #  * Existing CSRF + loopback Host middleware applies — no extra checks here.
 
 
-def _open_file_in_ide(session: str, index: int, raw_path: str) -> str:
+def _open_file_in_ide(
+    session: str, index: int, raw_path: str, ide_override: str | None = None
+) -> str:
     """Validate `raw_path` against the pane's cwd, spawn the IDE if allowed,
     and return the absolute path that was opened. Raises HTTPException with
     a precise status code on any failure so the route's response is uniform.
+
+    `ide_override` is the optional `ide=` query param from /api/open. It must
+    still be on `IDE_ALLOWLIST` — defense in depth against a hand-crafted
+    request escaping the allowlist that the frontend dropdown enforces.
     """
-    if not settings.ide_enabled:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "SWITCHBOARD_IDE_CMD is unset or not in the known editor "
-                "allowlist; the /api/open route is disabled."
-            ),
-        )
+    # Validate the explicit override first so a bad `ide=` parameter never
+    # accidentally falls through to the default IDE and looks like it worked.
+    if ide_override is not None:
+        if ide_override not in settings.IDE_ALLOWLIST:
+            raise HTTPException(
+                status_code=400,
+                detail=f"ide `{ide_override}` is not in the editor allowlist",
+            )
+        ide_cmd = ide_override
+    else:
+        if not settings.ide_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "SWITCHBOARD_IDE_CMD is unset or not in the known editor "
+                    "allowlist; the /api/open route is disabled."
+                ),
+            )
+        ide_cmd = settings.ide_cmd
 
     cwd = tmux.pane_cwd(session, index)
     if not cwd:
@@ -211,7 +228,7 @@ def _open_file_in_ide(session: str, index: int, raw_path: str) -> str:
     # No path on this argv can become a flag, and no shell parses the string.
     try:
         subprocess.Popen(
-            [settings.ide_cmd, "--", real_file],
+            [ide_cmd, "--", real_file],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -220,7 +237,7 @@ def _open_file_in_ide(session: str, index: int, raw_path: str) -> str:
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"IDE binary `{settings.ide_cmd}` not on PATH",
+            detail=f"IDE binary `{ide_cmd}` not on PATH",
         ) from exc
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"failed to spawn IDE: {exc}") from exc
@@ -229,19 +246,30 @@ def _open_file_in_ide(session: str, index: int, raw_path: str) -> str:
 
 
 @router.post("/open")
-def post_open(session: str, index: int, path: str) -> dict[str, object]:
-    real_file = _open_file_in_ide(session, index, path)
+def post_open(session: str, index: int, path: str, ide: str | None = None) -> dict[str, object]:
+    """Open `path` in the configured IDE. When `ide` is provided, that binary
+    is used instead of `settings.ide_cmd` (subject to the same allowlist).
+    The Settings dropdown sends this so a per-user choice overrides the
+    server-side env-var default without losing the security gate."""
+    real_file = _open_file_in_ide(session, index, path, ide)
     return {"ok": True, "path": real_file}
 
 
 @router.get("/ide-config")
 def get_ide_config() -> dict[str, object]:
-    """Read-only knobs for the frontend's file-path linkifier. Lets the UI
-    decide whether to render `[file.py]` substrings as clickable links and to
-    show the current launcher in Settings — without exposing a write surface
-    that could repoint the binary at runtime."""
+    """Read-only knobs for the frontend's file-path linkifier and the
+    Settings "Open in IDE" dropdown. `available` (THI-146 PR 4) is the
+    probed subset of `KNOWN_IDES` actually installed on the host. `default`
+    is what /api/open uses when no `ide` param is sent — preserved for
+    backward compat as `command`."""
+    from switchboard.services.ide_probe import probe_available_ides
+
+    available = probe_available_ides()
+    default = settings.ide_cmd if settings.ide_enabled else None
     return {
         "enabled": settings.ide_enabled,
-        "command": settings.ide_cmd if settings.ide_enabled else None,
+        "command": default,
+        "default": default,
+        "available": available,
         "allowed": sorted(settings.IDE_ALLOWLIST),
     }

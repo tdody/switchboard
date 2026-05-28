@@ -51,6 +51,29 @@ def test_ide_config_reports_enabled_state(client: TestClient) -> None:
     assert "cursor" in body["allowed"]
 
 
+def test_ide_config_exposes_probed_available_list_and_default(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # New in THI-146 PR 4: the frontend dropdown is built from `available`
+    # (probed-and-installed editors) rather than the full allowlist, so the
+    # user only sees IDEs they can actually launch. `default` mirrors
+    # `command` and is what /api/open uses when no `ide` param is sent.
+    from switchboard.services import ide_probe
+
+    def fake_which(name: str) -> str | None:
+        return f"/usr/local/bin/{name}" if name in {"code", "cursor"} else None
+
+    monkeypatch.setattr(ide_probe.shutil, "which", fake_which)
+    ide_probe._reset_cache_for_tests()
+
+    body = client.get("/api/ide-config").json()
+    available_ids = [entry["id"] for entry in body["available"]]
+    assert available_ids == ["code", "cursor"]  # order preserved from KNOWN_IDES
+    # Each entry carries the human-readable label for the dropdown.
+    assert body["available"][0]["label"] == "Visual Studio Code"
+    assert body["default"] == "code"
+
+
 def test_ide_config_disables_when_ide_not_in_allowlist(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -215,3 +238,63 @@ def test_open_500_when_ide_binary_missing(
     r = client.post("/api/open?session=dev&index=0&path=x.py", headers=_csrf(client))
     assert r.status_code == 500
     assert "code" in r.json()["detail"]
+
+
+# --- POST /api/open?ide=… (THI-146 PR 4) ----------------------------------
+
+
+def test_open_with_explicit_ide_param_uses_that_binary(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The Settings dropdown stores the user's pick and sends it as `ide=`.
+    # The spawn must use that binary instead of settings.ide_cmd.
+    target = tmp_path / "x.py"
+    target.write_text("pass")
+    monkeypatch.setattr("switchboard.services.tmux.pane_cwd", lambda s, i: str(tmp_path))
+
+    captured: dict[str, object] = {}
+
+    class FakePopen:
+        def __init__(self, args, **_kwargs):
+            captured["args"] = args
+
+    monkeypatch.setattr("switchboard.routers.actions.subprocess.Popen", FakePopen)
+
+    r = client.post("/api/open?session=dev&index=0&path=x.py&ide=cursor", headers=_csrf(client))
+    assert r.status_code == 200
+    assert captured["args"][0] == "cursor"  # not settings.ide_cmd ("code")
+
+
+def test_open_rejects_ide_param_not_in_allowlist(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Defense in depth — the frontend dropdown is built from `available` so
+    # this should be unreachable via the UI, but a hand-crafted request must
+    # NOT escape the allowlist. Otherwise an attacker with the CSRF cookie
+    # could spawn arbitrary commands by passing their own `ide=…`.
+    monkeypatch.setattr("switchboard.services.tmux.pane_cwd", lambda s, i: str(tmp_path))
+    r = client.post("/api/open?session=dev&index=0&path=x.py&ide=/bin/sh", headers=_csrf(client))
+    assert r.status_code == 400
+    assert "allowlist" in r.json()["detail"].lower()
+
+
+def test_open_falls_back_to_settings_ide_cmd_when_param_absent(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Backwards compat: existing callers (and the linkifier before the user
+    # picks anything in Settings) don't send `ide=`. Server uses ide_cmd.
+    target = tmp_path / "x.py"
+    target.write_text("pass")
+    monkeypatch.setattr("switchboard.services.tmux.pane_cwd", lambda s, i: str(tmp_path))
+
+    captured: dict[str, object] = {}
+
+    class FakePopen:
+        def __init__(self, args, **_kwargs):
+            captured["args"] = args
+
+    monkeypatch.setattr("switchboard.routers.actions.subprocess.Popen", FakePopen)
+
+    r = client.post("/api/open?session=dev&index=0&path=x.py", headers=_csrf(client))
+    assert r.status_code == 200
+    assert captured["args"][0] == "code"  # settings.ide_cmd default

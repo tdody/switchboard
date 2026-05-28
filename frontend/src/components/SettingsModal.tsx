@@ -14,6 +14,7 @@ import {
   useSettings,
 } from "../lib/settings";
 import { resetTour } from "../lib/tour";
+import { useIdeConfig } from "../lib/useIdeConfig";
 import { useScrimClose } from "../lib/useScrimClose";
 import type { UsageConfig } from "../types";
 import { Icon } from "./Icon";
@@ -32,6 +33,9 @@ interface Props {
 export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }: Props) {
   const scrimProps = useScrimClose(onClose);
   const settings = useSettings();
+  // IDE config (THI-146 PR 4). Module-level cached, so a re-open of the
+  // modal hits the cache; the dropdown is built from `available`.
+  const ideConfig = useIdeConfig();
   // Claude usage config (THI-110 commit 3). Fetched once on Settings open;
   // null while in flight. Read-only — TTL knobs are server-startup config.
   const [usageConfig, setUsageConfig] = useState<UsageConfig | null>(null);
@@ -306,6 +310,43 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
               >
                 Reset
               </button>
+            </div>
+          </div>
+
+          <div className="settings-group">
+            <h4>Editor</h4>
+            <div className="settings-row">
+              <span>
+                <div className="name">Open in IDE</div>
+                <div className="desc">
+                  Which editor opens when you click a file path in a pane.
+                </div>
+              </span>
+              {ideConfig === null ? (
+                // /api/ide-config hasn't returned yet. Module-level cache
+                // means this only happens on the very first open per session.
+                <span className="val">loading…</span>
+              ) : ideConfig.available.length === 0 ? (
+                <span className="val">no supported editors on PATH</span>
+              ) : (
+                <select
+                  value={settings.selectedIde}
+                  onChange={(e) => updateSettings({ selectedIde: e.target.value })}
+                >
+                  {/* Empty string ⇒ defer to server default. Labels the
+                      current default so the user understands what "default"
+                      maps to without leaving the modal. */}
+                  <option value="">
+                    Server default{ideConfig.default ? ` (${ideConfig.default})` : ""}
+                  </option>
+                  {ideConfig.available.map((ide) => (
+                    <option key={ide.id} value={ide.id}>
+                      {ide.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <span />
             </div>
           </div>
         </div>

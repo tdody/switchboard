@@ -89,17 +89,23 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   onToastRef.current = onToast;
   const [conn, setConn] = useState<Connection>("connecting");
   const [prompt, setPrompt] = useState<Prompt | null>(null);
-  const { wsStreamEnabled: wsEnabled, terminalFontSize, columnSize } = useSettings();
+  const {
+    wsStreamEnabled: wsEnabled,
+    terminalFontSize,
+    columnSize,
+    selectedIde,
+  } = useSettings();
 
   // THI-146 PR 3: IDE-launch config + click handler refs. Reading config
   // through a ref lets the linkProvider toggle live on the first /api/ide-
-  // config response without rebuilding the terminal.
+  // config response without rebuilding the terminal. PR 4 adds the user's
+  // dropdown pick: empty `selectedIde` ⇒ defer to the server default.
   const ideConfig = useIdeConfig();
   const ideEnabledRef = useRef(false);
   ideEnabledRef.current = ideConfig?.enabled === true;
   const onPathClickRef = useRef<(p: string) => void>(() => {});
   onPathClickRef.current = (path: string) => {
-    void openInIde(win.session, win.index, path).then((status) => {
+    void openInIde(win.session, win.index, path, selectedIde || undefined).then((status) => {
       if (status === "ok") return;
       if (status === "disabled") {
         onToast("Open-in-IDE disabled — set SWITCHBOARD_IDE_CMD");
