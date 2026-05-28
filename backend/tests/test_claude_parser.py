@@ -678,3 +678,31 @@ def test_yn_prompt_wins_over_open_question_detection() -> None:
     # yn detector preserves the `(y/n)` marker in action; open-question scan
     # would have trimmed everything past the `?`.
     assert "(y/n)" in agent.action.lower()
+
+
+# Modern Claude Code builds render the assistant-message bullet as ⏺
+# (U+23FA, BLACK CIRCLE FOR RECORD) instead of the legacy ● (U+25CF).
+# They also paint a status footer below the prompt box (`? for shortcuts
+# ... Context: N%`) that the post-THI-148 scanner mistook for narration:
+# the footer became block[0], displacing the actual question above the
+# box, and pending_input stayed false — THI-78 notification, Kanban
+# "Pending input" badge, and waiting chip all missed the event.
+def test_open_question_modern_record_marker_with_footer() -> None:
+    status, pending, agent = claude_parser.parse_pane(
+        _load("claude_open_question_modern_marker_with_footer.txt"), cwd=None
+    )
+    assert status == "waiting"
+    assert pending is True
+    assert agent is not None
+    assert agent.action is not None
+    assert agent.action.lower().endswith("?")
+    assert "interesting problem" in agent.action.lower()
+
+
+def test_recap_recognizes_modern_record_marker() -> None:
+    # `_RECAP_RE` only recognised ●/✓/✗ before the modern-marker fix, so
+    # recap silently returned None for every modern pane.
+    _, _, agent = claude_parser.parse_pane(_load("claude_idle_modern_marker.txt"), cwd=None)
+    assert agent is not None
+    assert agent.recap is not None
+    assert "refactor" in agent.recap.lower()

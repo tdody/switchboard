@@ -5,7 +5,9 @@ Reads the last N captured lines and produces an (status, pending_input, Agent).
 - Pending input is gated on an arrow-key menu, a `(y/n)` / `[y/n]`, or a
   `press enter`-style prompt appearing recently AND no spinner running. Pending
   input and an active spinner are mutually exclusive.
-- Recap is the last assistant message (line starting with ●, ✻, ✓, ✗ glyphs).
+- Recap is the last assistant message (line starting with ●, ⏺, ✻, ✓, ✗
+  glyphs — modern Claude Code builds use ⏺ U+23FA where older builds drew
+  ● U+25CF).
 - Branch / PR are best-effort `git` / `gh` shells; results are cached for 30s.
 """
 
@@ -77,8 +79,10 @@ _SESSION_COST_RE = re.compile(
     r"\U0001F4B0\s*\$([\d,]+(?:\.\d+)?)",
 )
 
-# Recap: assistant-message marker, then the message body.
-_RECAP_RE = re.compile(r"^\s*[●✓✗][\s ]+(.+?)\s*$")
+# Recap: assistant-message marker, then the message body. ⏺ (U+23FA,
+# "BLACK CIRCLE FOR RECORD") is the marker modern Claude Code builds
+# render; ● (U+25CF) is the legacy glyph. Both anchor identically.
+_RECAP_RE = re.compile(r"^\s*[●⏺✓✗][\s ]+(.+?)\s*$")
 
 # THI-148: free-form question detection. Two complementary triggers on the
 # visible last line of Claude's narration.
@@ -326,8 +330,20 @@ def _scan_open_question(lines: list[str]) -> str | None:
     pending_input flag + `agent.action` text are enough to drive the
     THI-78 native notification and the Kanban "Pending input" badge.
     """
+    # Narration always sits ABOVE the prompt box; the TUI footer below it
+    # ("? for shortcuts ... Context: N%", session-cost line) is not prose
+    # and must not anchor block[0]. Find the most recent prompt-box line
+    # and scan only the slice above it. When no prompt box is captured
+    # (rare — first frames before the input renders), scan the full tail.
+    tail = lines[-30:]
+    upper_bound = len(tail)
+    for i in range(len(tail) - 1, -1, -1):
+        if _PROMPT_BOX_RE.match(_strip_ansi(tail[i]).rstrip()):
+            upper_bound = i
+            break
+
     block: list[str] = []  # bottom-up: block[0] is the visible last line
-    for raw in reversed(lines[-30:]):
+    for raw in reversed(tail[:upper_bound]):
         line = _strip_ansi(raw).rstrip()
         if not line.strip():
             continue
@@ -344,7 +360,7 @@ def _scan_open_question(lines: list[str]) -> str | None:
         if m:
             stripped = m.group(1).strip()
             block.append(stripped)
-            break  # `●`/`✓`/`✗` marker anchors the top of the block
+            break  # `●`/`⏺`/`✓`/`✗` marker anchors the top of the block
         block.append(stripped)
     if not block:
         return None
