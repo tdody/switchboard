@@ -546,3 +546,135 @@ def test_parse_pane_session_cost_none_when_absent() -> None:
     _, _, agent = claude_parser.parse_pane(["● Done."], cwd=None)
     assert agent is not None
     assert agent.session_cost_usd is None
+
+
+# THI-148: free-form question detection. The pre-148 parser only flagged the
+# three structured shapes (menu, y/n, press-enter). Real Claude often ends a
+# turn with a plain `?` question or an imperative "let me know" — the user
+# was waiting on the model with no notification firing (THI-78 keys off
+# pendingInput). `_scan_open_question` covers both gaps.
+def test_open_question_simple_qmark_makes_pane_waiting() -> None:
+    status, pending, agent = claude_parser.parse_pane(_load("claude_open_question.txt"), cwd=None)
+    assert status == "waiting"
+    assert pending is True
+    assert agent is not None
+    assert agent.action is not None
+    assert agent.action.lower().endswith("?")
+    assert "prefer" in agent.action.lower()
+
+
+def test_open_question_multiline_picks_last_line_not_recap() -> None:
+    # The recap (first `●` line) is "I checked the logs and noticed …"; the
+    # actual question lives on the LAST narration line. _scan_open_question
+    # must walk to the visible bottom of the block, not stop at the marker.
+    status, pending, agent = claude_parser.parse_pane(
+        _load("claude_open_question_multiline.txt"), cwd=None
+    )
+    assert status == "waiting"
+    assert pending is True
+    assert agent is not None
+    assert agent.action is not None
+    assert "approach would you prefer" in agent.action.lower()
+
+
+def test_open_question_trailing_quote_is_detected() -> None:
+    # `did you mean "make faster"?` — the `?` is followed by no other char,
+    # but quoted phrases earlier on the line should not confuse the regex.
+    status, pending, agent = claude_parser.parse_pane(
+        _load("claude_open_question_quoted.txt"), cwd=None
+    )
+    assert status == "waiting"
+    assert pending is True
+    assert agent is not None
+    assert agent.action is not None
+    assert "make faster" in agent.action.lower()
+
+
+def test_open_question_letmeknow_phrase_makes_pane_waiting() -> None:
+    # Imperative ask without `?` — Claude defers to the user via "let me
+    # know". The phrase whitelist must catch this.
+    status, pending, agent = claude_parser.parse_pane(
+        _load("claude_open_question_letmeknow.txt"), cwd=None
+    )
+    assert status == "waiting"
+    assert pending is True
+    assert agent is not None
+    assert agent.action is not None
+    assert "let me know" in agent.action.lower()
+
+
+def test_open_question_skips_tool_output_qmark() -> None:
+    # The visible last line is `⎿  Did not find any relation named "users?"`
+    # — ends in `?` but is tool output, not Claude prose. Must stay idle.
+    status, pending, _ = claude_parser.parse_pane(_load("claude_tool_output_qmark.txt"), cwd=None)
+    assert status == "idle"
+    assert pending is False
+
+
+def test_open_question_skips_tool_call_qmark() -> None:
+    # A bare `Bash(...)` ending in `?` (no `⎿` output yet) is a tool call,
+    # not a question. Stay idle.
+    lines = [
+        "● Let me check.",
+        "",
+        '  Bash(grep -r "TODO?" src)',
+        "",
+        "────────────────────────────",
+        ">",
+        "────────────────────────────",
+    ]
+    status, pending, _ = claude_parser.parse_pane(lines, cwd=None)
+    assert status == "idle"
+    assert pending is False
+
+
+def test_open_question_substrings_do_not_false_positive() -> None:
+    # "letting you know" / "prior knowledge" both contain substrings that
+    # naively-anchored phrase regexes would catch. Word boundaries must
+    # keep this idle.
+    status, pending, _ = claude_parser.parse_pane(
+        _load("claude_narration_substrings_false_positive.txt"), cwd=None
+    )
+    assert status == "idle"
+    assert pending is False
+
+
+def test_open_question_suppressed_by_active_spinner() -> None:
+    # A `?`-ending narration line plus an active spinner means Claude is
+    # still working — spinner override wins. status=running, pending=False.
+    lines = [
+        "● Should I keep the simpler path?",
+        "",
+        "✻ Reconsidering… (5s · ↓ 1k tokens)",
+        "",
+        "────────────────────────────",
+        ">",
+        "────────────────────────────",
+    ]
+    status, pending, agent = claude_parser.parse_pane(lines, cwd=None)
+    assert status == "running"
+    assert pending is False
+    assert agent is not None
+    assert agent.action is None  # spinner clears action
+
+
+def test_open_question_not_emitted_via_parse_prompt() -> None:
+    # parse_prompt drives the WS overlay (PromptOverlay.tsx). Open questions
+    # have no overlay action — they belong in pending_input + agent.action
+    # only. So parse_prompt must still return None for an open-question pane.
+    assert claude_parser.parse_prompt(_load("claude_open_question.txt")) is None
+    assert claude_parser.parse_prompt(_load("claude_open_question_letmeknow.txt")) is None
+
+
+def test_yn_prompt_wins_over_open_question_detection() -> None:
+    # `(y/n)` ends the same line that also ends with `?`. The structured
+    # yn detector must still win — parse_prompt is checked before the open-
+    # question scanner.
+    status, pending, agent = claude_parser.parse_pane(_load("claude_waiting.txt"), cwd=None)
+    assert status == "waiting"
+    assert pending is True
+    assert agent is not None
+    assert agent.action is not None
+    # yn detector preserves the `(y/n)` marker in action; open-question scan
+    # would have trimmed everything past the `?`.
+    assert "(y/n)" in agent.action.lower()

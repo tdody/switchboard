@@ -1,0 +1,11 @@
+● I checked the logs and noticed the auth middleware is throwing 401s
+  for users with active sessions. There are two ways to handle this:
+
+  1. Refresh the session token on each request (slower but simpler).
+  2. Add a periodic background refresh (faster but more complex).
+
+  Which approach would you prefer?
+
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────

@@ -80,6 +80,35 @@ _SESSION_COST_RE = re.compile(
 # Recap: assistant-message marker, then the message body.
 _RECAP_RE = re.compile(r"^\s*[●✓✗][\s ]+(.+?)\s*$")
 
+# THI-148: free-form question detection. Two complementary triggers on the
+# visible last line of Claude's narration.
+#  - `_QUESTION_END_RE`: ends with `?` (allow trailing `)`, `]`, `"`, `'`, ws).
+#    Covers the bulk of cases — Claude almost always punctuates real questions.
+#  - `_ASK_PHRASES_RE`: high-precision imperative-ask phrases that may not
+#    end with `?` ("let me know …", "please confirm", "awaiting your …",
+#    etc.). Each is anchored with word boundaries so substrings like
+#    "knowledge" / "letting" don't false-positive in narration.
+_QUESTION_END_RE = re.compile(r"\?[\"')\]\s]*$")
+_ASK_PHRASES_RE = re.compile(
+    r"\b("
+    r"let\s+me\s+know|"
+    r"(please|kindly)\s+(confirm|clarify|verify|advise|specify|provide)|"
+    r"awaiting\s+(your|further)|"
+    r"waiting\s+(for|on)\s+(your|further)|"
+    r"your\s+(call|move|turn|choice|preference)|"
+    r"up\s+to\s+you"
+    r")\b",
+    re.IGNORECASE,
+)
+# Tool-call lines below `●` narration are not assistant prose — skip them
+# when scanning for a question (their text often ends with `)` or contains
+# `?` inside shell arguments). Covers the built-in Claude Code tools plus
+# any MCP-namespaced tool (e.g. `mcp__plugin_linear_linear__list_issues(`).
+_TOOL_CALL_RE = re.compile(
+    r"^(?:Bash|Read|Write|Edit|MultiEdit|Grep|Glob|Task|TodoWrite"
+    r"|WebFetch|WebSearch|NotebookEdit|ExitPlanMode|mcp__)[A-Za-z0-9_]*\("
+)
+
 _BORDER_RE = re.compile(r"^[\s─━═]+$")
 _PROMPT_BOX_RE = re.compile(r"^\s*>")
 
@@ -274,6 +303,62 @@ def parse_prompt(lines: list[str]) -> Prompt | None:
     return _scan_yn_enter(lines)
 
 
+def _scan_open_question(lines: list[str]) -> str | None:
+    """Detect a free-form question Claude is asking the user (THI-148).
+
+    Walks the recent tail bottom-up, skipping the prompt box, borders, blank
+    lines, tool calls, and tool output (`⎿`). Accumulates the visible
+    narration block (the most recent `●`/`✓`/`✗` message and its
+    continuation lines) until a tool call, tool output, or another marker
+    is hit. Two complementary triggers:
+
+      - The visible last line ends with `?` — Claude asked a question.
+        Returned action text is that line.
+      - Any line in the block contains a high-precision ask-phrase
+        ("let me know", "please confirm", "awaiting your …", …) — Claude
+        deferred to the user without a literal question mark. Returned
+        action text is the line carrying the phrase.
+
+    Complements `parse_prompt`: structured shapes (menu / yn / enter) are
+    handled there. This is only called by `parse_pane` (status / pending /
+    action) — open questions deliberately do NOT emit a `Prompt` for the
+    WS overlay, since there's no menu/button interaction to render. The
+    pending_input flag + `agent.action` text are enough to drive the
+    THI-78 native notification and the Kanban "Pending input" badge.
+    """
+    block: list[str] = []  # bottom-up: block[0] is the visible last line
+    for raw in reversed(lines[-30:]):
+        line = _strip_ansi(raw).rstrip()
+        if not line.strip():
+            continue
+        if _PROMPT_BOX_RE.match(line) or _BORDER_RE.match(line):
+            continue
+        stripped = line.strip(_BOX_CHARS)
+        if not stripped:
+            continue
+        if stripped.startswith("⎿") or _TOOL_CALL_RE.match(stripped):
+            # Tool call / output above this — stop walking; this is the
+            # boundary of the current narration block.
+            break
+        m = _RECAP_RE.match(line)
+        if m:
+            stripped = m.group(1).strip()
+            block.append(stripped)
+            break  # `●`/`✓`/`✗` marker anchors the top of the block
+        block.append(stripped)
+    if not block:
+        return None
+    last = block[0]
+    if _QUESTION_END_RE.search(last):
+        return last[:_ACTION_CLIP]
+    # Ask-phrases can appear anywhere in the block; bottom-up scan returns
+    # the most recent line carrying the phrase as the action label.
+    for candidate in block:
+        if _ASK_PHRASES_RE.search(candidate):
+            return candidate[:_ACTION_CLIP]
+    return None
+
+
 _BRANCH_CACHE: dict[str, tuple[float, str | None]] = {}
 _PR_CACHE: dict[tuple[str, str], tuple[float, tuple[int | None, CIState | None]]] = {}
 # Branch resolution caches per-cwd; the key doesn't change when the user runs
@@ -364,6 +449,14 @@ def parse_pane(lines: list[str], cwd: str | None) -> tuple[Status, bool, Agent |
     session_cost_usd = _scan_session_cost(lines)
     pending = prompt is not None
     action = prompt.question if prompt is not None else None
+    # THI-148: free-form questions Claude asks the user (no menu / yn / enter
+    # structure) also flip pending. Run only when no structured prompt fired
+    # so the structured action text wins when both could match.
+    if prompt is None:
+        open_question = _scan_open_question(lines)
+        if open_question is not None:
+            pending = True
+            action = open_question
     # Active spinner overrides pending — Claude is still working.
     if spinner:
         pending = False
