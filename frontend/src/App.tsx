@@ -50,6 +50,8 @@ import {
 import {
   detectPendingEdges,
   emptyNotifyState,
+  hydrateNotifyState,
+  markJustEnabled,
   type NotifyState,
 } from "./lib/pendingNotify";
 import { applyAccent, useSettings } from "./lib/settings";
@@ -115,7 +117,16 @@ export function App() {
   // renders update `pollIntervalMs` via the effect below, which re-arms the
   // interval inside `usePolling` via its `[ms]` dep.
   const [pollIntervalMs, setPollIntervalMs] = useState(settings.pollIntervalMs);
-  const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, pollIntervalMs);
+  // Notifications-on: keep polling /api/state while the tab is backgrounded —
+  // otherwise no pendingInput edge is ever detected and no OS banner fires
+  // exactly when the user has switched away and needs to be told (THI-78).
+  // Browser throttles background timers (~1Hz, dropping to ~1/min after a few
+  // minutes hidden), which bounds the bandwidth cost.
+  const { data: state, consecutiveErrors, refresh } = usePolling(
+    fetchState,
+    pollIntervalMs,
+    settings.notifyBrowser,
+  );
   const { data: usage } = usePolling(fetchUsage, USAGE_POLL_MS);
   // Input-active backoff (THI-138). True while the user is typing into a
   // non-xterm text input within the last 800 ms. Threaded through the
@@ -461,18 +472,43 @@ export function App() {
 
   // Native browser notifications on pendingInput edge (THI-78). Edge detection
   // is a pure module (lib/pendingNotify); we keep the per-tick NotifyState in
-  // a ref so it survives re-renders. Reset the ref whenever the toggle flips
-  // off so re-enabling later doesn't replay every currently-pending pane.
+  // a ref so it survives re-renders. State is hydrated on every poll *even
+  // when notifications are off* — that way (a) reload-protection still works
+  // and (b) the off→on toggle has real state to diff against, so currently-
+  // pending panes can be surfaced as edges via markJustEnabled.
   const notifyStateRef = useRef<NotifyState>(emptyNotifyState());
+  const notifyEnabledRef = useRef<boolean>(false);
   useEffect(() => {
-    if (!settings.notifyBrowser || typeof Notification === "undefined") {
-      notifyStateRef.current = emptyNotifyState();
+    // No state yet → first poll hasn't returned. Nothing to hydrate against.
+    if (!state) return;
+
+    const enabled =
+      settings.notifyBrowser &&
+      typeof Notification !== "undefined" &&
+      Notification.permission === "granted";
+
+    if (!enabled) {
+      // Keep hydrating silently. Bumps `hydrated` to true on the first state
+      // response and keeps `lastPendingIds` in sync with whatever's pending
+      // now, so a later toggle-on can correctly fire only for panes that
+      // were pending at the moment of opting in. Uses hydrateNotifyState
+      // (not detectPendingEdges) so panes going pending while disabled don't
+      // poison lastNotifiedAt — otherwise dedup would silently block the
+      // user's first real notification after they enable.
+      notifyStateRef.current = hydrateNotifyState(windows, notifyStateRef.current);
+      notifyEnabledRef.current = false;
       return;
     }
-    if (Notification.permission !== "granted") return;
-    // No state yet → first poll hasn't returned. Skip; the next tick will
-    // run hydration via detectPendingEdges.
-    if (!state) return;
+
+    // Off → on transition mid-session: explicitly opt in to seeing currently-
+    // pending panes. Skipped when !hydrated (initial page load with the
+    // toggle already on) — that case stays under reload protection so a
+    // refresh doesn't barrage the user with everything that was pending
+    // before they could care.
+    if (!notifyEnabledRef.current && notifyStateRef.current.hydrated) {
+      notifyStateRef.current = markJustEnabled(notifyStateRef.current);
+    }
+    notifyEnabledRef.current = true;
 
     const { edges, state: next } = detectPendingEdges(
       windows,

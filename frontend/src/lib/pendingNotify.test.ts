@@ -3,6 +3,8 @@ import { mkWindow } from "../test/factories";
 import {
   detectPendingEdges,
   emptyNotifyState,
+  hydrateNotifyState,
+  markJustEnabled,
   NOTIFY_DEDUP_MS,
   type NotifyState,
 } from "./pendingNotify";
@@ -159,5 +161,128 @@ describe("detectPendingEdges", () => {
     };
     const { state } = detectPendingEdges([], prev, NOW);
     expect(state.lastNotifiedAt.has("%just-killed")).toBe(true);
+  });
+});
+
+describe("markJustEnabled", () => {
+  it("clears lastPendingIds so currently-pending panes become edges next tick", () => {
+    // The pure-module half of the "user toggled notifications ON mid-session"
+    // fix: by emptying lastPendingIds, the next detectPendingEdges call sees
+    // every currently-pending paneId as a rising edge — exactly what the user
+    // wants to know when they opt in.
+    const prev: NotifyState = {
+      lastPendingIds: new Set(["%1", "%2"]),
+      lastNotifiedAt: new Map(),
+      hydrated: true,
+    };
+    const next = markJustEnabled(prev);
+    expect(next.lastPendingIds.size).toBe(0);
+  });
+
+  it("preserves lastNotifiedAt so the dedup window still blocks rapid re-fires", () => {
+    // If the user toggles off → on within the dedup window (e.g. testing the
+    // toggle a few times), we must not spam them with re-notifications for the
+    // same prompt. lastNotifiedAt is the gate that prevents that.
+    const prev: NotifyState = {
+      lastPendingIds: new Set(["%1"]),
+      lastNotifiedAt: new Map([["%1", NOW - 5000]]),
+      hydrated: true,
+    };
+    const next = markJustEnabled(prev);
+    expect(next.lastNotifiedAt.get("%1")).toBe(NOW - 5000);
+  });
+
+  it("preserves hydrated flag (caller decides whether to call this)", () => {
+    // Caller (App.tsx) only invokes markJustEnabled when hydrated is already
+    // true — the !hydrated case is the initial-page-load reload-protection
+    // path, which must NOT fire for already-pending panes. We don't enforce
+    // that here; we just don't lie about hydration state.
+    expect(markJustEnabled(emptyNotifyState()).hydrated).toBe(false);
+    const hydrated: NotifyState = {
+      lastPendingIds: new Set(["%1"]),
+      lastNotifiedAt: new Map(),
+      hydrated: true,
+    };
+    expect(markJustEnabled(hydrated).hydrated).toBe(true);
+  });
+
+  it("integrates: detectPendingEdges after markJustEnabled emits currently-pending as edges", () => {
+    // End-to-end of the off→on flow: pane was pending and tracked (no edge in
+    // the disabled tick), user enables notifications, next tick fires.
+    const prev: NotifyState = {
+      lastPendingIds: new Set(["%1"]),
+      lastNotifiedAt: new Map(),
+      hydrated: true,
+    };
+    const justEnabled = markJustEnabled(prev);
+    const windows = [mkWindow({ paneId: "%1", pendingInput: true })];
+    const { edges } = detectPendingEdges(windows, justEnabled, NOW);
+    expect(edges.map((e) => e.paneId)).toEqual(["%1"]);
+  });
+
+  it("integrates: dedup window still blocks a re-fire after markJustEnabled", () => {
+    // User notified at NOW-5s, toggled off, toggled back on. Same pane is
+    // still pending. markJustEnabled would normally make it an edge — but
+    // lastNotifiedAt still gates it, so no second notification.
+    const prev: NotifyState = {
+      lastPendingIds: new Set(["%1"]),
+      lastNotifiedAt: new Map([["%1", NOW - 5000]]),
+      hydrated: true,
+    };
+    const justEnabled = markJustEnabled(prev);
+    const windows = [mkWindow({ paneId: "%1", pendingInput: true })];
+    const { edges } = detectPendingEdges(windows, justEnabled, NOW);
+    expect(edges).toEqual([]);
+  });
+});
+
+describe("hydrateNotifyState", () => {
+  it("captures currently-pending paneIds and marks state hydrated", () => {
+    const windows = [
+      mkWindow({ paneId: "%1", pendingInput: true }),
+      mkWindow({ paneId: "%2", pendingInput: false }),
+      mkWindow({ paneId: "%3", pendingInput: true }),
+    ];
+    const next = hydrateNotifyState(windows, emptyNotifyState());
+    expect(next.lastPendingIds).toEqual(new Set(["%1", "%3"]));
+    expect(next.hydrated).toBe(true);
+  });
+
+  it("does NOT touch lastNotifiedAt — preserves the dedup map as-is", () => {
+    // The whole point of this helper vs detectPendingEdges: keeping state
+    // warm while notifications are off must not record fake "notifications"
+    // that would later block a real edge under the dedup window.
+    const prev: NotifyState = {
+      lastPendingIds: new Set(),
+      lastNotifiedAt: new Map([
+        ["%1", NOW - 5000],
+        ["%2", NOW - 10_000],
+      ]),
+      hydrated: true,
+    };
+    const windows = [mkWindow({ paneId: "%new", pendingInput: true })];
+    const next = hydrateNotifyState(windows, prev);
+    expect(next.lastNotifiedAt.get("%1")).toBe(NOW - 5000);
+    expect(next.lastNotifiedAt.get("%2")).toBe(NOW - 10_000);
+    expect(next.lastNotifiedAt.has("%new")).toBe(false); // ← no fake notify
+  });
+
+  it("integrates: a pane that went pending while disabled fires an edge on re-enable", () => {
+    // This is the regression-test for the App.tsx wiring fix. Sequence:
+    //   t=0: notifications OFF. Pane %1 not pending. State hydrated empty.
+    //   t=1: pane %1 goes pending. App calls hydrateNotifyState (still OFF).
+    //   t=2: user toggles ON. App calls markJustEnabled, then detectPendingEdges.
+    //        %1 must be an edge, and lastNotifiedAt[%1] must NOT have been
+    //        polluted by the t=1 hydrate (otherwise dedup would silently
+    //        block the notification the user actually wanted).
+    let state = hydrateNotifyState([], emptyNotifyState()); // t=0
+    state = hydrateNotifyState([mkWindow({ paneId: "%1", pendingInput: true })], state); // t=1
+    state = markJustEnabled(state); // user toggles ON
+    const { edges } = detectPendingEdges(
+      [mkWindow({ paneId: "%1", pendingInput: true })],
+      state,
+      NOW,
+    );
+    expect(edges.map((e) => e.paneId)).toEqual(["%1"]);
   });
 });
