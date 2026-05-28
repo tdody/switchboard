@@ -47,6 +47,14 @@ import {
   saveWindowOrder,
   type WindowOrderMap,
 } from "./lib/windowOrder";
+import { faviconDataUrl } from "./lib/favicon";
+import {
+  detectPendingEdges,
+  emptyNotifyState,
+  hydrateNotifyState,
+  markJustEnabled,
+  type NotifyState,
+} from "./lib/pendingNotify";
 import { applyAccent, useSettings } from "./lib/settings";
 import { pickPollInterval } from "./lib/pollTier";
 import { useInputActive } from "./lib/useInputActive";
@@ -110,7 +118,16 @@ export function App() {
   // renders update `pollIntervalMs` via the effect below, which re-arms the
   // interval inside `usePolling` via its `[ms]` dep.
   const [pollIntervalMs, setPollIntervalMs] = useState(settings.pollIntervalMs);
-  const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, pollIntervalMs);
+  // Notifications-on: keep polling /api/state while the tab is backgrounded —
+  // otherwise no pendingInput edge is ever detected and no OS banner fires
+  // exactly when the user has switched away and needs to be told (THI-78).
+  // Browser throttles background timers (~1Hz, dropping to ~1/min after a few
+  // minutes hidden), which bounds the bandwidth cost.
+  const { data: state, consecutiveErrors, refresh } = usePolling(
+    fetchState,
+    pollIntervalMs,
+    settings.notifyBrowser,
+  );
   const { data: usage } = usePolling(fetchUsage, USAGE_POLL_MS);
   // Input-active backoff (THI-138). True while the user is typing into a
   // non-xterm text input within the last 800 ms. Threaded through the
@@ -453,6 +470,85 @@ export function App() {
     const n = pendingWindows.length;
     document.title = settings.notifyBadge && n > 0 ? `(${n}) Switchboard` : "Switchboard";
   }, [settings.notifyBadge, pendingWindows.length]);
+
+  // Favicon red-dot count (THI-78 PR 2). Same gate as the title badge — both
+  // pieces of glanceable feedback turn off together when the user disables
+  // notifications. Updates the existing <link rel="icon"> in index.html in
+  // place so it works across all browsers (Chrome / Firefox / Safari all
+  // honor an href swap on the existing link element).
+  useEffect(() => {
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) return;
+    const count = settings.notifyBadge ? pendingWindows.length : 0;
+    link.href = faviconDataUrl(count);
+  }, [settings.notifyBadge, pendingWindows.length]);
+
+  // Native browser notifications on pendingInput edge (THI-78). Edge detection
+  // is a pure module (lib/pendingNotify); we keep the per-tick NotifyState in
+  // a ref so it survives re-renders. State is hydrated on every poll *even
+  // when notifications are off* — that way (a) reload-protection still works
+  // and (b) the off→on toggle has real state to diff against, so currently-
+  // pending panes can be surfaced as edges via markJustEnabled.
+  const notifyStateRef = useRef<NotifyState>(emptyNotifyState());
+  const notifyEnabledRef = useRef<boolean>(false);
+  useEffect(() => {
+    // No state yet → first poll hasn't returned. Nothing to hydrate against.
+    if (!state) return;
+
+    const enabled =
+      settings.notifyBrowser &&
+      typeof Notification !== "undefined" &&
+      Notification.permission === "granted";
+
+    if (!enabled) {
+      // Keep hydrating silently. Bumps `hydrated` to true on the first state
+      // response and keeps `lastPendingIds` in sync with whatever's pending
+      // now, so a later toggle-on can correctly fire only for panes that
+      // were pending at the moment of opting in. Uses hydrateNotifyState
+      // (not detectPendingEdges) so panes going pending while disabled don't
+      // poison lastNotifiedAt — otherwise dedup would silently block the
+      // user's first real notification after they enable.
+      notifyStateRef.current = hydrateNotifyState(windows, notifyStateRef.current);
+      notifyEnabledRef.current = false;
+      return;
+    }
+
+    // Off → on transition mid-session: explicitly opt in to seeing currently-
+    // pending panes. Skipped when !hydrated (initial page load with the
+    // toggle already on) — that case stays under reload protection so a
+    // refresh doesn't barrage the user with everything that was pending
+    // before they could care.
+    if (!notifyEnabledRef.current && notifyStateRef.current.hydrated) {
+      notifyStateRef.current = markJustEnabled(notifyStateRef.current);
+    }
+    notifyEnabledRef.current = true;
+
+    const { edges, state: next } = detectPendingEdges(
+      windows,
+      notifyStateRef.current,
+      Date.now(),
+    );
+    notifyStateRef.current = next;
+    for (const e of edges) {
+      // `tag` collapses repeated notifications for the same pane on most
+      // platforms — belt-and-braces with the in-module dedup window.
+      const n = new Notification(`${e.session}/${e.windowName}`, {
+        body: e.action ?? "waiting on input",
+        tag: e.paneId,
+      });
+      n.onclick = () => {
+        // Bring the tab to the front (Chrome / Safari honor this on a
+        // notification click since the click is a user gesture). Then drive
+        // tmux's `select-window` and open the modal — same pair as a card
+        // click in the kanban.
+        window.focus();
+        void focusWindow(e.session, e.index);
+        setOpenId(e.paneId);
+        setHighlightedId(e.paneId);
+        n.close();
+      };
+    }
+  }, [windows, state, settings.notifyBrowser, setOpenId]);
 
   // Auto-dismiss the terminal modal when its pane disappears from /api/state —
   // the pane was killed externally (someone ran `tmux kill-pane` from a

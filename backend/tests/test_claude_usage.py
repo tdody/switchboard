@@ -144,8 +144,10 @@ def test_usage_endpoint_returns_camel_case_shape(monkeypatch: pytest.MonkeyPatch
     )
     monkeypatch.setattr(claude_usage, "cached_token_usage", lambda: canned)
     # An earlier test in the suite may have triggered the background
-    # `_refresh_scrape_into_cache` thread (unmocked); pin both the cache and
-    # the in-flight flag so this test isn't ordering-dependent.
+    # `_refresh_scrape_into_cache` thread (unmocked); if it completes before
+    # this test runs, `_scrape_cache` carries real data and the `scrape is
+    # None` assertion below fails sporadically depending on test order.
+    # Pin both the cache and the in-flight flag.
     monkeypatch.setattr(claude_usage, "_scrape_cache", (0.0, None))
     monkeypatch.setattr(claude_usage, "_scrape_in_flight", True)
 

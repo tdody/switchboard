@@ -790,6 +790,8 @@ input, textarea, select { font: inherit; color: inherit; }
 .chip.branch-pr { color: var(--text); max-width: 100%; }
 .chip.branch-pr .pr-sep  { color: var(--text-dim); padding: 0 2px; }
 .chip.branch-pr .pr-num  { color: var(--tone-lilac); }
+.chip.branch-pr a.pr-link { color: var(--tone-lilac); text-decoration: none; }
+.chip.branch-pr a.pr-link:hover { text-decoration: underline; }
 .chip.branch-pr.ci-passing { border-color: color-mix(in oklch, var(--tone-green) 35%, var(--hairline)); }
 .chip.branch-pr.ci-failing { border-color: color-mix(in oklch, var(--tone-red)   35%, var(--hairline)); }
 .chip.branch-pr.ci-running { border-color: color-mix(in oklch, var(--tone-cyan)  35%, var(--hairline)); }

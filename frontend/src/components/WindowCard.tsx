@@ -89,7 +89,24 @@ function WindowCardImpl({
                 {w.branch && <Icon name="git-branch" size={10} />}
                 {w.branch && <span>{w.branch}</span>}
                 {w.branch && w.pr && <span className="pr-sep">›</span>}
-                {w.pr && <span className="pr-num">#{w.pr}</span>}
+                {w.pr && w.prUrl ? (
+                  // THI-146 PR 2: clickable PR number. stopPropagation keeps
+                  // the click from also opening the terminal modal via the
+                  // card's onClick. `noopener,noreferrer` because the URL is
+                  // surfaced from `gh pr view` against the user's origin.
+                  <a
+                    className="pr-num pr-link"
+                    href={w.prUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    title={`Open PR #${w.pr} on GitHub`}
+                  >
+                    #{w.pr}
+                  </a>
+                ) : (
+                  w.pr && <span className="pr-num">#{w.pr}</span>
+                )}
               </Chip>
             )}
           </div>

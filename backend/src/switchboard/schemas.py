@@ -84,7 +84,14 @@ class Window(_CamelModel):
     # symmetry as `branch` after THI-126. None for panes without a branch or
     # whose branch has no PR.
     pr: int | None = None
+    # Direct URL to the PR — surfaced by `gh pr view --json url` alongside the
+    # number. Used by the frontend to turn the PR chip into a link (THI-146).
+    pr_url: str | None = None
     ci: CIState | None = None
+    # Normalized `https://github.com/owner/repo` for the pane's cwd, or None if
+    # the cwd isn't inside a github repo. Drives the in-pane `PR #N` linkifier
+    # so a non-current PR mention in an agent footer is still clickable.
+    repo_url: str | None = None
     agent: Agent | None = None
     preview: list[str] = []
 
