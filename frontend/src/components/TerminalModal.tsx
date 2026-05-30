@@ -26,6 +26,7 @@ import { parsePromptMessage } from "../lib/prompt";
 import type { Prompt } from "../lib/prompt";
 import { useScrimClose } from "../lib/useScrimClose";
 import { decideCloseAction } from "../lib/wsReconnect";
+import { xtermThemeFor } from "../lib/xtermThemes";
 
 interface Props {
   window: Window;
@@ -94,6 +95,7 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
     terminalFontSize,
     columnSize,
     selectedIde,
+    theme,
   } = useSettings();
 
   // THI-146 PR 3: IDE-launch config + click handler refs. Reading config
@@ -142,6 +144,11 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   // scrollback and WS connection. A separate effect handles live changes.
   const fontSizeRef = useRef(terminalFontSize);
   fontSizeRef.current = terminalFontSize;
+  // Same trick for theme (THI-153) — the construction effect reads from
+  // the ref; a dedicated effect below swaps `term.options.theme` when the
+  // user toggles theme while the modal is open.
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -166,33 +173,14 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       // — sequences Claude Code's input box honors.
       macOptionIsMeta: true,
       // Nudge low-contrast source colors to stay readable against the bg
-      // (Ghostty does the same minimum-contrast adjustment).
+      // (Ghostty does the same minimum-contrast adjustment). The
+      // theme-aware palettes already clear WCAG AA, but this stays as a
+      // safety net for unusual escape-code combinations.
       minimumContrastRatio: 4.5,
-      // Ghostty's default palette (Tomorrow Night) — a pane rendered here
-      // looks the same as in the user's Ghostty window.
-      theme: {
-        background: "#282c34",
-        foreground: "#ffffff",
-        cursor: "#ffffff",
-        cursorAccent: "#282c34",
-        selectionBackground: "#373b41",
-        black: "#1d1f21",
-        red: "#cc6666",
-        green: "#b5bd68",
-        yellow: "#f0c674",
-        blue: "#81a2be",
-        magenta: "#b294bb",
-        cyan: "#8abeb7",
-        white: "#c5c8c6",
-        brightBlack: "#666666",
-        brightRed: "#d54e53",
-        brightGreen: "#b9ca4a",
-        brightYellow: "#e7c547",
-        brightBlue: "#7aa6da",
-        brightMagenta: "#c397d8",
-        brightCyan: "#70c0b1",
-        brightWhite: "#eaeaea",
-      },
+      // THI-153: theme follows Switchboard's current Theme setting. A
+      // separate effect below re-applies the palette when the user
+      // toggles theme while the modal is open.
+      theme: xtermThemeFor(themeRef.current),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -513,6 +501,16 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
     });
     return () => cancelAnimationFrame(id);
   }, [terminalFontSize]);
+
+  // THI-153: live theme swap. Toggling Switchboard's theme re-themes the
+  // open terminal in place — no rebuild, scrollback and WS connection
+  // preserved. xterm honors `term.options.theme = …` by re-rendering the
+  // existing buffer with the new palette on the next frame.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.theme = xtermThemeFor(theme);
+  }, [theme]);
 
   // Image paste → upload to the pane. Capture phase so we intercept before
   // xterm's own paste handling. Agent panes only — the `@path` reference is
