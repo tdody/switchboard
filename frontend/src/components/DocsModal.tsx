@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { replayTour } from "../lib/tour";
 import { useScrimClose } from "../lib/useScrimClose";
 import "../styles/docs.css";
 import { AgentCardArt } from "./docs/AgentCardArt";
@@ -49,10 +50,16 @@ const AGENT_SECONDARY: ReadonlyArray<DocsSecondaryItem> = [
   { label: "Recap", desc: "last assistant line — comfy / preview density only" },
   { label: "CPU / mem", desc: "when elevated" },
   { label: "Age", desc: "since last output" },
+  // THI-147: surface the tile-drag affordance — clicking anywhere on the
+  // card and dragging reorders it within the column. No single anchor
+  // point on the diagram (the whole card is the grab target), so it
+  // lives in the secondary strip rather than a primary callout.
+  { label: "Drag", desc: "reorder within the session column" },
 ];
 const SHELL_SECONDARY: ReadonlyArray<DocsSecondaryItem> = [
   { label: "CPU / mem", desc: "when elevated" },
   { label: "Age", desc: "since last output" },
+  { label: "Drag", desc: "reorder within the session column" },
 ];
 
 // Card placement inside the 1240×480 SVG body. Agent (400-tall) and
@@ -143,6 +150,18 @@ export function DocsModal({ onClose }: Props) {
 
         <div className="docs-foot">
           <span className="hint">Reference · {TABS.length} sections</span>
+          {/* THI-147: surface the first-run tour replay path. `replayTour`
+              clears the dismissed flag AND reloads, so the tour appears
+              immediately rather than waiting for the next manual refresh.
+              Mirrors the Settings → Replay button so users who land on Docs
+              first don't have to dig for it. */}
+          <button
+            className="btn"
+            onClick={() => replayTour()}
+            title="Re-show the 4-step intro right now"
+          >
+            <Icon name="sparkle" /> Replay tour
+          </button>
           <button className="btn btn-primary" onClick={onClose}>
             <Icon name="check" /> Done
           </button>
