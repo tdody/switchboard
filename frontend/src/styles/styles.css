@@ -13,11 +13,18 @@
   --bg-elev:   #111317;
   --panel:     #15181e;
   --panel-2:   #1a1e25;
+  /* --panel-3: hover-state bg for .btn (THI-151). Tuned so the hover/default
+     ratio is ≥1.10 (perceivable) without jumping out as a panel shift. */
+  --panel-3:   #23272f;
   --hairline:  rgba(255,255,255,.08);
   --hairline-strong: rgba(255,255,255,.14);
   --text:      #e7e9ee;
   --text-mute: #9aa0ad;
   --text-dim:  #6b7180;
+  /* --text-disabled: button:disabled glyph color (THI-152). Replaces a flat
+     `opacity: .4` that fell to ~3.3:1 on panel (below AA 4.5). Aims ≥4.5:1
+     vs --panel so the "disabled but legible" signal beats "invisible". */
+  --text-disabled: #888c97;
 
   /* Accent — set by JS based on tweak */
   --accent:        oklch(0.78 0.13 145);
@@ -51,11 +58,19 @@
   --bg-elev:   #fbfaf8;
   --panel:     #ffffff;
   --panel-2:   #faf9f6;
+  --panel-3:   #f0ede5;
   --hairline:  rgba(0,0,0,.07);
   --hairline-strong: rgba(0,0,0,.13);
   --text:      #1a1c1f;
   --text-mute: #5a606b;
   --text-dim:  #8a8f99;
+  --text-disabled: #6c707b;
+  /* THI-151: bump alpha so the focus ring composite clears WCAG-UI 3:1.
+     Pre-bump (0.55) composed to ~2.58:1 vs --panel — keyboard navigation
+     was visually weak in light mode. 0.70 lands at 3.52:1 (clears the bar
+     with breathing room) while still feeling like an outline, not a solid
+     border. Tested in scripts/a11y/contrast_audit.py. */
+  --accent-edge:   oklch(0.455 0.13 145 / 0.70);
   --shadow-card: 0 1px 0 rgba(255,255,255,.6) inset, 0 1px 2px rgba(0,0,0,.06);
   --shadow-lift: 0 1px 0 rgba(255,255,255,.6) inset, 0 12px 32px rgba(0,0,0,.10);
 }
@@ -65,11 +80,13 @@
   --bg-elev:   #000;
   --panel:     #0a0a0a;
   --panel-2:   #111;
+  --panel-3:   #1c1c1c;
   --hairline:  rgba(255,255,255,.28);
   --hairline-strong: rgba(255,255,255,.5);
   --text:      #fff;
   --text-mute: #c8c8c8;
   --text-dim:  #999;
+  --text-disabled: #888;
   --shadow-card: none;
   --shadow-lift: 0 0 0 1px #fff inset;
 }
@@ -79,11 +96,13 @@
   --bg-elev:   #07150e;
   --panel:     #0a1d14;
   --panel-2:   #0d2419;
+  --panel-3:   #11321f;
   --hairline:  rgba(95, 255, 175, .12);
   --hairline-strong: rgba(95, 255, 175, .28);
   --text:      #b5ffdc;
   --text-mute: #6cc59b;
   --text-dim:  #4a9070;
+  --text-disabled: #519871;
   --font-sans: "JetBrains Mono", ui-monospace, monospace;
 }
 
@@ -102,7 +121,12 @@ body {
   overflow: hidden;
 }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: default; }
-button:disabled { opacity: .4; }
+/* THI-152: disabled buttons read as "dim but legible", not "invisible".
+   `opacity: .4` on top of var(--text) fell below AA across every theme
+   (light 2.5:1, dark 3.3:1, etc.). An explicit token + not-allowed cursor
+   keeps the disabled signal multi-modal (color + pointer) without losing
+   readability. */
+button:disabled { color: var(--text-disabled); cursor: not-allowed; }
 input, textarea, select { font: inherit; color: inherit; }
 ::selection { background: var(--accent-soft); color: var(--text); }
 
@@ -268,7 +292,10 @@ input, textarea, select { font: inherit; color: inherit; }
   white-space: nowrap;
   flex-shrink: 0;
 }
-.btn:hover { border-color: var(--hairline-strong); background: var(--panel-2); }
+/* THI-151: --panel-3 is a dedicated hover surface tuned to ≥1.10:1 vs
+   --panel. The prior --panel-2 swap landed at ~1.05:1 across every theme,
+   which is below the perceivability floor — hovers were invisible. */
+.btn:hover { border-color: var(--hairline-strong); background: var(--panel-3); }
 .btn:focus-visible { outline: 1.5px solid var(--accent-edge); outline-offset: 1px; }
 .btn-primary {
   background: var(--accent-soft);
@@ -277,7 +304,11 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .btn-primary:hover { background: color-mix(in oklch, var(--accent) 22%, transparent); }
 .btn-ghost { background: transparent; border-color: transparent; }
-.btn-ghost:hover { background: var(--panel); border-color: var(--hairline); }
+/* THI-151: ghost buttons live on --bg-elev (the header). The prior swap
+   to --panel produced a ~1.05:1 delta on most themes. Hairline-strong
+   overlays the surface with enough alpha (.14 dark / .42 light) to clear
+   the perceivability floor without painting a hard "lifted panel" look. */
+.btn-ghost:hover { background: var(--hairline-strong); border-color: var(--hairline-strong); }
 .btn-danger {
   background: color-mix(in oklch, var(--tone-red) 16%, transparent);
   border-color: color-mix(in oklch, var(--tone-red) 45%, transparent);
