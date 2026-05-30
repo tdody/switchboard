@@ -388,7 +388,11 @@ def _scan_open_question(lines: list[str]) -> str | None:
 
 
 _BRANCH_CACHE: dict[str, tuple[float, str | None]] = {}
-_PR_CACHE: dict[tuple[str, str], tuple[float, tuple[int | None, CIState | None]]] = {}
+_PR_CACHE: dict[
+    tuple[str, str],
+    tuple[float, tuple[int | None, CIState | None, str | None]],
+] = {}
+_REPO_URL_CACHE: dict[str, tuple[float, str | None]] = {}
 # Branch resolution caches per-cwd; the key doesn't change when the user runs
 # `git checkout` from inside the pane, so a long TTL freezes the dashboard
 # branch chip until expiry (THI-126). Keep it short — ~one user-noticeable
@@ -400,6 +404,11 @@ _BRANCH_TTL_SECONDS = 2.0
 # already invalidates it naturally — staleness here is bounded by gh's RTT,
 # not user impatience.
 _PR_TTL_SECONDS = 30.0
+# Repo URL is `git remote get-url origin` + a tiny parse — local, no network,
+# and the origin almost never changes. Long TTL is fine. Cached separately
+# from `_PR_CACHE` so panes on a branch with no PR still get the URL for the
+# in-pane `PR #N` linkifier (THI-146 PR 2).
+_REPO_URL_TTL_SECONDS = 300.0
 
 
 def _git_branch(cwd: str | None) -> str | None:
@@ -425,9 +434,9 @@ def _git_branch(cwd: str | None) -> str | None:
     return branch
 
 
-def _gh_pr(cwd: str | None, branch: str | None) -> tuple[int | None, CIState | None]:
+def _gh_pr(cwd: str | None, branch: str | None) -> tuple[int | None, CIState | None, str | None]:
     if not cwd or not branch:
-        return None, None
+        return None, None, None
     key = (cwd, branch)
     now = time.monotonic()
     cached = _PR_CACHE.get(key)
@@ -442,15 +451,15 @@ def _gh_pr(cwd: str | None, branch: str | None) -> tuple[int | None, CIState | N
         # call silently cached (None, None) — the modal header chip never got
         # its CI tint. Pin the positional form.
         out = subprocess.run(
-            ["gh", "pr", "view", branch, "--json", "number,statusCheckRollup"],
+            ["gh", "pr", "view", branch, "--json", "number,statusCheckRollup,url"],
             capture_output=True,
             text=True,
             timeout=1.5,
             cwd=cwd,
         )
         if out.returncode != 0:
-            _PR_CACHE[key] = (now, (None, None))
-            return None, None
+            _PR_CACHE[key] = (now, (None, None, None))
+            return None, None, None
         data = json.loads(out.stdout)
         pr_num = int(data["number"]) if "number" in data else None
         ci: CIState | None = None
@@ -462,11 +471,76 @@ def _gh_pr(cwd: str | None, branch: str | None) -> tuple[int | None, CIState | N
             ci = "running"
         elif states and states <= {"SUCCESS", "NEUTRAL", "SKIPPED"}:
             ci = "passing"
-        result = (pr_num, ci)
+        pr_url = data.get("url") or None
+        result = (pr_num, ci, pr_url)
     except Exception:  # noqa: BLE001
-        result = (None, None)
+        result = (None, None, None)
     _PR_CACHE[key] = (now, result)
     return result
+
+
+def _git_repo_url(cwd: str | None) -> str | None:
+    """Normalized https origin URL for the git repo at `cwd`. None when the cwd
+    isn't a git checkout, or when the origin isn't a recognizable github host.
+
+    Used by the frontend's in-pane `PR #N` linkifier (THI-146 PR 2) — the
+    linkifier opens `${repo_url}/pull/N` in a new tab. Other hosts use
+    different PR/MR URL shapes (gitlab `/-/merge_requests/N`, bitbucket
+    `/pull-requests/N`), so we restrict to github.com / GHE-style hosts here
+    rather than guessing.
+    """
+    if not cwd:
+        return None
+    now = time.monotonic()
+    cached = _REPO_URL_CACHE.get(cwd)
+    if cached and now - cached[0] < _REPO_URL_TTL_SECONDS:
+        return cached[1]
+    try:
+        out = subprocess.run(
+            ["git", "-C", cwd, "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+        raw = out.stdout.strip() if out.returncode == 0 else ""
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        raw = ""
+
+    url = _normalize_git_remote(raw)
+    _REPO_URL_CACHE[cwd] = (now, url)
+    return url
+
+
+def _normalize_git_remote(remote: str) -> str | None:
+    """`git@github.com:owner/repo.git` / `https://github.com/owner/repo.git`
+    → `https://github.com/owner/repo`. Returns None for non-github hosts so
+    the in-pane linkifier doesn't construct bogus `/pull/N` URLs against a
+    gitlab/bitbucket origin."""
+    if not remote:
+        return None
+    # SSH form: git@host:owner/repo(.git)
+    if remote.startswith("git@") and ":" in remote:
+        host, _, path = remote[4:].partition(":")
+    elif remote.startswith(("https://", "http://", "ssh://", "git://")):
+        # https://host/owner/repo(.git) or ssh://git@host/owner/repo(.git)
+        scheme, _, rest = remote.partition("://")
+        del scheme
+        host_path, _, _ = rest.partition("#")
+        host, _, path = host_path.partition("/")
+        # Strip leading `git@` from ssh://git@host/…
+        host = host.split("@")[-1]
+    else:
+        return None
+
+    # Only github.com (and GHE-style hosts ending in github.com) — guards
+    # against constructing nonsense `/pull/N` URLs for gitlab/bitbucket.
+    if not (host == "github.com" or host.endswith(".github.com")):
+        return None
+
+    path = path.rstrip("/").removesuffix(".git")
+    if path.count("/") != 1 or not path:
+        return None
+    return f"https://{host}/{path}"
 
 
 def parse_pane(lines: list[str], cwd: str | None) -> tuple[Status, bool, Agent | None]:

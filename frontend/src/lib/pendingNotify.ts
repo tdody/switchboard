@@ -40,6 +40,40 @@ export function emptyNotifyState(): NotifyState {
   return { lastPendingIds: new Set(), lastNotifiedAt: new Map(), hydrated: false };
 }
 
+/** Call on the off→on transition of the notification toggle so the next
+ *  detectPendingEdges call treats every currently-pending pane as a rising
+ *  edge. Without this, a user enabling notifications while a prompt is
+ *  already pending would get nothing until the prompt cleared and re-fired.
+ *
+ *  Clears `lastPendingIds` (currently-pending → edges) but preserves
+ *  `lastNotifiedAt` so the dedup window still suppresses rapid re-fires
+ *  (e.g. user flips off→on inside 30 s on the same prompt). `hydrated`
+ *  is passed through verbatim — callers should only invoke this when
+ *  already hydrated; the !hydrated path is reload protection. */
+export function markJustEnabled(state: NotifyState): NotifyState {
+  return {
+    lastPendingIds: new Set(),
+    lastNotifiedAt: state.lastNotifiedAt,
+    hydrated: state.hydrated,
+  };
+}
+
+/** Refresh `lastPendingIds` / `hydrated` from current windows WITHOUT
+ *  emitting edges or touching `lastNotifiedAt`. Used by callers that want to
+ *  keep state warm while the notification toggle is off, so a future
+ *  off→on transition has accurate baseline state to diff against — without
+ *  poisoning the dedup map with panes that never actually got a notification
+ *  (which would silently block the off→on edge for those panes). */
+export function hydrateNotifyState(windows: Window[], prev: NotifyState): NotifyState {
+  const currentPending = new Set<string>();
+  for (const w of windows) if (w.pendingInput) currentPending.add(w.paneId);
+  return {
+    lastPendingIds: currentPending,
+    lastNotifiedAt: prev.lastNotifiedAt,
+    hydrated: true,
+  };
+}
+
 /** Dedup window: ignore re-fires for the same paneId within this many ms.
  *  Polling tier ranges 1–8 s (lib/pollTier), so 30 s comfortably covers a few
  *  ticks of `pendingInput` flicker without suppressing genuinely separate

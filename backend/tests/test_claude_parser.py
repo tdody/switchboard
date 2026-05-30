@@ -350,6 +350,7 @@ def test_gh_pr_passes_branch_as_positional_and_parses_passing(
         returncode = 0
         stdout = (
             '{"number": 32, '
+            '"url": "https://github.com/tdody/switchboard/pull/32", '
             '"statusCheckRollup": ['
             '{"name": "Backend", "conclusion": "SUCCESS"}, '
             '{"name": "Frontend", "conclusion": "SUCCESS"}'
@@ -363,14 +364,19 @@ def test_gh_pr_passes_branch_as_positional_and_parses_passing(
     monkeypatch.setattr(claude_parser.subprocess, "run", fake_run)
     monkeypatch.setattr(claude_parser, "_PR_CACHE", {})
 
-    pr, ci = claude_parser._gh_pr("/some/repo", "thibaultdody/feature-x")
+    pr, ci, url = claude_parser._gh_pr("/some/repo", "thibaultdody/feature-x")
 
     # Pin the argv shape — `gh pr view <branch>`, NOT `--head <branch>`.
     assert captured["argv"][:3] == ["gh", "pr", "view"]
     assert "thibaultdody/feature-x" in captured["argv"]
     assert "--head" not in captured["argv"]
+    # `url` must be in the `--json` field list so the frontend can light up
+    # the PR chip as a link (THI-146 PR 2).
+    json_idx = captured["argv"].index("--json")
+    assert "url" in captured["argv"][json_idx + 1]
     assert pr == 32
     assert ci == "passing"
+    assert url == "https://github.com/tdody/switchboard/pull/32"
 
 
 def test_gh_pr_failing_when_any_check_failed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -378,6 +384,7 @@ def test_gh_pr_failing_when_any_check_failed(monkeypatch: pytest.MonkeyPatch) ->
         returncode = 0
         stdout = (
             '{"number": 7, '
+            '"url": "https://github.com/o/r/pull/7", '
             '"statusCheckRollup": ['
             '{"name": "A", "conclusion": "SUCCESS"}, '
             '{"name": "B", "conclusion": "FAILURE"}'
@@ -387,8 +394,8 @@ def test_gh_pr_failing_when_any_check_failed(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(claude_parser.subprocess, "run", lambda *_a, **_k: FakeProc())
     monkeypatch.setattr(claude_parser, "_PR_CACHE", {})
 
-    pr, ci = claude_parser._gh_pr("/some/repo", "branch-y")
-    assert (pr, ci) == (7, "failing")
+    pr, ci, url = claude_parser._gh_pr("/some/repo", "branch-y")
+    assert (pr, ci, url) == (7, "failing", "https://github.com/o/r/pull/7")
 
 
 def test_gh_pr_returns_none_on_gh_failure(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -399,7 +406,68 @@ def test_gh_pr_returns_none_on_gh_failure(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(claude_parser.subprocess, "run", lambda *_a, **_k: FakeProc())
     monkeypatch.setattr(claude_parser, "_PR_CACHE", {})
 
-    assert claude_parser._gh_pr("/some/repo", "no-pr-branch") == (None, None)
+    assert claude_parser._gh_pr("/some/repo", "no-pr-branch") == (None, None, None)
+
+
+# THI-146 PR 2: `_normalize_git_remote` powers the in-pane `PR #N` linkifier.
+# It maps the common origin URL shapes onto a canonical `https://host/owner/repo`
+# string the frontend can append `/pull/N` to.
+@pytest.mark.parametrize(
+    "remote,expected",
+    [
+        ("git@github.com:tdody/switchboard.git", "https://github.com/tdody/switchboard"),
+        ("git@github.com:tdody/switchboard", "https://github.com/tdody/switchboard"),
+        ("https://github.com/tdody/switchboard.git", "https://github.com/tdody/switchboard"),
+        ("https://github.com/tdody/switchboard", "https://github.com/tdody/switchboard"),
+        ("ssh://git@github.com/tdody/switchboard.git", "https://github.com/tdody/switchboard"),
+        # GHE-style host
+        ("git@ghe.github.com:org/repo.git", "https://ghe.github.com/org/repo"),
+        # Not github — gitlab uses /-/merge_requests/N, opening /pull/N would 404.
+        ("git@gitlab.com:owner/repo.git", None),
+        ("https://bitbucket.org/owner/repo.git", None),
+        # Junk
+        ("", None),
+        ("not-a-remote", None),
+        ("git@github.com:onlyone.git", None),
+    ],
+)
+def test_normalize_git_remote(remote: str, expected: str | None) -> None:
+    assert claude_parser._normalize_git_remote(remote) == expected
+
+
+def test_git_repo_url_runs_git_and_caches(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+
+    class FakeProc:
+        returncode = 0
+        stdout = "git@github.com:tdody/switchboard.git\n"
+
+    def fake_run(argv: list[str], **_kwargs: object) -> FakeProc:
+        calls.append(argv)
+        return FakeProc()
+
+    monkeypatch.setattr(claude_parser.subprocess, "run", fake_run)
+    monkeypatch.setattr(claude_parser, "_REPO_URL_CACHE", {})
+
+    first = claude_parser._git_repo_url("/some/repo")
+    second = claude_parser._git_repo_url("/some/repo")
+
+    assert first == "https://github.com/tdody/switchboard"
+    assert second == first
+    # The 5-min cache means the second call must not shell out again.
+    assert len(calls) == 1
+    assert calls[0][:5] == ["git", "-C", "/some/repo", "remote", "get-url"]
+
+
+def test_git_repo_url_returns_none_on_git_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeProc:
+        returncode = 128
+        stdout = ""
+
+    monkeypatch.setattr(claude_parser.subprocess, "run", lambda *_a, **_k: FakeProc())
+    monkeypatch.setattr(claude_parser, "_REPO_URL_CACHE", {})
+
+    assert claude_parser._git_repo_url("/not/a/repo") is None
 
 
 # THI-131: per-agent context% accent. `_scan_context_pct` reads the Claude Code

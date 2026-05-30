@@ -22,7 +22,9 @@ function makeWindow(status: Status, paneId = "%1"): Window {
     pendingInput: false,
     branch: null,
     pr: null,
+    prUrl: null,
     ci: null,
+    repoUrl: null,
     agent: null,
     preview: [],
   };

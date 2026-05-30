@@ -25,7 +25,9 @@ const TARGET: Window = {
   pendingInput: false,
   branch: null,
   pr: null,
+  prUrl: null,
   ci: null,
+  repoUrl: null,
   agent: null,
   preview: [],
 };

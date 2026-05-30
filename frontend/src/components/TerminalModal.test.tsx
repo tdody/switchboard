@@ -26,6 +26,8 @@ const { mockTerminals, MockTerminal } = vi.hoisted(() => {
     loadAddon: () => void;
     attachCustomKeyEventHandler: () => void;
     onData: () => { dispose: () => void };
+    registerLinkProvider: () => { dispose: () => void };
+    getSelection: () => string;
   }> = [];
 
   class MockTerminal {
@@ -46,6 +48,10 @@ const { mockTerminals, MockTerminal } = vi.hoisted(() => {
     loadAddon = () => {};
     attachCustomKeyEventHandler = () => {};
     onData = () => ({ dispose: () => {} });
+    registerLinkProvider = () => ({ dispose: () => {} });
+    // Default to "no selection"; tests that exercise select-to-copy can
+    // override this on a per-instance basis after construction.
+    getSelection = (): string => "";
     constructor() {
       mockTerminals.push(this);
     }
@@ -467,5 +473,80 @@ describe("TerminalModal — scrim drag-to-select survives (THI-125)", () => {
     fireEvent.mouseUp(scrim);
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("TerminalModal — select-to-copy (THI-146)", () => {
+  it("copies the selection and toasts on mouseup", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const onToast = vi.fn();
+    const { container } = render(
+      <TerminalModal window={win} onClose={() => {}} onToast={onToast} />,
+    );
+
+    // Stub a non-empty selection on the MockTerminal that was just created.
+    const term = mockTerminals.at(-1)!;
+    term.getSelection = () => "hello world";
+
+    const body = container.querySelector(".term-body") as HTMLElement;
+    fireEvent.mouseUp(body);
+
+    expect(writeText).toHaveBeenCalledWith("hello world");
+    // The toast runs through the resolved-clipboard then() — let it settle.
+    await Promise.resolve();
+    expect(onToast).toHaveBeenCalledWith(expect.stringContaining("Copied"));
+  });
+
+  it("does nothing when the selection is empty (no toast, no clipboard write)", () => {
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const onToast = vi.fn();
+    const { container } = render(
+      <TerminalModal window={win} onClose={() => {}} onToast={onToast} />,
+    );
+
+    // Default getSelection() returns "" — no override here. A click without
+    // a drag-select should never invoke the clipboard or toast a spurious
+    // "Copied 0 chars" message.
+    const body = container.querySelector(".term-body") as HTMLElement;
+    fireEvent.mouseUp(body);
+
+    expect(writeText).not.toHaveBeenCalled();
+    expect(onToast).not.toHaveBeenCalled();
+  });
+
+  it("stays silent when navigator.clipboard.writeText rejects (denied perms)", async () => {
+    // Some browsers / iframes reject clipboard writes without user-activation.
+    // The handler must swallow that — we'd rather drop the copy than throw an
+    // unhandled rejection across xterm's event loop.
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const onToast = vi.fn();
+    const { container } = render(
+      <TerminalModal window={win} onClose={() => {}} onToast={onToast} />,
+    );
+    const term = mockTerminals.at(-1)!;
+    term.getSelection = () => "secret";
+
+    const body = container.querySelector(".term-body") as HTMLElement;
+    fireEvent.mouseUp(body);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writeText).toHaveBeenCalled();
+    expect(onToast).not.toHaveBeenCalled();
   });
 });

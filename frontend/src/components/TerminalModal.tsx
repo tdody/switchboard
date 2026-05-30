@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { FitAddon } from "xterm-addon-fit";
+import { WebLinksAddon } from "xterm-addon-web-links";
 import { Terminal } from "xterm";
 import "xterm/css/xterm.css";
 
-import { fetchPane, openPaneWS, pasteImage } from "../api/client";
+import { fetchPane, openInIde, openPaneWS, pasteImage } from "../api/client";
+import { filePathLinkProvider } from "../lib/filePathLinks";
+import { prNumberLinkProvider } from "../lib/prNumberLinks";
+import { useIdeConfig } from "../lib/useIdeConfig";
 import {
   COLUMN_SIZE_ORDER,
   TERM_FONT_DEFAULT,
@@ -73,9 +77,47 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   // update the callback without tearing down the terminal + WS.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // Same trick for repoUrl — the registerLinkProvider callback closes over
+  // a single value at terminal-construction time, but we want a `git remote
+  // set-url` (very rare) to take effect without rebuilding the terminal.
+  const repoUrlRef = useRef(win.repoUrl);
+  repoUrlRef.current = win.repoUrl;
+  // Same trick for `onToast` — the select-to-copy mouseup listener fires
+  // long after the construction effect runs, and the parent often hands us
+  // a new function identity each render (App's pushToast).
+  const onToastRef = useRef(onToast);
+  onToastRef.current = onToast;
   const [conn, setConn] = useState<Connection>("connecting");
   const [prompt, setPrompt] = useState<Prompt | null>(null);
-  const { wsStreamEnabled: wsEnabled, terminalFontSize, columnSize } = useSettings();
+  const {
+    wsStreamEnabled: wsEnabled,
+    terminalFontSize,
+    columnSize,
+    selectedIde,
+  } = useSettings();
+
+  // THI-146 PR 3: IDE-launch config + click handler refs. Reading config
+  // through a ref lets the linkProvider toggle live on the first /api/ide-
+  // config response without rebuilding the terminal. PR 4 adds the user's
+  // dropdown pick: empty `selectedIde` ⇒ defer to the server default.
+  const ideConfig = useIdeConfig();
+  const ideEnabledRef = useRef(false);
+  ideEnabledRef.current = ideConfig?.enabled === true;
+  const onPathClickRef = useRef<(p: string) => void>(() => {});
+  onPathClickRef.current = (path: string) => {
+    void openInIde(win.session, win.index, path, selectedIde || undefined).then((status) => {
+      if (status === "ok") return;
+      if (status === "disabled") {
+        onToast("Open-in-IDE disabled — set SWITCHBOARD_IDE_CMD");
+      } else if (status === "not-found") {
+        onToast(`File not found: ${path}`);
+      } else if (status === "escaped") {
+        onToast("Path resolved outside the pane's cwd");
+      } else {
+        onToast(`Couldn't open ${path}`);
+      }
+    });
+  };
 
   // Shared Esc handler — used both by xterm's customKeyEventHandler (when the
   // terminal has focus) and by PromptOverlay (when it grabs focus). Same
@@ -154,6 +196,33 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // THI-146 PR 3: linkify file paths in pane content (e.g. `src/foo.py:42`
+    // in a stack trace). Routes the click to POST /api/open which spawns the
+    // configured IDE. The provider gates on `ideEnabledRef` so paths render
+    // as plain text when the launcher is unconfigured / off-allowlist.
+    term.registerLinkProvider(
+      filePathLinkProvider(
+        term,
+        () => ideEnabledRef.current,
+        (path) => onPathClickRef.current(path),
+      ),
+    );
+    // Linkify `PR #N` mentions in pane content (THI-146 PR 2). The provider
+    // reads `repoUrlRef.current` each call, so the link target follows a live
+    // remote change without rebuilding the terminal. Skipped silently when
+    // the pane has no repoUrl (non-github cwd, or no git at all).
+    term.registerLinkProvider(prNumberLinkProvider(term, () => repoUrlRef.current));
+    // Clickable http(s) URLs (THI-146). Open in a new tab; `noopener` keeps
+    // the popup from gaining a `window.opener` handle back to the dashboard.
+    term.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        // The addon's default handler also opens in a new tab, but it doesn't
+        // pass `noopener` — and our pane content is untrusted (anyone with a
+        // shell can echo a hostile URL). Take the click ourselves.
+        event.preventDefault();
+        window.open(uri, "_blank", "noopener,noreferrer");
+      }),
+    );
     // xterm's keydown handler calls stopPropagation on keys it owns, so
     // document-level listeners never see Cmd-combos or Esc. Anything that
     // needs to override xterm's default byte emission has to live here.
@@ -252,6 +321,33 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       scrollbarTimer = window.setTimeout(() => host.classList.remove("scrolling"), 800);
     };
     viewport?.addEventListener("scroll", onScroll, { passive: true });
+
+    // Select-to-copy (THI-146 extension). On mouseup inside the terminal,
+    // if xterm reports a non-empty selection, copy it to the clipboard and
+    // toast — matches the "select kills mark, mouseup yanks" muscle memory
+    // from terminals like iTerm. We listen on the modal `host` (capture
+    // phase) rather than on `window` so the listener is naturally scoped to
+    // this modal's terminal and doesn't fire for selections elsewhere on
+    // the page (e.g. the modal header text). Clipboard write is
+    // fire-and-forget; the surrounding try/catch handles browsers / iframes
+    // where `navigator.clipboard` is unavailable or rejected.
+    const onSelectMouseUp = () => {
+      const t = termRef.current;
+      if (!t) return;
+      const sel = t.getSelection();
+      if (!sel) return;
+      try {
+        void navigator.clipboard.writeText(sel).then(
+          () => onToastRef.current(`Copied ${sel.length} chars`),
+          () => {
+            /* clipboard denied / unavailable — stay silent */
+          },
+        );
+      } catch {
+        /* navigator.clipboard not available (file://, etc.) */
+      }
+    };
+    host.addEventListener("mouseup", onSelectMouseUp);
 
     let ws: WebSocket | null = null;
     let dataSub: { dispose: () => void } | null = null;
@@ -373,6 +469,7 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       resizeObs.disconnect();
       window.clearTimeout(fitTimer);
       viewport?.removeEventListener("scroll", onScroll);
+      host.removeEventListener("mouseup", onSelectMouseUp);
       window.clearTimeout(scrollbarTimer);
       dataSub?.dispose();
       if (ws) {
@@ -526,7 +623,19 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
                 {win.branch && <Icon name="git-branch" size={10} />}
                 {win.branch && <span>{win.branch}</span>}
                 {win.branch && win.pr && <span className="pr-sep">›</span>}
-                {win.pr && <span className="pr-num">#{win.pr}</span>}
+                {win.pr && win.prUrl ? (
+                  <a
+                    className="pr-num pr-link"
+                    href={win.prUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Open PR #${win.pr} on GitHub`}
+                  >
+                    #{win.pr}
+                  </a>
+                ) : (
+                  win.pr && <span className="pr-num">#{win.pr}</span>
+                )}
               </Chip>
             )}
             {win.agent?.spinner && (

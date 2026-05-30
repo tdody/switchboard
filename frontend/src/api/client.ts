@@ -211,6 +211,59 @@ export async function fetchUsageConfig(): Promise<UsageConfig> {
   return (await r.json()) as UsageConfig;
 }
 
+/** One probed entry in IdeConfig.available — drives the Settings dropdown
+ *  (THI-146 PR 4). `id` is the launcher binary (must be in the backend's
+ *  IDE_ALLOWLIST); `label` is the human-readable name. */
+export interface AvailableIde {
+  id: string;
+  label: string;
+}
+
+/** Read-only IDE launcher config — drives whether the file-path linkifier
+ *  inside TerminalModal renders code paths as clickable links (THI-146
+ *  PR 3) and the "Open in IDE" dropdown in Settings (PR 4). One-shot at
+ *  app mount; the launcher is env-controlled so it doesn't change during a
+ *  session, and `available` is cached server-side after the first probe. */
+export interface IdeConfig {
+  enabled: boolean;
+  /** Same value as `default`, retained for backward compat with PR 3 callers. */
+  command: string | null;
+  allowed: string[];
+  /** Probed-and-installed editors, in stable order — render directly into
+   *  the dropdown. Empty when no known editor is on PATH. */
+  available: AvailableIde[];
+  /** What /api/open uses when no `ide` param is sent. Mirrors `command`. */
+  default: string | null;
+}
+export async function fetchIdeConfig(): Promise<IdeConfig> {
+  const r = await fetch(`${BASE}/ide-config`);
+  if (!r.ok) throw new Error(`ide config ${r.status}`);
+  return (await r.json()) as IdeConfig;
+}
+
+/** Open a file from a pane's cwd in an IDE. When `ide` is provided, the
+ *  backend uses that binary instead of its env-var default (subject to the
+ *  allowlist). Resolves a discrete status so the caller can surface the
+ *  right toast — `disabled` (server has no IDE configured, or `ide` is not
+ *  on the allowlist), `not-found` (path doesn't resolve to a file),
+ *  `escaped` (path resolved outside the pane's cwd — almost certainly a
+ *  linkifier bug), or `error` for anything else. */
+export async function openInIde(
+  session: string,
+  index: number,
+  path: string,
+  ide?: string,
+): Promise<"ok" | "disabled" | "not-found" | "escaped" | "error"> {
+  let url = `${BASE}/open?session=${encodeURIComponent(session)}&index=${index}&path=${encodeURIComponent(path)}`;
+  if (ide) url += `&ide=${encodeURIComponent(ide)}`;
+  const r = await fetch(url, { method: "POST", headers: { ...csrfHeaders() } });
+  if (r.ok) return "ok";
+  if (r.status === 400) return "disabled";
+  if (r.status === 404) return "not-found";
+  if (r.status === 422) return "escaped";
+  return "error";
+}
+
 export function openPaneWS(session: string, index: number): WebSocket {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(

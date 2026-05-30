@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSession, createWindowWithBoot, openPaneWS, pasteImage } from "./client";
+import {
+  createSession,
+  createWindowWithBoot,
+  fetchIdeConfig,
+  openInIde,
+  openPaneWS,
+  pasteImage,
+} from "./client";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -121,6 +128,74 @@ describe("createSession", () => {
     document.cookie = "sb_csrf=tok-abc";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
     expect(await createSession("dev")).toBe("error");
+  });
+});
+
+describe("fetchIdeConfig + openInIde", () => {
+  it("fetchIdeConfig surfaces the read-only IDE launcher state", async () => {
+    // PR 4 shape: `available` is the probed dropdown, `default` mirrors
+    // `command` for backwards compat with PR 3 callers.
+    const body = {
+      enabled: true,
+      command: "code",
+      default: "code",
+      allowed: ["code", "cursor"],
+      available: [
+        { id: "code", label: "Visual Studio Code" },
+        { id: "cursor", label: "Cursor" },
+      ],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => body }),
+    );
+    const cfg = await fetchIdeConfig();
+    expect(cfg).toEqual(body);
+  });
+
+  it("openInIde POSTs to /api/open with session/index/path + CSRF header", async () => {
+    document.cookie = "sb_csrf=tok-xyz";
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await openInIde("dev", 2, "src/foo.py");
+    expect(result).toBe("ok");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/open?session=dev&index=2&path=src%2Ffoo.py");
+    expect(init.method).toBe("POST");
+    expect(init.headers["x-csrf-token"]).toBe("tok-xyz");
+  });
+
+  it("openInIde forwards the chosen `ide` as a query param (THI-146 PR 4)", async () => {
+    // Settings dropdown stores the user's pick; TerminalModal passes it
+    // through here so a per-user choice overrides the server-side default.
+    document.cookie = "sb_csrf=tok-xyz";
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    await openInIde("dev", 2, "src/foo.py", "cursor");
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/open?session=dev&index=2&path=src%2Ffoo.py&ide=cursor");
+  });
+
+  it("openInIde omits `ide` when not supplied (server uses default)", async () => {
+    document.cookie = "sb_csrf=tok-xyz";
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    await openInIde("dev", 2, "src/foo.py");
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).not.toContain("ide=");
+  });
+
+  it("openInIde maps 400/404/422 to discrete status strings", async () => {
+    document.cookie = "sb_csrf=tok-xyz";
+    for (const [status, expected] of [
+      [400, "disabled"],
+      [404, "not-found"],
+      [422, "escaped"],
+      [500, "error"],
+    ] as const) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status }));
+      expect(await openInIde("dev", 0, "x.py")).toBe(expected);
+    }
   });
 });
 

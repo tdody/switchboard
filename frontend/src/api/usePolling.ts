@@ -10,8 +10,13 @@ export interface PollingState<T> {
 /**
  * Visibility-aware polling hook with in-flight cancellation.
  *
- * - Skips ticks when the document is hidden, immediately re-fires on
- *   visibility-return.
+ * - By default, skips ticks when the document is hidden and immediately
+ *   re-fires on visibility-return — the right tradeoff for most UI polls.
+ * - When `pollWhenHidden` is true, keeps polling regardless of visibility
+ *   (subject to the browser's own background-timer throttling, which is
+ *   ~1Hz dropping to ~1/min after sustained hiding). Use for data that
+ *   drives background notifications — otherwise the user backgrounds the
+ *   tab and the notification path goes dark exactly when they need it.
  * - Aborts any in-flight request before issuing a new one so a hung backend
  *   can't pile up a backlog of stacked fetches.
  * - `fn` receives an AbortSignal; pass it through to `fetch(..., { signal })`.
@@ -19,6 +24,7 @@ export interface PollingState<T> {
 export function usePolling<T>(
   fn: (signal: AbortSignal) => Promise<T>,
   ms: number,
+  pollWhenHidden = false,
 ): PollingState<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<Error | null>(null);
@@ -33,7 +39,7 @@ export function usePolling<T>(
 
     const tick = async () => {
       if (!alive) return;
-      if (document.visibilityState === "hidden") return;
+      if (!pollWhenHidden && document.visibilityState === "hidden") return;
       inflight?.abort();
       const ctrl = new AbortController();
       inflight = ctrl;
@@ -74,7 +80,7 @@ export function usePolling<T>(
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [ms]);
+  }, [ms, pollWhenHidden]);
 
   return { data, error, consecutiveErrors, refresh: () => void tickRef.current() };
 }
