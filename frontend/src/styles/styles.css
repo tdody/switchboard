@@ -65,18 +65,11 @@
   --text-mute: #5a606b;
   --text-dim:  #8a8f99;
   --text-disabled: #6c707b;
-  /* THI-151: bump alpha so the focus ring composite clears WCAG-UI 3:1.
-     Pre-bump (0.55) composed to ~2.58:1 vs --panel — keyboard navigation
-     was visually weak in light mode. 0.70 lands at 3.52:1 (clears the bar
-     with breathing room) while still feeling like an outline, not a solid
-     border. Tested in scripts/a11y/contrast_audit.py. */
-  --accent-edge:   oklch(0.455 0.13 145 / 0.70);
-  /* THI-155: bump --accent-soft alpha so ::selection bands clear the
-     visibility floor (1.30:1 vs panel — matches browser default highlight
-     on white). Pre-bump (0.16) composed to ~1.27:1 on white; 0.30 lands
-     at ~1.34:1. Also affects the page gradient and .btn-active bg in
-     light mode — both render as a slightly more saturated green tint. */
-  --accent-soft:   oklch(0.455 0.13 145 / 0.30);
+  /* NOTE: --accent-edge / --accent-soft are written from `applyAccent`
+     in lib/settings.ts (with theme-aware alphas — THI-151 / THI-155).
+     Inline element styles always win over `[data-theme=…]` CSS rules,
+     so declaring overrides here would be silently shadowed. The JS
+     path is the source of truth. */
   --shadow-card: 0 1px 0 rgba(255,255,255,.6) inset, 0 1px 2px rgba(0,0,0,.06);
   --shadow-lift: 0 1px 0 rgba(255,255,255,.6) inset, 0 12px 32px rgba(0,0,0,.10);
 }
@@ -93,10 +86,8 @@
   --text-mute: #c8c8c8;
   --text-dim:  #999;
   --text-disabled: #888;
-  /* THI-155: high-contrast theme selection band needs to be unmistakable.
-     The :root value (0.16) composited to 1.26:1 over the black bg-elev —
-     below the perceivability floor. 0.30 lands at ~1.96:1. */
-  --accent-soft:   oklch(0.78 0.13 145 / 0.30);
+  /* --accent-soft is theme-aware via applyAccent (THI-155). Override
+     declaration would be shadowed by the inline style. */
   --shadow-card: none;
   --shadow-lift: 0 0 0 1px #fff inset;
 }

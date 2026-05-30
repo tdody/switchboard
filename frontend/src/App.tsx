@@ -456,7 +456,12 @@ export function App() {
     el.setAttribute("data-column-size", settings.columnSize);
     el.setAttribute("data-show-previews", String(settings.density === "preview"));
     el.setAttribute("data-reduced-motion", String(settings.reducedMotion));
-    applyAccent(settings.accent);
+    // Theme-aware accent application — applyAccent reads `theme` so light
+    // mode gets the bumped focus-ring alpha (THI-151) and selection band
+    // alpha (THI-155). The previous signature wrote dark-theme alphas
+    // unconditionally as inline styles, shadowing the per-theme CSS
+    // overrides. Toggling theme re-runs this effect via the dep array.
+    applyAccent(settings.accent, settings.theme);
   }, [
     settings.theme,
     settings.density,
