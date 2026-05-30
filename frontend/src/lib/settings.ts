@@ -53,13 +53,44 @@ export function accentColor(accent: Accent): string {
   return `oklch(${t.l} ${t.c} ${t.h})`;
 }
 
-/** Write the chosen accent to the --accent* CSS vars on <html>. */
-export function applyAccent(accent: Accent): void {
+/**
+ * Theme-aware per-accent tuning. Inline styles written here ALWAYS win
+ * over `[data-theme="…"]` declarations in styles.css, so the per-theme
+ * accent-edge / accent-soft variants must live here — the CSS rules
+ * would be shadowed otherwise.
+ *
+ * - `lDelta`: shift the OKLCH lightness so the accent reads on the
+ *   theme's surface. Light mode darkens to ≈0.455 (4.5:1 vs --panel
+ *   for focus ring composites, per THI-151).
+ * - `edgeAlpha` / `softAlpha`: the `--accent-edge` / `--accent-soft`
+ *   opacities. Light bumps both so focus rings and selection bands
+ *   clear their respective WCAG floors on near-white surfaces.
+ */
+const THEME_ACCENT_TUNING: Record<
+  Theme,
+  { lDelta: number; edgeAlpha: number; softAlpha: number }
+> = {
+  // THI-151 (edge): 0.55 alpha gave a 2.58:1 focus-ring composite on
+  // white; 0.70 lands at 3.52:1. THI-155 (soft): 0.16 alpha gave a
+  // 1.27:1 selection composite on white; 0.30 lands at 1.34:1. The
+  // L darkening also helps text/icon legibility on light surfaces.
+  light: { lDelta: -0.325, edgeAlpha: 0.7, softAlpha: 0.3 },
+  // High-contrast bumps soft alpha so the ::selection band clears the
+  // visibility floor on the theme's pure-black bg-elev (THI-155).
+  contrast: { lDelta: 0, edgeAlpha: 0.55, softAlpha: 0.3 },
+  dark: { lDelta: 0, edgeAlpha: 0.55, softAlpha: 0.16 },
+  phosphor: { lDelta: 0, edgeAlpha: 0.55, softAlpha: 0.16 },
+};
+
+/** Write the chosen accent (with theme-aware tuning) to the --accent* CSS vars on <html>. */
+export function applyAccent(accent: Accent, theme: Theme = "dark"): void {
   const t = ACCENT_TOKENS[accent] ?? ACCENT_TOKENS.aurora;
+  const o = THEME_ACCENT_TUNING[theme] ?? THEME_ACCENT_TUNING.dark;
+  const L = Math.max(0.1, Math.min(0.95, t.l + o.lDelta));
   const root = document.documentElement;
-  root.style.setProperty("--accent", `oklch(${t.l} ${t.c} ${t.h})`);
-  root.style.setProperty("--accent-soft", `oklch(${t.l} ${t.c} ${t.h} / 0.16)`);
-  root.style.setProperty("--accent-edge", `oklch(${t.l} ${t.c} ${t.h} / 0.55)`);
+  root.style.setProperty("--accent", `oklch(${L} ${t.c} ${t.h})`);
+  root.style.setProperty("--accent-soft", `oklch(${L} ${t.c} ${t.h} / ${o.softAlpha})`);
+  root.style.setProperty("--accent-edge", `oklch(${L} ${t.c} ${t.h} / ${o.edgeAlpha})`);
 }
 
 function prefersReducedMotion(): boolean {
