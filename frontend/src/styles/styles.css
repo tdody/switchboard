@@ -1604,7 +1604,12 @@ input, textarea, select { font: inherit; color: inherit; }
   display: inline-flex; align-items: center; gap: 8px;
   padding: 4px 10px;
   border-radius: 999px;
-  background: color-mix(in oklch, var(--tone-green) 16%, transparent);
+  /* THI-150: bumped 16% → 28% so the pill has a visible identity on the
+     light --bg-elev (16% green over fbfaf8 composited to a near-invisible
+     tint, ~1.05:1 vs the surrounding bar). 28% lands at ~1.30:1 — clearly
+     a pill, still subtle enough to read as "passive status". Same bump for
+     the other state classes below so colors stay parallel. */
+  background: color-mix(in oklch, var(--tone-green) 28%, transparent);
   color: var(--tone-green);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1619,12 +1624,12 @@ input, textarea, select { font: inherit; color: inherit; }
 
 .connect-pill.connecting,
 .connect-pill.reconnecting {
-  background: color-mix(in oklch, var(--tone-amber) 16%, transparent);
+  background: color-mix(in oklch, var(--tone-amber) 28%, transparent);
   color: var(--tone-amber);
 }
 .connect-pill.disconnected,
 .connect-pill.gone {
-  background: color-mix(in oklch, var(--tone-red) 16%, transparent);
+  background: color-mix(in oklch, var(--tone-red) 28%, transparent);
   color: var(--tone-red);
 }
 .connect-pill.snapshot {

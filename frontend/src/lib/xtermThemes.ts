@@ -19,6 +19,25 @@
  * applies the matching palette on mount; a separate effect updates
  * `term.options.theme` when the theme changes mid-modal so the user
  * can toggle Switchboard's theme without closing the pane.
+ *
+ * Known limitation — 256-color / true-color escapes pass through
+ * unchanged. xterm.js's `ITheme` only exposes slots 0–15. TUIs that
+ * emit `\e[48;5;Nm` (256-color bg) or `\e[48;2;R;G;Bm` (24-bit bg)
+ * bypass this palette entirely; the renderer paints whatever absolute
+ * color the escape sequence requested. In practice that means:
+ *
+ *   - Claude Code's diff backgrounds (dark red / dark green) and
+ *     "user prompt" inverse blocks render with their hard-coded
+ *     dark RGBs even when the surrounding Switchboard theme is light.
+ *   - `git diff --color=always | less -R` likewise — git uses
+ *     256-color for diff highlights on modern terminals.
+ *   - `bat`, `delta`, `lazygit`, etc. — same story.
+ *
+ * The minimumContrastRatio safety net does NOT lift these (it only
+ * rebalances ANSI 16 fg/bg pairs). Resolving this would require
+ * intercepting the renderer's color resolution path, which is xterm
+ * internal API and version-fragile. Not in scope here; tracked in
+ * THI-153 follow-ups.
  */
 
 import type { ITheme } from "xterm";
