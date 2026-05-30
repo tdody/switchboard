@@ -27,6 +27,7 @@ import type { Prompt } from "../lib/prompt";
 import { useScrimClose } from "../lib/useScrimClose";
 import { decideCloseAction } from "../lib/wsReconnect";
 import { apply256ColorOverrides, xtermThemeFor } from "../lib/xtermThemes";
+import { XtermStreamRewriter } from "../lib/xtermStreamRewriter";
 
 interface Props {
   window: Window;
@@ -149,6 +150,12 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   // user toggles theme while the modal is open.
   const themeRef = useRef(theme);
   themeRef.current = theme;
+  // THI-150 follow-up: rewriter that catches truecolor bg escapes
+  // (`\e[48;2;R;G;Bm`) before they reach xterm and rewrites the
+  // dark-fill ones to light pastels in light/contrast themes. One
+  // instance per modal — stateful for cross-chunk escape buffering.
+  const rewriterRef = useRef<XtermStreamRewriter | null>(null);
+  if (rewriterRef.current === null) rewriterRef.current = new XtermStreamRewriter(theme);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -367,15 +374,17 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       };
       sock.onmessage = (ev) => {
         const data = ev.data;
+        const rewriter = rewriterRef.current;
         if (typeof data === "string") {
           const parsed = parsePromptMessage(data);
           if (parsed !== undefined) {
             setPrompt(parsed);
             return;
           }
-          term.write(data);
+          term.write(rewriter ? rewriter.rewriteString(data) : data);
         } else if (data instanceof ArrayBuffer) {
-          term.write(new Uint8Array(data));
+          const bytes = new Uint8Array(data);
+          term.write(rewriter ? rewriter.rewriteBytes(bytes) : bytes);
         }
       };
       sock.onerror = () => {
@@ -512,12 +521,17 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   // preserved. xterm honors `term.options.theme = …` by re-rendering the
   // existing buffer with the new palette on the next frame.
   // THI-150 follow-up: also re-emit the 256-color overrides so diff bgs
-  // and Claude Code's user-prompt blocks re-color in place.
+  // and Claude Code's user-prompt blocks re-color in place; tell the
+  // stream rewriter to switch policies so truecolor escapes in NEW
+  // chunks get the new theme's rewrites (already-rendered cells in
+  // the scrollback keep their original colors — xterm doesn't expose
+  // a "rewrite cells" path for truecolor).
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
     term.options.theme = xtermThemeFor(theme);
     apply256ColorOverrides(term, theme);
+    rewriterRef.current?.setTheme(theme);
   }, [theme]);
 
   // Image paste → upload to the pane. Capture phase so we intercept before
