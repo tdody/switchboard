@@ -85,10 +85,11 @@ jobs:
         run: python3 scripts/a11y/contrast_audit.py --check-sync
 
       # Enforces only the rules this audit owns end-to-end (THI-151 focus
-      # rings, THI-151 hover deltas, THI-152 disabled text). Pre-existing
-      # gaps the audit surfaces (text tones, hairline borders, ::selection
-      # band) have their own tickets; widen this allowlist as each lands.
-      - name: Contrast audit — focus / hover / disabled (AA)
+      # rings, THI-151 hover deltas, THI-152 disabled text, THI-155
+      # selection bands). Pre-existing gaps the audit surfaces (text
+      # tones in light mode, hairline borders) have their own tickets;
+      # widen this allowlist as each lands.
+      - name: Contrast audit — focus / hover / disabled / selection (AA)
         run: |
           python3 scripts/a11y/contrast_audit.py \
-            --rule focus --rule hover --rule disabled --quiet
+            --rule focus --rule hover --rule disabled --rule selection --quiet

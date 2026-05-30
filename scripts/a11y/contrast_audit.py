@@ -34,6 +34,19 @@ WCAG bars (`bars_for`)
 Switchboard body is 13px regular ⇒ AA-normal applies to most text;
 selectors flagged `large=True` (modal titles, header session names,
 heading-weight ≥14pt-bold) use the UI bar.
+
+THI-156 — large-text bar verification (2026-05-29)
+--------------------------------------------------
+Swept every `font-size` × `font-weight` pair in styles.css. No
+Switchboard selector currently qualifies as WCAG "large text"
+(≥24px regular OR ≥18.7px bold). The largest type is 18px / weight 600
+(modal headers — `.shortcuts-hd b`, `.docs-hd h1`, etc.), which sits
+just under the 14pt-bold threshold. The audit therefore evaluates
+every text pair at the AA-normal 4.5:1 bar — correctly. The
+`Pair.large` field stays as future-proofing: if a future redesign
+lifts a header to ≥19px bold, mark its pair `large=True` and the
+3:1 UI bar applies automatically. No code changes were needed at
+the time of this audit.
 """
 
 from __future__ import annotations
@@ -227,7 +240,10 @@ def _theme_light() -> Theme:
     # bumped to 0.70 → composite lands at 3.52:1 with breathing room. Higher
     # alphas pass too but make the ring feel like a solid border.
     edge = (*oklch_to_srgb(0.455, 0.13, 145), 0.70)
-    soft = (*oklch_to_srgb(0.455, 0.13, 145), 0.16)
+    # THI-155: light --accent-soft bumped 0.16 → 0.30. At 0.16 the
+    # ::selection band composited to 1.27:1 on white (below browser-default
+    # visibility ~1.30:1); at 0.30 it lands at ~1.34:1.
+    soft = (*oklch_to_srgb(0.455, 0.13, 145), 0.30)
     return Theme(
         name="light",
         bg=bg,
@@ -263,7 +279,9 @@ def _theme_contrast() -> Theme:
         hairline_rgba=(1.0, 1.0, 1.0, 0.28),
         hairline_strong_rgba=(1.0, 1.0, 1.0, 0.50),
         accent_edge_rgba=_ACCENT_EDGE_DARK_RGBA,
-        accent_soft_rgba=_ACCENT_SOFT_DARK_RGBA,
+        # THI-155: contrast theme bumps --accent-soft 0.16 → 0.30 so the
+        # selection band clears the visibility floor on black surfaces.
+        accent_soft_rgba=(*oklch_to_srgb(0.78, 0.13, 145), 0.30),
         tones=_resolve_tones(),
     )
 

@@ -71,6 +71,12 @@
      with breathing room) while still feeling like an outline, not a solid
      border. Tested in scripts/a11y/contrast_audit.py. */
   --accent-edge:   oklch(0.455 0.13 145 / 0.70);
+  /* THI-155: bump --accent-soft alpha so ::selection bands clear the
+     visibility floor (1.30:1 vs panel — matches browser default highlight
+     on white). Pre-bump (0.16) composed to ~1.27:1 on white; 0.30 lands
+     at ~1.34:1. Also affects the page gradient and .btn-active bg in
+     light mode — both render as a slightly more saturated green tint. */
+  --accent-soft:   oklch(0.455 0.13 145 / 0.30);
   --shadow-card: 0 1px 0 rgba(255,255,255,.6) inset, 0 1px 2px rgba(0,0,0,.06);
   --shadow-lift: 0 1px 0 rgba(255,255,255,.6) inset, 0 12px 32px rgba(0,0,0,.10);
 }
@@ -87,6 +93,10 @@
   --text-mute: #c8c8c8;
   --text-dim:  #999;
   --text-disabled: #888;
+  /* THI-155: high-contrast theme selection band needs to be unmistakable.
+     The :root value (0.16) composited to 1.26:1 over the black bg-elev —
+     below the perceivability floor. 0.30 lands at ~1.96:1. */
+  --accent-soft:   oklch(0.78 0.13 145 / 0.30);
   --shadow-card: none;
   --shadow-lift: 0 0 0 1px #fff inset;
 }
@@ -744,12 +754,19 @@ input, textarea, select { font: inherit; color: inherit; }
   flex-shrink: 0;
 }
 .card-status.running .glyph { border-radius: 50%; animation: runDot 1.2s ease-in-out infinite; }
+/* THI-154: reduced-motion users get the dot at its full-opacity state
+   instead of the pulse, so the running indicator stays clearly visible
+   without animation. */
+[data-reduced-motion="true"] .card-status.running .glyph { animation: none; }
 .card-status.idle    .glyph { border-radius: 50%; background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
 .card-status.waiting .glyph { border-radius: 1px; }
 .card-status.done    .glyph { clip-path: polygon(0% 40%, 35% 75%, 100% 10%, 100% 30%, 35% 95%, 0% 60%); }
 .card-status.error   .glyph { clip-path: polygon(50% 0%, 100% 100%, 0% 100%); }
 @keyframes runDot {
-  0%, 100% { opacity: .5; }
+  /* THI-154: worst-frame opacity bumped from 0.5 to 0.65 so the dot stays
+     legible even at its dimmest. At 0.5 the cyan ci-dot on light bg
+     dropped well below the perceivability floor mid-pulse. */
+  0%, 100% { opacity: .65; }
   50%      { opacity: 1; }
 }
 
@@ -835,6 +852,7 @@ input, textarea, select { font: inherit; color: inherit; }
 .ci-dot.ci-passing { background: var(--tone-green); box-shadow: 0 0 4px var(--tone-green); }
 .ci-dot.ci-failing { background: var(--tone-red);   box-shadow: 0 0 4px var(--tone-red); }
 .ci-dot.ci-running { background: var(--tone-cyan);  animation: runDot 1.2s ease-in-out infinite; }
+[data-reduced-motion="true"] .ci-dot.ci-running { animation: none; }
 .chip.pr { color: var(--tone-lilac); border-color: color-mix(in oklch, var(--tone-lilac) 35%, var(--hairline)); }
 .chip.ci-passing { color: var(--tone-green); border-color: color-mix(in oklch, var(--tone-green) 35%, var(--hairline)); }
 .chip.ci-failing { color: var(--tone-red);   border-color: color-mix(in oklch, var(--tone-red) 35%, var(--hairline)); }
