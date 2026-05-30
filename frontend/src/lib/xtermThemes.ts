@@ -20,24 +20,23 @@
  * `term.options.theme` when the theme changes mid-modal so the user
  * can toggle Switchboard's theme without closing the pane.
  *
- * Known limitation — 256-color / true-color escapes pass through
- * unchanged. xterm.js's `ITheme` only exposes slots 0–15. TUIs that
- * emit `\e[48;5;Nm` (256-color bg) or `\e[48;2;R;G;Bm` (24-bit bg)
- * bypass this palette entirely; the renderer paints whatever absolute
- * color the escape sequence requested. In practice that means:
+ * 256-color overrides — TUIs like Claude Code paint diff backgrounds
+ * and "user prompt" inverse blocks with 256-color escapes (`\e[48;5;Nm`),
+ * which xterm's `ITheme` doesn't cover (it's limited to ANSI 16). We
+ * compensate via the standard `OSC 4 ; N ; rgb:RR/GG/BB ST` sequence —
+ * xterm.js's OSC handler accepts these at runtime and re-paints already-
+ * rendered cells with the new palette. `apply256ColorOverrides` below
+ * sends a packet of OSC 4s for the slots that show up as background fill
+ * in modern dev TUIs (52/88/22/28 = the dark-red / dark-green diff bgs;
+ * 234–237 = the dark-grey "inverted block" range used by Claude Code's
+ * user-message blocks). In dark mode we send the standard xterm defaults
+ * back so a theme toggle resets cleanly without an OSC 104 (which xterm
+ * doesn't expose cleanly through its public API).
  *
- *   - Claude Code's diff backgrounds (dark red / dark green) and
- *     "user prompt" inverse blocks render with their hard-coded
- *     dark RGBs even when the surrounding Switchboard theme is light.
- *   - `git diff --color=always | less -R` likewise — git uses
- *     256-color for diff highlights on modern terminals.
- *   - `bat`, `delta`, `lazygit`, etc. — same story.
- *
- * The minimumContrastRatio safety net does NOT lift these (it only
- * rebalances ANSI 16 fg/bg pairs). Resolving this would require
- * intercepting the renderer's color resolution path, which is xterm
- * internal API and version-fragile. Not in scope here; tracked in
- * THI-153 follow-ups.
+ * True-color (`\e[48;2;R;G;Bm`) still passes through unchanged — that's
+ * a hard limitation of the xterm 5.x renderer. If a future Claude Code
+ * build switches to truecolor for diff bgs, we'd need to intercept the
+ * parser's color resolution path. Not in scope here.
  */
 
 import type { ITheme } from "xterm";
@@ -164,4 +163,110 @@ const PALETTES: Record<Theme, ITheme> = {
 
 export function xtermThemeFor(theme: Theme): ITheme {
   return PALETTES[theme] ?? PALETTES.dark;
+}
+
+// ── 256-color overrides (THI-150 follow-up) ──────────────────────────────────
+
+/**
+ * The 256-color slots we override per theme.
+ *
+ * Picked because they're the ones modern dev TUIs (Claude Code,
+ * delta/diff renderers, lazygit) paint as block backgrounds:
+ *
+ *   - 22, 28          dark green / brighter green   → "added" diff bg
+ *   - 52, 88          dark red / brighter red       → "removed" diff bg
+ *   - 234, 235, 236, 237   #1c1c1c…#3a3a3a grayscale → "inverse block" bg
+ *                                                     (user-prompt blocks
+ *                                                     in Claude Code's TUI)
+ *
+ * Dark mode uses the standard xterm 256-color defaults so a theme
+ * toggle reverts cleanly. (xterm.js doesn't expose OSC 104 cleanly so
+ * we re-write the defaults rather than reset.)
+ */
+type IndexedOverrides = Record<number, string>;
+
+const DARK_256: IndexedOverrides = {
+  22: "#005f00",
+  28: "#008700",
+  52: "#5f0000",
+  88: "#870000",
+  234: "#1c1c1c",
+  235: "#262626",
+  236: "#303030",
+  237: "#3a3a3a",
+};
+
+const LIGHT_256: IndexedOverrides = {
+  // Diff highlight greens — pastel tints that read as "added" without
+  // dominating a light page. Background of these slots holds the bg fill;
+  // foreground text on top stays legible via minimumContrastRatio: 4.5.
+  22: "#cde6cd",
+  28: "#bcdcbc",
+  // Diff highlight reds — pastel tints that read as "removed".
+  52: "#f5d6d6",
+  88: "#f0c5c5",
+  // Dark-grey "inverse block" slots — Claude Code uses these for
+  // user-message blocks. Mapped to light tints so the blocks read as
+  // panels-on-light rather than dark stripes.
+  234: "#f0eee8",
+  235: "#ebe9df",
+  236: "#e3e0d2",
+  237: "#dcd8c8",
+};
+
+const CONTRAST_256: IndexedOverrides = {
+  // Pure b/w theme — keep diff/block bgs as solid dark blocks for
+  // maximum legibility against the white text.
+  22: "#003000",
+  28: "#005000",
+  52: "#400000",
+  88: "#600000",
+  234: "#101010",
+  235: "#181818",
+  236: "#222222",
+  237: "#2a2a2a",
+};
+
+const PHOSPHOR_256: IndexedOverrides = {
+  // Green CRT theme — every block bg shifts toward green-tinted darks.
+  22: "#003a14",
+  28: "#005a20",
+  52: "#3a0a0a",
+  88: "#5a1010",
+  234: "#0a2018",
+  235: "#0e261c",
+  236: "#142e22",
+  237: "#1a3628",
+};
+
+const OVERRIDES_256: Record<Theme, IndexedOverrides> = {
+  dark: DARK_256,
+  light: LIGHT_256,
+  contrast: CONTRAST_256,
+  phosphor: PHOSPHOR_256,
+};
+
+/**
+ * Write a packet of `OSC 4` sequences to the terminal that override
+ * specific 256-color palette slots for the given theme.
+ *
+ * Apply on terminal construction AND on theme change; xterm.js re-paints
+ * already-rendered cells with the new palette on the next frame.
+ */
+export function apply256ColorOverrides(
+  // Narrowed structurally to avoid a hard `Terminal` import; the caller
+  // already has one.
+  term: { write(data: string): void },
+  theme: Theme,
+): void {
+  const overrides = OVERRIDES_256[theme] ?? DARK_256;
+  let seq = "";
+  for (const [index, hex] of Object.entries(overrides)) {
+    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+    if (!m) continue;
+    // ESC ] 4 ; N ; rgb:RR/GG/BB BEL — the BEL (`\x07`) terminator is
+    // the form xterm.js parses most reliably across versions.
+    seq += `\x1b]4;${index};rgb:${m[1]}/${m[2]}/${m[3]}\x07`;
+  }
+  if (seq) term.write(seq);
 }

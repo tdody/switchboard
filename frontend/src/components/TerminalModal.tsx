@@ -26,7 +26,7 @@ import { parsePromptMessage } from "../lib/prompt";
 import type { Prompt } from "../lib/prompt";
 import { useScrimClose } from "../lib/useScrimClose";
 import { decideCloseAction } from "../lib/wsReconnect";
-import { xtermThemeFor } from "../lib/xtermThemes";
+import { apply256ColorOverrides, xtermThemeFor } from "../lib/xtermThemes";
 
 interface Props {
   window: Window;
@@ -250,6 +250,11 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       return true;
     });
     term.open(hostRef.current);
+    // THI-150 follow-up: override the 256-color slots that modern dev
+    // TUIs (Claude Code, delta, lazygit) paint as block backgrounds.
+    // Must be applied AFTER `term.open` so the renderer is attached and
+    // re-paints when the OSC 4 packet is parsed.
+    apply256ColorOverrides(term, themeRef.current);
     // Focus immediately so the user can start typing without first clicking
     // inside the modal.
     term.focus();
@@ -506,10 +511,13 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   // open terminal in place — no rebuild, scrollback and WS connection
   // preserved. xterm honors `term.options.theme = …` by re-rendering the
   // existing buffer with the new palette on the next frame.
+  // THI-150 follow-up: also re-emit the 256-color overrides so diff bgs
+  // and Claude Code's user-prompt blocks re-color in place.
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
     term.options.theme = xtermThemeFor(theme);
+    apply256ColorOverrides(term, theme);
   }, [theme]);
 
   // Image paste → upload to the pane. Capture phase so we intercept before
