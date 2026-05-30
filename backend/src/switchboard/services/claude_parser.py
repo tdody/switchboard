@@ -5,7 +5,9 @@ Reads the last N captured lines and produces an (status, pending_input, Agent).
 - Pending input is gated on an arrow-key menu, a `(y/n)` / `[y/n]`, or a
   `press enter`-style prompt appearing recently AND no spinner running. Pending
   input and an active spinner are mutually exclusive.
-- Recap is the last assistant message (line starting with ●, ✻, ✓, ✗ glyphs).
+- Recap is the last assistant message (line starting with ●, ⏺, ✻, ✓, ✗
+  glyphs — modern Claude Code builds use ⏺ U+23FA where older builds drew
+  ● U+25CF).
 - Branch / PR are best-effort `git` / `gh` shells; results are cached for 30s.
 """
 
@@ -77,11 +79,45 @@ _SESSION_COST_RE = re.compile(
     r"\U0001F4B0\s*\$([\d,]+(?:\.\d+)?)",
 )
 
-# Recap: assistant-message marker, then the message body.
-_RECAP_RE = re.compile(r"^\s*[●✓✗][\s ]+(.+?)\s*$")
+# Recap: assistant-message marker, then the message body. ⏺ (U+23FA,
+# "BLACK CIRCLE FOR RECORD") is the marker modern Claude Code builds
+# render; ● (U+25CF) is the legacy glyph. Both anchor identically.
+_RECAP_RE = re.compile(r"^\s*[●⏺✓✗][\s ]+(.+?)\s*$")
+
+# THI-148: free-form question detection. Two complementary triggers on the
+# visible last line of Claude's narration.
+#  - `_QUESTION_END_RE`: ends with `?` (allow trailing `)`, `]`, `"`, `'`, ws).
+#    Covers the bulk of cases — Claude almost always punctuates real questions.
+#  - `_ASK_PHRASES_RE`: high-precision imperative-ask phrases that may not
+#    end with `?` ("let me know …", "please confirm", "awaiting your …",
+#    etc.). Each is anchored with word boundaries so substrings like
+#    "knowledge" / "letting" don't false-positive in narration.
+_QUESTION_END_RE = re.compile(r"\?[\"')\]\s]*$")
+_ASK_PHRASES_RE = re.compile(
+    r"\b("
+    r"let\s+me\s+know|"
+    r"(please|kindly)\s+(confirm|clarify|verify|advise|specify|provide)|"
+    r"awaiting\s+(your|further)|"
+    r"waiting\s+(for|on)\s+(your|further)|"
+    r"your\s+(call|move|turn|choice|preference)|"
+    r"up\s+to\s+you"
+    r")\b",
+    re.IGNORECASE,
+)
+# Tool-call lines below `●` narration are not assistant prose — skip them
+# when scanning for a question (their text often ends with `)` or contains
+# `?` inside shell arguments). Covers the built-in Claude Code tools plus
+# any MCP-namespaced tool (e.g. `mcp__plugin_linear_linear__list_issues(`).
+_TOOL_CALL_RE = re.compile(
+    r"^(?:Bash|Read|Write|Edit|MultiEdit|Grep|Glob|Task|TodoWrite"
+    r"|WebFetch|WebSearch|NotebookEdit|ExitPlanMode|mcp__)[A-Za-z0-9_]*\("
+)
 
 _BORDER_RE = re.compile(r"^[\s─━═]+$")
-_PROMPT_BOX_RE = re.compile(r"^\s*>")
+# Modern Claude Code builds render the prompt arrow as `❯` (U+276F) in some
+# themes; the legacy glyph is plain `>`. Both anchor the same input box.
+# Kept in sync with `_MENU_CHOICE_RE`'s cursor class, which also accepts both.
+_PROMPT_BOX_RE = re.compile(r"^\s*[>❯]")
 
 # A menu choice line: optional box-drawing/whitespace prefix, optional ❯/>
 # cursor, a 1-2 digit number, a dot, then the label. The trailing box-drawing
@@ -274,6 +310,83 @@ def parse_prompt(lines: list[str]) -> Prompt | None:
     return _scan_yn_enter(lines)
 
 
+def _scan_open_question(lines: list[str]) -> str | None:
+    """Detect a free-form question Claude is asking the user (THI-148).
+
+    Walks the recent tail bottom-up, skipping the prompt box, borders, blank
+    lines, tool calls, and tool output (`⎿`). Accumulates the visible
+    narration block (the most recent `●`/`✓`/`✗` message and its
+    continuation lines) until a tool call, tool output, or another marker
+    is hit. Two complementary triggers:
+
+      - The visible last line ends with `?` — Claude asked a question.
+        Returned action text is that line.
+      - Any line in the block contains a high-precision ask-phrase
+        ("let me know", "please confirm", "awaiting your …", …) — Claude
+        deferred to the user without a literal question mark. Returned
+        action text is the line carrying the phrase.
+
+    Complements `parse_prompt`: structured shapes (menu / yn / enter) are
+    handled there. This is only called by `parse_pane` (status / pending /
+    action) — open questions deliberately do NOT emit a `Prompt` for the
+    WS overlay, since there's no menu/button interaction to render. The
+    pending_input flag + `agent.action` text are enough to drive the
+    THI-78 native notification and the Kanban "Pending input" badge.
+    """
+    # Narration always sits ABOVE the prompt box; the TUI footer below it
+    # ("? for shortcuts ... Context: N%", session-cost line) is not prose
+    # and must not anchor block[0]. Find the most recent prompt-box line
+    # and scan only the slice above it. When no prompt box is captured
+    # (rare — first frames before the input renders), scan the full tail.
+    tail = lines[-30:]
+    upper_bound = len(tail)
+    for i in range(len(tail) - 1, -1, -1):
+        if _PROMPT_BOX_RE.match(_strip_ansi(tail[i]).rstrip()):
+            upper_bound = i
+            break
+
+    block: list[str] = []  # bottom-up: block[0] is the visible last line
+    for raw in reversed(tail[:upper_bound]):
+        line = _strip_ansi(raw).rstrip()
+        if not line.strip():
+            continue
+        if _PROMPT_BOX_RE.match(line) or _BORDER_RE.match(line):
+            continue
+        stripped = line.strip(_BOX_CHARS)
+        if not stripped:
+            continue
+        if stripped.startswith("⎿") or _TOOL_CALL_RE.match(stripped):
+            # Tool call / output above this — stop walking; this is the
+            # boundary of the current narration block.
+            break
+        m = _RECAP_RE.match(line)
+        if m:
+            stripped = m.group(1).strip()
+            block.append(stripped)
+            break  # `●`/`⏺`/`✓`/`✗` marker anchors the top of the block
+        # Claude Code prints `✻ Worked for 2s` / `✻ Churned for 14s`-style
+        # turn-timing notes after some turns end — same spinner-glyph family
+        # as a live spinner but with no `(N · …)` payload. Metadata, not
+        # prose; without skipping them they displace the actual question line
+        # as block[0] and the trailing-`?` check misses it. (Active spinners
+        # with payload also match here and are skipped — benign, since the
+        # spinner override in `parse_pane` clears pending downstream anyway.)
+        if _SPINNER_RE.match(line):
+            continue
+        block.append(stripped)
+    if not block:
+        return None
+    last = block[0]
+    if _QUESTION_END_RE.search(last):
+        return last[:_ACTION_CLIP]
+    # Ask-phrases can appear anywhere in the block; bottom-up scan returns
+    # the most recent line carrying the phrase as the action label.
+    for candidate in block:
+        if _ASK_PHRASES_RE.search(candidate):
+            return candidate[:_ACTION_CLIP]
+    return None
+
+
 _BRANCH_CACHE: dict[str, tuple[float, str | None]] = {}
 _PR_CACHE: dict[
     tuple[str, str],
@@ -438,6 +551,14 @@ def parse_pane(lines: list[str], cwd: str | None) -> tuple[Status, bool, Agent |
     session_cost_usd = _scan_session_cost(lines)
     pending = prompt is not None
     action = prompt.question if prompt is not None else None
+    # THI-148: free-form questions Claude asks the user (no menu / yn / enter
+    # structure) also flip pending. Run only when no structured prompt fired
+    # so the structured action text wins when both could match.
+    if prompt is None:
+        open_question = _scan_open_question(lines)
+        if open_question is not None:
+            pending = True
+            action = open_question
     # Active spinner overrides pending — Claude is still working.
     if spinner:
         pending = False

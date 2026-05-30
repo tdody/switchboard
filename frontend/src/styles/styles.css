@@ -905,7 +905,7 @@ input, textarea, select { font: inherit; color: inherit; }
 [data-density="compact"] .preview { display: none; }
 [data-density="compact"] .card-meta { padding: 5px 10px; }
 [data-density="compact"] .card-foot { padding: 5px 7px; }
-[data-density="compact"] .recap { -webkit-line-clamp: 1; }
+[data-density="compact"] .recap { display: none; }
 
 [data-density="comfy"] .preview { display: none; }
 [data-density="preview"] .preview { display: block; }
