@@ -682,16 +682,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = p.parse_args(argv)
 
-    rc = 0
+    # `--check-sync` is a dedicated mode (does just the styles.css ↔ _THEMES
+    # token drift check + exits). Without this short-circuit it'd fall
+    # through to the audit below and fail CI on pre-existing AA misses
+    # outside the rules CI explicitly enforces.
     if args.check_sync:
         drift = check_sync()
         if drift:
             for line in drift:
                 print(line, file=sys.stderr)
-            rc = 2
-        else:
-            print("token sync ok", file=sys.stderr)
+            return 2
+        print("token sync ok", file=sys.stderr)
+        return 0
 
+    rc = 0
     themes = [_THEMES[name] for name in (args.theme or list(_THEMES))]
     all_results: list[Result] = []
     for theme in themes:
