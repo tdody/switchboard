@@ -13,7 +13,7 @@ import {
   updateSettings,
   useSettings,
 } from "../lib/settings";
-import { resetTour } from "../lib/tour";
+import { replayTour } from "../lib/tour";
 import { useIdeConfig } from "../lib/useIdeConfig";
 import { useScrimClose } from "../lib/useScrimClose";
 import type { UsageConfig } from "../types";
@@ -297,17 +297,11 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
               <span>
                 <div className="name">Replay first-run tour</div>
                 <div className="desc">
-                  Re-show the 4-step intro the next time you load the dashboard.
+                  Re-show the 4-step intro right now — reloads the dashboard.
                 </div>
               </span>
               <span className="val" />
-              <button
-                className="btn"
-                onClick={() => {
-                  resetTour();
-                  onClose();
-                }}
-              >
+              <button className="btn" onClick={() => replayTour()}>
                 Reset
               </button>
             </div>

@@ -34,17 +34,19 @@ describe("DocsModal", () => {
     expect(strip!.textContent).toMatch(/drag/i);
   });
 
-  it("Replay tour button clears the dismissed flag and closes (THI-147)", () => {
+  it("Replay tour button clears the dismissed flag AND triggers a reload (THI-147)", () => {
     // Seed the dismissed flag — like a returning user.
     localStorage.setItem("switchboard:tour:v1:dismissed", "1");
-    const onClose = vi.fn();
-    render(<DocsModal onClose={onClose} />);
+    const reload = vi.fn();
+    Object.defineProperty(window.location, "reload", { value: reload, configurable: true });
+
+    render(<DocsModal onClose={vi.fn()} />);
 
     const replay = screen.getByRole("button", { name: /replay tour/i });
     fireEvent.click(replay);
 
     expect(localStorage.getItem("switchboard:tour:v1:dismissed")).toBeNull();
-    expect(onClose).toHaveBeenCalled();
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 
   it("Done button calls onClose", () => {

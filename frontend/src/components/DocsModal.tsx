@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { resetTour } from "../lib/tour";
+import { replayTour } from "../lib/tour";
 import { useScrimClose } from "../lib/useScrimClose";
 import "../styles/docs.css";
 import { AgentCardArt } from "./docs/AgentCardArt";
@@ -150,17 +150,15 @@ export function DocsModal({ onClose }: Props) {
 
         <div className="docs-foot">
           <span className="hint">Reference · {TABS.length} sections</span>
-          {/* THI-147: surface the first-run tour replay path. resetTour
-              clears the dismissed flag; the tour re-shows on next dashboard
-              load. Mirrors the Settings → Replay button so users who land
-              on Docs first don't have to dig for it. */}
+          {/* THI-147: surface the first-run tour replay path. `replayTour`
+              clears the dismissed flag AND reloads, so the tour appears
+              immediately rather than waiting for the next manual refresh.
+              Mirrors the Settings → Replay button so users who land on Docs
+              first don't have to dig for it. */}
           <button
             className="btn"
-            onClick={() => {
-              resetTour();
-              onClose();
-            }}
-            title="Re-show the 4-step intro the next time you load the dashboard"
+            onClick={() => replayTour()}
+            title="Re-show the 4-step intro right now"
           >
             <Icon name="sparkle" /> Replay tour
           </button>
