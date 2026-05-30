@@ -706,3 +706,22 @@ def test_recap_recognizes_modern_record_marker() -> None:
     assert agent is not None
     assert agent.recap is not None
     assert "refactor" in agent.recap.lower()
+
+
+def test_open_question_skips_turn_timing_note() -> None:
+    # Modern Claude Code prints `✻ Worked for 2s` (and `Churned`/`Pondered`
+    # variants) below the assistant message after some turns end. Same
+    # spinner-glyph family as a live spinner but with no `(N · …)` payload —
+    # it's a one-off timing note, not prose. Without skipping it the note
+    # became block[0] in `_scan_open_question` and displaced the actual `?`
+    # question above it; pending_input stayed False and the THI-78 native
+    # notification missed the canonical "Claude asks a free-form question"
+    # manual test.
+    status, pending, agent = claude_parser.parse_pane(
+        _load("claude_open_question_with_turn_timing.txt"), cwd=None
+    )
+    assert status == "waiting"
+    assert pending is True
+    assert agent is not None
+    assert agent.action is not None
+    assert "should i commit" in agent.action.lower()

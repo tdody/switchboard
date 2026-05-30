@@ -114,7 +114,10 @@ _TOOL_CALL_RE = re.compile(
 )
 
 _BORDER_RE = re.compile(r"^[\s─━═]+$")
-_PROMPT_BOX_RE = re.compile(r"^\s*>")
+# Modern Claude Code builds render the prompt arrow as `❯` (U+276F) in some
+# themes; the legacy glyph is plain `>`. Both anchor the same input box.
+# Kept in sync with `_MENU_CHOICE_RE`'s cursor class, which also accepts both.
+_PROMPT_BOX_RE = re.compile(r"^\s*[>❯]")
 
 # A menu choice line: optional box-drawing/whitespace prefix, optional ❯/>
 # cursor, a 1-2 digit number, a dot, then the label. The trailing box-drawing
@@ -361,6 +364,15 @@ def _scan_open_question(lines: list[str]) -> str | None:
             stripped = m.group(1).strip()
             block.append(stripped)
             break  # `●`/`⏺`/`✓`/`✗` marker anchors the top of the block
+        # Claude Code prints `✻ Worked for 2s` / `✻ Churned for 14s`-style
+        # turn-timing notes after some turns end — same spinner-glyph family
+        # as a live spinner but with no `(N · …)` payload. Metadata, not
+        # prose; without skipping them they displace the actual question line
+        # as block[0] and the trailing-`?` check misses it. (Active spinners
+        # with payload also match here and are skipped — benign, since the
+        # spinner override in `parse_pane` clears pending downstream anyway.)
+        if _SPINNER_RE.match(line):
+            continue
         block.append(stripped)
     if not block:
         return None
