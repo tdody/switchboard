@@ -1143,7 +1143,9 @@ input, textarea, select { font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 10px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--hairline);
-  background: linear-gradient(#0c0e12, #0a0b0e);
+  /* THI-150: theme-aware. Pre-fix this was `linear-gradient(#0c0e12, #0a0b0e)`
+     — fine on dark, jarring dark band wrapping a light-themed terminal body. */
+  background: linear-gradient(var(--bg-elev), var(--panel));
 }
 .tl-dots { display: inline-flex; gap: 6px; margin-right: 4px; }
 .term-title {
@@ -1171,10 +1173,13 @@ input, textarea, select { font: inherit; color: inherit; }
 .term-spacer { flex: 1; }
 .term-actions { display: flex; gap: 4px; align-items: center; }
 .term-body {
+  /* THI-150: theme-aware. Previously `#050608` + a hardcoded `#d6d9e0`
+     text color — both bled around the xterm viewport (the 100px bottom
+     padding shows through) and looked wrong wrapping a light theme. */
   background:
     radial-gradient(900px 360px at 80% 0%, color-mix(in oklch, var(--accent) 12%, transparent), transparent 70%),
-    #050608;
-  color: #d6d9e0;
+    var(--panel);
+  color: var(--text);
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.55;
@@ -1221,7 +1226,9 @@ input, textarea, select { font: inherit; color: inherit; }
 .term-foot {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 14px;
-  background: linear-gradient(#0a0b0e, #07080a);
+  /* THI-150: theme-aware. Mirrors .term-hd's gradient direction (reversed) so
+     the modal reads as a panel framed by the same elev/panel tones. */
+  background: linear-gradient(var(--panel), var(--bg-elev));
   border-top: 1px solid var(--hairline);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1231,7 +1238,9 @@ input, textarea, select { font: inherit; color: inherit; }
   display: inline-flex; gap: 6px; align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(255,255,255,.05);
+  /* THI-150: was rgba(255,255,255,.05) — a near-invisible white overlay in
+     light mode. --hairline composites the right tint per theme. */
+  background: var(--hairline);
   color: var(--text);
 }
 /* The cwd path is the only naturally long item in the footer; mark it as the
@@ -1251,7 +1260,8 @@ input, textarea, select { font: inherit; color: inherit; }
   padding: 4px 10px;
   border: 1px solid var(--hairline);
   border-radius: 6px;
-  background: rgba(255,255,255,.03);
+  /* THI-150: was rgba(255,255,255,.03), invisible on light. */
+  background: var(--hairline);
   color: var(--text);
 }
 .term-foot .input input {
