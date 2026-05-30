@@ -143,12 +143,10 @@ def test_usage_endpoint_returns_camel_case_shape(monkeypatch: pytest.MonkeyPatch
         reset_at=1779999999,
     )
     monkeypatch.setattr(claude_usage, "cached_token_usage", lambda: canned)
-    # An earlier test in the suite may have triggered the background
-    # `_refresh_scrape_into_cache` thread (unmocked); if it completes before
-    # this test runs, `_scrape_cache` carries real data and the `scrape is
-    # None` assertion below fails sporadically depending on test order.
-    # Pin both the cache and the in-flight flag.
-    monkeypatch.setattr(claude_usage, "_scrape_cache", (0.0, None))
+    # Suppress the background `_refresh_scrape_into_cache` thread for the
+    # duration of this test — the conftest autouse fixture (THI-157) already
+    # resets `_scrape_cache` to empty; flipping the in-flight flag prevents
+    # a refresh from starting and populating it mid-assertion.
     monkeypatch.setattr(claude_usage, "_scrape_in_flight", True)
 
     # SecurityMiddleware's loopback allowlist rejects the default `testserver`
@@ -225,12 +223,9 @@ def test_cached_scraped_usage_starts_empty_and_schedules_refresh(
         background thread has populated it).
       - Subsequent call past the TTL re-arms the refresher.
     The actual subprocess.run path is stubbed — we exercise the cache & lock,
-    not the tmux drive.
+    not the tmux drive. (Module state — `_scrape_cache` / `_scrape_in_flight`
+    — is reset to empty/False by the autouse conftest fixture; THI-157.)
     """
-    # Reset module state for the test.
-    monkeypatch.setattr(claude_usage, "_scrape_cache", (0.0, None))
-    monkeypatch.setattr(claude_usage, "_scrape_in_flight", False)
-
     # Stub scrape_usage_via_tmux so the refresh thread completes synchronously
     # with a known payload.
     from switchboard.schemas import UsageMeter, UsageScrape
