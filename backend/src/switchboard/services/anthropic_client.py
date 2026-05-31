@@ -144,7 +144,7 @@ def build_rename_prompt(windows: list[dict[str, Any]]) -> str:
             lines.append(f"  recent terminal excerpt:\n    {snippet}")
     lines.append("")
     lines.append(
-        'Return ONLY a JSON object mapping window index (as a string) to the new name. '
+        "Return ONLY a JSON object mapping window index (as a string) to the new name. "
         'Example: {"1": "fs-build", "2": "cohort-inv"}. '
         "No markdown fences, no commentary, just the JSON object."
     )
@@ -169,9 +169,7 @@ def parse_rename_response(text: str) -> dict[str, str]:
     try:
         parsed = json.loads(cleaned)
     except json.JSONDecodeError as e:
-        raise AnthropicResponseError(
-            f"model returned invalid JSON: {e}", raw=text
-        ) from e
+        raise AnthropicResponseError(f"model returned invalid JSON: {e}", raw=text) from e
     if not isinstance(parsed, dict):
         raise AnthropicResponseError(
             f"model returned non-object JSON: {type(parsed).__name__}", raw=text

@@ -10,14 +10,26 @@ at most 2 positional args, despite its `*args: Any`.
 
 from __future__ import annotations
 
+import logging
 import subprocess
+import threading
 import time
 import uuid
+from concurrent.futures import Future
 
 import libtmux
 
 from switchboard.schemas import Client, Kind, Session, StateResponse, Status, Window
 from switchboard.services import claude_parser
+
+log = logging.getLogger(__name__)
+
+# Single-flight slot for /api/state collection (THI-142). When a scan is in
+# flight, concurrent callers wait on this Future instead of each spawning
+# their own batch of tmux subprocesses — bounds peak FD usage to one scan's
+# worth and prevents the OSError [Errno 24] cascade under modal-open polling.
+_inflight_lock = threading.Lock()
+_inflight: Future[StateResponse] | None = None
 
 
 def get_server() -> libtmux.Server | None:
@@ -114,6 +126,15 @@ def collect_state() -> StateResponse:
 
     for s in srv.sessions:
         name = s.session_name or ""
+        # Hide internal scrape sessions from the dashboard (THI-110 commit 3).
+        # `sb-usage-<uuid8>` sessions are created/killed by claude_usage's
+        # /usage scrape every ~5 min. The scrape lifecycle is tiny but
+        # racy with /api/state polls: if `s.windows` is queried after the
+        # scrape's `tmux kill-session`, libtmux raises LibTmuxException.
+        # Filtering here also keeps these sessions out of the kanban UI,
+        # which is the right answer regardless of the race.
+        if name.startswith("sb-usage-"):
+            continue
         clients = _list_clients(srv, name)
         sessions.append(
             Session(
@@ -125,7 +146,18 @@ def collect_state() -> StateResponse:
             )
         )
 
-        for w in s.windows:
+        # Defense-in-depth: even after the `sb-usage-` filter, ANY session
+        # can vanish between `srv.sessions` and `s.windows` (the user runs
+        # `tmux kill-session` from a shell). Per-session libtmux failures
+        # used to crash the whole /api/state call with a 500; now they
+        # demote to a skipped session card and the dashboard keeps polling.
+        try:
+            session_windows = list(s.windows)
+        except Exception:  # noqa: BLE001 — libtmux can raise its own errors here
+            log.warning("collect_state: failed to list windows for session %r", name)
+            continue
+
+        for w in session_windows:
             pane = w.active_pane
             if pane is None:
                 continue
@@ -147,6 +179,23 @@ def collect_state() -> StateResponse:
                 pending = False
                 agent = None
 
+            # Surface the cwd's git branch on every pane, not just agent ones,
+            # so shell tiles get a branch chip too. For agent panes, parse_pane
+            # has already populated `agent.branch` via the same `_git_branch`
+            # helper — the call below hits the 2 s cache (THI-126), so the
+            # subprocess cost is the same as before.
+            branch = claude_parser._git_branch(cwd) if cwd else None
+            # PR / CI rollup is keyed by (cwd, branch) and 60 s-cached, so the
+            # same lookup serves every pane on that branch — agent or shell.
+            # Shell tiles on a branch with an open PR get the same CI-tinted
+            # chip the kanban agent card shows. `pr_url` lights up the chip
+            # as a link (THI-146 PR 2).
+            pr, ci, pr_url = claude_parser._gh_pr(cwd, branch) if branch else (None, None, None)
+            # Repo URL is computed independently of PR existence so the in-pane
+            # `PR #N` linkifier still has a base URL on branches with no open
+            # PR. Pure local git, cached 5 min.
+            repo_url = claude_parser._git_repo_url(cwd) if cwd else None
+
             idx = _to_int(w.window_index)
             windows.append(
                 Window(
@@ -161,12 +210,57 @@ def collect_state() -> StateResponse:
                     cmd=cmd,
                     cwd=cwd,
                     pending_input=pending,
+                    branch=branch,
+                    pr=pr,
+                    pr_url=pr_url,
+                    ci=ci,
+                    repo_url=repo_url,
                     agent=agent,
                     preview=capture[-8:] if capture else [],
                 )
             )
 
     return StateResponse(sessions=sessions, windows=windows, server_running=True)
+
+
+def collect_state_singleflight() -> StateResponse:
+    """Single-flight wrapper around `collect_state` (THI-142).
+
+    Bounds concurrent tmux-subprocess spawning so repeated /api/state polling
+    under the modal-open cadence can't exhaust file descriptors.
+
+    Behaviour:
+    - First caller becomes the leader, runs `collect_state`, and resolves
+      a shared `Future` with the result (or exception).
+    - Concurrent followers block on `Future.result()` and receive the
+      leader's outcome — identical state object, or identical exception.
+    - After the leader finishes, the in-flight slot clears so the next
+      caller starts a fresh scan; there is no caching across scans.
+    """
+    global _inflight
+    with _inflight_lock:
+        existing = _inflight
+        if existing is None:
+            future: Future[StateResponse] = Future()
+            _inflight = future
+    if existing is not None:
+        # Follower path. `.result()` blocks until the leader resolves the
+        # future; if the leader raised, the same exception propagates.
+        return existing.result()
+    # Leader path. Set the result (or exception) on the future BEFORE
+    # clearing the in-flight slot — a follower that's already past the
+    # lock and into `.result()` would otherwise miss the resolution and
+    # block forever.
+    try:
+        state = collect_state()
+        future.set_result(state)
+        return state
+    except BaseException as exc:
+        future.set_exception(exc)
+        raise
+    finally:
+        with _inflight_lock:
+            _inflight = None
 
 
 # --- pane lookup + actions ---------------------------------------------------
@@ -184,6 +278,16 @@ def get_pane(session: str, index: int):
         return None
     win = next((w for w in sess.windows if _to_int(w.window_index) == index), None)
     return win.active_pane if win is not None else None
+
+
+def pane_cwd(session: str, index: int) -> str | None:
+    """Return the active pane's cwd for `session:index`, or None when the
+    pane can't be found. Used by POST /api/open to scope file-path opens to
+    a pane-local directory (THI-146 PR 3)."""
+    pane = get_pane(session, index)
+    if pane is None:
+        return None
+    return pane.pane_current_path or None
 
 
 def pane_kind(session: str, index: int) -> Kind | None:
@@ -507,6 +611,17 @@ def new_window(session: str, name: str) -> int | None:
         return int(out[0]) if out else None
     except Exception:  # noqa: BLE001
         return None
+
+
+def new_session(name: str) -> bool:
+    """new-session -d -s `name`. False on tmux error (duplicate name, etc).
+
+    Intentionally bypasses `get_server()` — `tmux new-session` starts a tmux
+    server on demand, so the "New Session" button in the header (THI-144)
+    works from the empty state too.
+    """
+    srv = libtmux.Server()
+    return _cmd_ok(srv, "new-session", "-d", "-s", name)
 
 
 def detach_client(tty: str) -> bool:

@@ -1,0 +1,6 @@
+● I'm letting you know that the prior knowledge of the dataset was
+  helpful here. Picked the more efficient path; tests pass.
+
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────

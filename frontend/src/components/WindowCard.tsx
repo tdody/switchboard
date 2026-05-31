@@ -1,10 +1,11 @@
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import type { Window } from "../types";
 import { formatAgo, formatMem } from "../lib/format";
-import { cpuLevel, kindIcon, memLevel } from "../lib/status";
+import { contextBand, cpuLevel, kindIcon, memLevel } from "../lib/status";
 import { Chip } from "./Chip";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
+import { Tooltip } from "./Tooltip";
 
 interface Props {
   w: Window;
@@ -16,6 +17,9 @@ interface Props {
   onFocus: (w: Window) => void;
   /** `skipConfirm` is true when the user Shift-clicked the kill button. */
   onKill: (w: Window, skipConfirm: boolean) => void;
+  /** Optional anchor selector for the first-run tour (THI-96). Set by Kanban
+   *  on the very first rendered card so the tour can find it. */
+  dataTour?: string;
 }
 
 function WindowCardImpl({
@@ -27,6 +31,7 @@ function WindowCardImpl({
   onRename,
   onFocus,
   onKill,
+  dataTour,
 }: Props) {
   const pending = !!w.pendingInput;
   const ago = formatAgo(w.lastActivity);
@@ -34,13 +39,18 @@ function WindowCardImpl({
   const cpu = cpuLevel(w.cpu);
   const mem = memLevel(w.mem);
   const showResources = !!cpu || !!mem;
+  // Context-window usage band (THI-131). Drives the left-edge accent strip;
+  // the empty-string return on missing data collapses the conditional below.
+  const ctxBand = useMemo(() => contextBand(agent?.contextPct), [agent?.contextPct]);
   const className =
     `card ${pending ? "card-pending" : ""} ${isFocused ? "card-focused" : ""}` +
-    (isHighlighted ? " card-hl" : "");
+    (isHighlighted ? " card-hl" : "") +
+    (ctxBand ? ` ${ctxBand}` : "");
   return (
     <div
       className={className}
       data-card-id={w.paneId}
+      data-tour={dataTour}
       onClick={() => onOpen(w)}
       role="button"
       tabIndex={0}
@@ -51,6 +61,11 @@ function WindowCardImpl({
         }
       }}
     >
+      {ctxBand && (
+        <Tooltip content={`Context: ${agent?.contextPct}%`}>
+          <span className="ctx-accent" aria-hidden="true" />
+        </Tooltip>
+      )}
       <div className="card-head">
         <span className={`card-kind kind-${w.kind}`} title={w.kind}>
           <Icon name={kindIcon(w.kind)} size={12} />
@@ -62,31 +77,52 @@ function WindowCardImpl({
         <StatusPill status={w.status} />
       </div>
 
-      {agent && (
+      {(w.kind === "agent" || agent || w.branch) && (
         <div className="card-agent">
-          <div className="chip-row">
-            {(agent.branch || agent.pr) && (
+          <div className="chip-row branch-row">
+            {(w.branch || w.pr) && (
               <Chip
-                className={`branch-pr ${agent.ci ? `ci-${agent.ci}` : ""}`}
-                title={agent.branch || `PR #${agent.pr}`}
+                className={`branch-pr ${w.ci ? `ci-${w.ci}` : ""}`}
+                title={w.branch || `PR #${w.pr}`}
               >
-                {agent.ci && <span className={`ci-dot ci-${agent.ci}`} aria-hidden="true" />}
-                {agent.branch && <Icon name="git-branch" size={10} />}
-                {agent.branch && <span>{agent.branch}</span>}
-                {agent.branch && agent.pr && <span className="pr-sep">›</span>}
-                {agent.pr && <span className="pr-num">#{agent.pr}</span>}
-              </Chip>
-            )}
-            {agent.spinner && (
-              <Chip className="spinner" title="agent activity">
-                <span className="spin" />
-                <span>{agent.spinner}</span>
-                {agent.duration && <span className="dur">{agent.duration}</span>}
+                {w.ci && <span className={`ci-dot ci-${w.ci}`} aria-hidden="true" />}
+                {w.branch && <Icon name="git-branch" size={10} />}
+                {w.branch && <span>{w.branch}</span>}
+                {w.branch && w.pr && <span className="pr-sep">›</span>}
+                {w.pr && w.prUrl ? (
+                  // THI-146 PR 2: clickable PR number. stopPropagation keeps
+                  // the click from also opening the terminal modal via the
+                  // card's onClick. `noopener,noreferrer` because the URL is
+                  // surfaced from `gh pr view` against the user's origin.
+                  <a
+                    className="pr-num pr-link"
+                    href={w.prUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    title={`Open PR #${w.pr} on GitHub`}
+                  >
+                    #{w.pr}
+                  </a>
+                ) : (
+                  w.pr && <span className="pr-num">#{w.pr}</span>
+                )}
               </Chip>
             )}
           </div>
-          {agent.recap && <div className="recap">{agent.recap}</div>}
-          {pending && agent.action && (
+          {w.kind === "agent" && (
+            <div className="chip-row spinner-row">
+              {agent?.spinner && (
+                <Chip className="spinner" title="agent activity">
+                  <span className="spin" />
+                  <span>{agent.spinner}</span>
+                  {agent.duration && <span className="dur">{agent.duration}</span>}
+                </Chip>
+              )}
+            </div>
+          )}
+          {agent?.recap && <div className="recap">{agent.recap}</div>}
+          {pending && agent?.action && (
             <div className="pending">
               <span className="glyph">›</span>
               <span>{agent.action}</span>
@@ -116,26 +152,29 @@ function WindowCardImpl({
       )}
 
       <div className="card-foot" onClick={(e) => e.stopPropagation()}>
-        <button
-          className="act act-icon"
-          onClick={() => onFocus(w)}
-          title="Jump to this window in your terminal (tmux switch-client)"
-        >
-          <Icon name="focus" size={12} />
-        </button>
-        <button className="act act-icon" onClick={() => onRename(w)} title="Rename window">
-          <Icon name="rename" size={12} />
-        </button>
-        <button className="act act-icon" onClick={() => onSendKeys(w)} title="Send keys">
-          <Icon name="send" size={12} />
-        </button>
-        <button
-          className="act act-icon act-danger"
-          onClick={(e) => onKill(w, e.shiftKey)}
-          title="Kill window — Shift-click to skip the confirm"
-        >
-          <Icon name="trash" size={12} />
-        </button>
+        <Tooltip content="Jump to this window in your terminal">
+          <button className="act act-icon" onClick={() => onFocus(w)}>
+            <Icon name="focus" size={12} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Rename window">
+          <button className="act act-icon" onClick={() => onRename(w)}>
+            <Icon name="rename" size={12} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Send keys">
+          <button className="act act-icon" onClick={() => onSendKeys(w)}>
+            <Icon name="send" size={12} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Kill window — Shift-click to skip the confirm">
+          <button
+            className="act act-icon act-danger"
+            onClick={(e) => onKill(w, e.shiftKey)}
+          >
+            <Icon name="trash" size={12} />
+          </button>
+        </Tooltip>
         <span className="spacer" />
         <span className="ago" title="last activity">
           <Icon name="clock" size={11} style={{ opacity: 0.6 }} />
@@ -154,6 +193,7 @@ export const WindowCard = memo(WindowCardImpl, (prev, next) => {
   if (prev.onRename !== next.onRename) return false;
   if (prev.onFocus !== next.onFocus) return false;
   if (prev.onKill !== next.onKill) return false;
+  if (prev.dataTour !== next.dataTour) return false;
   // The Window object is replaced wholesale on each poll. Shallow-compare the
   // fields the card actually renders. (No deep-compare to keep this cheap.)
   const a = prev.w;
@@ -170,12 +210,13 @@ export const WindowCard = memo(WindowCardImpl, (prev, next) => {
     a.cpu === b.cpu &&
     a.mem === b.mem &&
     a.pendingInput === b.pendingInput &&
-    a.agent?.branch === b.agent?.branch &&
-    a.agent?.pr === b.agent?.pr &&
-    a.agent?.ci === b.agent?.ci &&
+    a.branch === b.branch &&
+    a.pr === b.pr &&
+    a.ci === b.ci &&
     a.agent?.spinner === b.agent?.spinner &&
     a.agent?.duration === b.agent?.duration &&
     a.agent?.recap === b.agent?.recap &&
-    a.agent?.action === b.agent?.action
+    a.agent?.action === b.agent?.action &&
+    a.agent?.contextPct === b.agent?.contextPct
   );
 });

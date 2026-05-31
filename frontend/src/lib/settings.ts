@@ -14,12 +14,17 @@ export type Theme = "dark" | "light" | "contrast" | "phosphor";
 export type Accent = "aurora" | "amber" | "sky" | "magenta" | "lilac";
 export type Density = "compact" | "comfy" | "preview";
 export type Layout = "kanban" | "grid" | "list";
+export type ColumnSize = "narrow" | "normal" | "wide";
+/** Ordered narrow → normal → wide so +/- controls can step linearly (THI-128). */
+export const COLUMN_SIZE_ORDER: readonly ColumnSize[] = ["narrow", "normal", "wide"];
 
 export interface Settings {
   theme: Theme;
   accent: Accent;
   density: Density;
   layout: Layout;
+  /** Kanban column width (THI-128). Orthogonal to `density`. */
+  columnSize: ColumnSize;
   reducedMotion: boolean;
   pollIntervalMs: number;
   wsStreamEnabled: boolean;
@@ -27,6 +32,10 @@ export interface Settings {
   notifyBrowser: boolean;
   /** xterm.js font size for the terminal modal, in px. Zoomed via THI-102. */
   terminalFontSize: number;
+  /** User-picked IDE for "Open in IDE" (THI-146 PR 4). Empty string ⇒ use
+   *  the server's default (env-var or first probed). The Settings dropdown
+   *  writes this; TerminalModal reads it and forwards as `ide=` to /api/open. */
+  selectedIde: string;
 }
 
 // OKLCH lightness/chroma/hue for each accent preset.
@@ -44,13 +53,44 @@ export function accentColor(accent: Accent): string {
   return `oklch(${t.l} ${t.c} ${t.h})`;
 }
 
-/** Write the chosen accent to the --accent* CSS vars on <html>. */
-export function applyAccent(accent: Accent): void {
+/**
+ * Theme-aware per-accent tuning. Inline styles written here ALWAYS win
+ * over `[data-theme="…"]` declarations in styles.css, so the per-theme
+ * accent-edge / accent-soft variants must live here — the CSS rules
+ * would be shadowed otherwise.
+ *
+ * - `lDelta`: shift the OKLCH lightness so the accent reads on the
+ *   theme's surface. Light mode darkens to ≈0.455 (4.5:1 vs --panel
+ *   for focus ring composites, per THI-151).
+ * - `edgeAlpha` / `softAlpha`: the `--accent-edge` / `--accent-soft`
+ *   opacities. Light bumps both so focus rings and selection bands
+ *   clear their respective WCAG floors on near-white surfaces.
+ */
+const THEME_ACCENT_TUNING: Record<
+  Theme,
+  { lDelta: number; edgeAlpha: number; softAlpha: number }
+> = {
+  // THI-151 (edge): 0.55 alpha gave a 2.58:1 focus-ring composite on
+  // white; 0.70 lands at 3.52:1. THI-155 (soft): 0.16 alpha gave a
+  // 1.27:1 selection composite on white; 0.30 lands at 1.34:1. The
+  // L darkening also helps text/icon legibility on light surfaces.
+  light: { lDelta: -0.325, edgeAlpha: 0.7, softAlpha: 0.3 },
+  // High-contrast bumps soft alpha so the ::selection band clears the
+  // visibility floor on the theme's pure-black bg-elev (THI-155).
+  contrast: { lDelta: 0, edgeAlpha: 0.55, softAlpha: 0.3 },
+  dark: { lDelta: 0, edgeAlpha: 0.55, softAlpha: 0.16 },
+  phosphor: { lDelta: 0, edgeAlpha: 0.55, softAlpha: 0.16 },
+};
+
+/** Write the chosen accent (with theme-aware tuning) to the --accent* CSS vars on <html>. */
+export function applyAccent(accent: Accent, theme: Theme = "dark"): void {
   const t = ACCENT_TOKENS[accent] ?? ACCENT_TOKENS.aurora;
+  const o = THEME_ACCENT_TUNING[theme] ?? THEME_ACCENT_TUNING.dark;
+  const L = Math.max(0.1, Math.min(0.95, t.l + o.lDelta));
   const root = document.documentElement;
-  root.style.setProperty("--accent", `oklch(${t.l} ${t.c} ${t.h})`);
-  root.style.setProperty("--accent-soft", `oklch(${t.l} ${t.c} ${t.h} / 0.16)`);
-  root.style.setProperty("--accent-edge", `oklch(${t.l} ${t.c} ${t.h} / 0.55)`);
+  root.style.setProperty("--accent", `oklch(${L} ${t.c} ${t.h})`);
+  root.style.setProperty("--accent-soft", `oklch(${L} ${t.c} ${t.h} / ${o.softAlpha})`);
+  root.style.setProperty("--accent-edge", `oklch(${L} ${t.c} ${t.h} / ${o.edgeAlpha})`);
 }
 
 function prefersReducedMotion(): boolean {
@@ -64,6 +104,7 @@ export const DEFAULT_SETTINGS: Settings = {
   accent: "aurora",
   density: "comfy",
   layout: "kanban",
+  columnSize: "normal",
   // Honor the OS preference out of the box; the user can still override it.
   reducedMotion: prefersReducedMotion(),
   pollIntervalMs: 3000,
@@ -71,6 +112,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyBadge: true,
   notifyBrowser: false,
   terminalFontSize: 13,
+  selectedIde: "",
 };
 
 export const POLL_MIN_S = 1;

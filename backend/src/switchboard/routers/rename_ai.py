@@ -67,9 +67,7 @@ async def auto_rename_window(session: str, index: int) -> AutoRenameResponse:
     rest are fine."""
     contexts = await asyncio.to_thread(_collect_window_context, session, index)
     if not contexts:
-        raise HTTPException(
-            status_code=404, detail=f"window {session}:{index} not found"
-        )
+        raise HTTPException(status_code=404, detail=f"window {session}:{index} not found")
     return await _suggest(contexts)
 
 
@@ -90,9 +88,7 @@ async def _suggest(contexts: list[dict]) -> AutoRenameResponse:
         if isinstance(e, RateLimitError):
             raise HTTPException(status_code=429, detail="Anthropic rate limit hit") from e
         if isinstance(e, APIStatusError):
-            raise HTTPException(
-                status_code=502, detail=f"Anthropic API error: {e}"
-            ) from e
+            raise HTTPException(status_code=502, detail=f"Anthropic API error: {e}") from e
         log.warning("auto-rename completion failed: %s", e)
         raise HTTPException(status_code=502, detail=f"completion failed: {e}") from e
 
@@ -113,9 +109,7 @@ async def _suggest(contexts: list[dict]) -> AutoRenameResponse:
     )
 
 
-def _diff_suggestions(
-    contexts: list[dict], mapping: dict[str, str]
-) -> list[RenameSuggestion]:
+def _diff_suggestions(contexts: list[dict], mapping: dict[str, str]) -> list[RenameSuggestion]:
     """Pair each context window with its mapped suggestion, ordered by the
     original window index for stable rendering. Empty / unchanged suggestions
     are kept in the response (`suggested == old`) — the modal grays them out
@@ -183,11 +177,7 @@ def _collect_window_context(session: str, index: int) -> list[dict]:
     if sess is None:
         return []
     win = next(
-        (
-            w
-            for w in sess.windows
-            if _to_int(w.window_index) == index
-        ),
+        (w for w in sess.windows if _to_int(w.window_index) == index),
         None,
     )
     if win is None:
@@ -229,7 +219,9 @@ def _context_for_pane(*, session: str, index: int, window_name: str, cwd: str) -
     # we get correct PRs even on shell panes (parse_pane only fills the
     # Agent block for kind=="agent" panes).
     branch = claude_parser._git_branch(cwd)
-    pr_num, _ci = claude_parser._gh_pr(cwd, branch)
+    # `_gh_pr` returns (number, CI state, html url) — THI-146 added the URL
+    # for the clickable PR chip. We only need the number for naming context.
+    pr_num, _ci, _pr_url = claude_parser._gh_pr(cwd, branch)
 
     # parse_pane's `pending` boolean tells us *whether* there's a prompt;
     # `agent.action` is its text (when an agent rendered one). For non-
