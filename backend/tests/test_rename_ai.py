@@ -130,9 +130,7 @@ def test_session_returns_suggestions_with_usage(
     assert body["usage"]["estCostUsd"] == pytest.approx(0.00021, rel=1e-3)
 
 
-def test_session_404_when_no_windows(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_session_404_when_no_windows(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_session_context(monkeypatch, [])
     r = client.post("/api/auto-rename-session?session=missing", headers=_csrf(client))
     assert r.status_code == 404
@@ -141,9 +139,7 @@ def test_session_404_when_no_windows(
 def test_session_503_when_no_anthropic_key(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _patch_session_context(
-        monkeypatch, [{"index": 1, "current_name": "shell"}]
-    )
+    _patch_session_context(monkeypatch, [{"index": 1, "current_name": "shell"}])
 
     def _no_key(_prompt: str, **_kw):
         raise anthropic_client.AnthropicConfigError("no key")
@@ -157,9 +153,7 @@ def test_session_503_when_no_anthropic_key(
 def test_session_502_when_model_returns_invalid_json(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _patch_session_context(
-        monkeypatch, [{"index": 1, "current_name": "shell"}]
-    )
+    _patch_session_context(monkeypatch, [{"index": 1, "current_name": "shell"}])
     monkeypatch.setattr(
         anthropic_client,
         "complete",
@@ -212,22 +206,16 @@ def test_window_returns_single_suggestion(
         "complete",
         lambda _p, **_kw: ('{"7": "renamed"}', 60, 6),
     )
-    r = client.post(
-        "/api/auto-rename-window?session=main&index=7", headers=_csrf(client)
-    )
+    r = client.post("/api/auto-rename-window?session=main&index=7", headers=_csrf(client))
     assert r.status_code == 200
     body = r.json()
     assert len(body["suggestions"]) == 1
     assert body["suggestions"][0]["suggested"] == "renamed"
 
 
-def test_window_404_when_pane_missing(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_window_404_when_pane_missing(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     from switchboard.routers import rename_ai
 
     monkeypatch.setattr(rename_ai, "_collect_window_context", lambda _s, _i: [])
-    r = client.post(
-        "/api/auto-rename-window?session=main&index=99", headers=_csrf(client)
-    )
+    r = client.post("/api/auto-rename-window?session=main&index=99", headers=_csrf(client))
     assert r.status_code == 404

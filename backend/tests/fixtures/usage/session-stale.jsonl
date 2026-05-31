@@ -1,0 +1,2 @@
+{"timestamp":"2026-05-23T10:00:00Z","message":{"role":"assistant","usage":{"input_tokens":9999,"cache_creation_input_tokens":9999,"cache_read_input_tokens":9999,"output_tokens":9999}}}
+{"timestamp":"2026-05-23T11:00:00Z","message":{"role":"assistant","usage":{"input_tokens":9999,"output_tokens":9999}}}

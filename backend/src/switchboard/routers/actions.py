@@ -1,3 +1,5 @@
+import os
+import subprocess
 import tempfile
 import time
 import uuid
@@ -81,6 +83,16 @@ def post_window(session: str, name: str) -> dict[str, object]:
     return {"ok": True, "index": index, "id": f"{session}:{index}"}
 
 
+@router.post("/session")
+def post_session(name: str) -> dict[str, object]:
+    # tmux's own duplicate-name guard does the existence check; we only need
+    # to translate the boolean back into 409 so the UI can surface the
+    # name-in-use case distinctly from a transport error.
+    if not tmux.new_session(name):
+        raise HTTPException(status_code=409, detail="session name in use or invalid")
+    return {"ok": True, "name": name}
+
+
 @router.post("/detach")
 def post_detach(tty: str) -> dict[str, bool]:
     ok = tmux.detach_client(tty)
@@ -137,3 +149,140 @@ async def post_paste_image(session: str, index: int, request: Request) -> dict[s
     if not tmux.deliver_text(session, index, f"@{path} ", bracketed=True):
         raise HTTPException(status_code=404, detail="pane not found")
     return {"ok": True, "path": str(path), "bytes": len(body)}
+
+
+# --- open file in IDE (THI-146 PR 3) ---------------------------------------
+#
+# Security model:
+#  * `ide_cmd` MUST be a member of `settings.IDE_ALLOWLIST` (a frozenset of
+#    known GUI editor binaries). An unset / unknown value disables the route.
+#  * Path resolution depends on whether the input is absolute or relative:
+#    - Absolute paths (after `expanduser`) are trusted. The user reads the
+#      full path in the pane output before clicking; the agent can't hide
+#      an absolute path behind a relative-looking reference. Common case:
+#      monorepo where the pane is in `backend/` and the agent prints an
+#      absolute path inside `frontend/`. Realpath is still followed (so
+#      symlinks resolve), but the cwd-containment check is skipped.
+#    - Relative paths are constrained to the pane's cwd. `../../etc/passwd`
+#      style traversal and symlinks pointing outside the cwd are rejected
+#      via `os.path.realpath` + `os.path.commonpath`.
+#  * The file must exist and be a regular file (not a dir, FIFO, device).
+#  * Dispatch is `subprocess.Popen([ide_cmd, "--", real_path], shell=False)`.
+#    The `--` separator ensures a path like `--version` can't be reinterpreted
+#    as an editor flag. `shell=False` prevents shell metacharacter expansion.
+#  * Existing CSRF + loopback Host middleware applies — no extra checks here.
+
+
+def _open_file_in_ide(
+    session: str, index: int, raw_path: str, ide_override: str | None = None
+) -> str:
+    """Validate `raw_path` against the pane's cwd, spawn the IDE if allowed,
+    and return the absolute path that was opened. Raises HTTPException with
+    a precise status code on any failure so the route's response is uniform.
+
+    `ide_override` is the optional `ide=` query param from /api/open. It must
+    still be on `IDE_ALLOWLIST` — defense in depth against a hand-crafted
+    request escaping the allowlist that the frontend dropdown enforces.
+    """
+    # Validate the explicit override first so a bad `ide=` parameter never
+    # accidentally falls through to the default IDE and looks like it worked.
+    if ide_override is not None:
+        if ide_override not in settings.IDE_ALLOWLIST:
+            raise HTTPException(
+                status_code=400,
+                detail=f"ide `{ide_override}` is not in the editor allowlist",
+            )
+        ide_cmd = ide_override
+    else:
+        if not settings.ide_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "SWITCHBOARD_IDE_CMD is unset or not in the known editor "
+                    "allowlist; the /api/open route is disabled."
+                ),
+            )
+        ide_cmd = settings.ide_cmd
+
+    cwd = tmux.pane_cwd(session, index)
+    if not cwd:
+        raise HTTPException(status_code=404, detail="pane not found or has no cwd")
+
+    if not raw_path or "\x00" in raw_path:
+        raise HTTPException(status_code=422, detail="invalid path")
+
+    # `expanduser` lets a `~/notes.md` link from a Claude footer resolve to
+    # the user's home — common in agent output. The result is absolute and
+    # follows the absolute-path trust path below.
+    expanded = os.path.expanduser(raw_path)
+    is_absolute = os.path.isabs(expanded)
+    candidate = expanded if is_absolute else os.path.join(cwd, expanded)
+    real_file = os.path.realpath(candidate)
+
+    if not is_absolute:
+        # Relative paths are constrained to the pane's cwd. This catches
+        # `../../etc/passwd`-style traversal AND symlinks that point outside
+        # the cwd (because realpath chases links). Absolute paths skip this
+        # check — the user typed/saw the full path before clicking.
+        real_cwd = os.path.realpath(cwd)
+        try:
+            common = os.path.commonpath([real_cwd, real_file])
+        except ValueError:
+            # Different drives / mixed separators (Windows). Treat as escape.
+            raise HTTPException(status_code=422, detail="path escapes pane cwd") from None
+        if common != real_cwd:
+            raise HTTPException(status_code=422, detail="path escapes pane cwd")
+
+    if not os.path.isfile(real_file):
+        raise HTTPException(status_code=404, detail="file not found")
+
+    # List form + `--` separator: argv[0] is the trusted binary name, argv[1]
+    # is the literal separator, argv[2] is the (cwd-contained) absolute path.
+    # No path on this argv can become a flag, and no shell parses the string.
+    try:
+        subprocess.Popen(
+            [ide_cmd, "--", real_file],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"IDE binary `{ide_cmd}` not on PATH",
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"failed to spawn IDE: {exc}") from exc
+
+    return real_file
+
+
+@router.post("/open")
+def post_open(session: str, index: int, path: str, ide: str | None = None) -> dict[str, object]:
+    """Open `path` in the configured IDE. When `ide` is provided, that binary
+    is used instead of `settings.ide_cmd` (subject to the same allowlist).
+    The Settings dropdown sends this so a per-user choice overrides the
+    server-side env-var default without losing the security gate."""
+    real_file = _open_file_in_ide(session, index, path, ide)
+    return {"ok": True, "path": real_file}
+
+
+@router.get("/ide-config")
+def get_ide_config() -> dict[str, object]:
+    """Read-only knobs for the frontend's file-path linkifier and the
+    Settings "Open in IDE" dropdown. `available` (THI-146 PR 4) is the
+    probed subset of `KNOWN_IDES` actually installed on the host. `default`
+    is what /api/open uses when no `ide` param is sent — preserved for
+    backward compat as `command`."""
+    from switchboard.services.ide_probe import probe_available_ides
+
+    available = probe_available_ides()
+    default = settings.ide_cmd if settings.ide_enabled else None
+    return {
+        "enabled": settings.ide_enabled,
+        "command": default,
+        "default": default,
+        "available": available,
+        "allowed": sorted(settings.IDE_ALLOWLIST),
+    }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { renameSession } from "../api/client";
+import { useScrimClose } from "../lib/useScrimClose";
 import { Icon } from "./Icon";
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
  * layout/keyboard model (⏎ apply, esc cancel).
  */
 export function RenameSessionOverlay({ session, onClose, onApplied }: Props) {
+  const scrimProps = useScrimClose(onClose);
   const [name, setName] = useState(session);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +54,7 @@ export function RenameSessionOverlay({ session, onClose, onApplied }: Props) {
   };
 
   return (
-    <div className="scrim" onClick={onClose}>
+    <div className="scrim" {...scrimProps}>
       <div className="rename-modal" onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
         <div className="rename-hd">
           <Icon name="rename" />

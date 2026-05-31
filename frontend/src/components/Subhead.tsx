@@ -1,6 +1,9 @@
-import type { StatusFilter } from "../lib/filter";
+import type { KindFilter, StatusFilter } from "../lib/filter";
+import { COLUMN_SIZE_ORDER, updateSettings, useSettings } from "../lib/settings";
 import type { HeaderCounts } from "./Header";
 import { Icon } from "./Icon";
+import { StatusLegend } from "./StatusLegend";
+import { Tooltip } from "./Tooltip";
 
 interface Props {
   filter: StatusFilter;
@@ -8,23 +11,72 @@ interface Props {
   query: string;
   setQuery: (v: string) => void;
   counts: HeaderCounts;
+  kindFilter: KindFilter;
+  onChipClick: (next: KindFilter) => void;
 }
 
-export function Subhead({ filter, setFilter, query, setQuery, counts }: Props) {
+function ColumnSizeControl() {
+  const { columnSize } = useSettings();
+  const idx = COLUMN_SIZE_ORDER.indexOf(columnSize);
+  const atNarrow = idx <= 0;
+  const atWide = idx >= COLUMN_SIZE_ORDER.length - 1;
+  const step = (delta: -1 | 1) => {
+    const next = COLUMN_SIZE_ORDER[idx + delta];
+    if (next) updateSettings({ columnSize: next });
+  };
+  return (
+    <span style={{ display: "inline-flex", gap: 2, alignItems: "center" }}>
+      <Tooltip content={`Narrower columns (current: ${columnSize})`}>
+        <button
+          className="tab"
+          onClick={() => step(-1)}
+          disabled={atNarrow}
+          aria-label="Narrower columns"
+        >
+          <Icon name="minus" size={13} />
+        </button>
+      </Tooltip>
+      <Tooltip content={`Wider columns (current: ${columnSize})`}>
+        <button
+          className="tab"
+          onClick={() => step(1)}
+          disabled={atWide}
+          aria-label="Wider columns"
+        >
+          <Icon name="plus" size={13} />
+        </button>
+      </Tooltip>
+    </span>
+  );
+}
+
+export function Subhead({
+  filter,
+  setFilter,
+  query,
+  setQuery,
+  counts,
+  kindFilter,
+  onChipClick,
+}: Props) {
   const Tab = ({
     id,
     label,
     n,
     tone,
+    dataTour,
   }: {
     id: StatusFilter;
     label: string;
     n: number;
     tone?: string;
+    /** Optional `data-tour="…"` selector hook for the first-run tour. */
+    dataTour?: string;
   }) => (
     <button
       className={`tab ${filter === id ? "is-active" : ""}`}
       onClick={() => setFilter(id)}
+      data-tour={dataTour}
     >
       {tone && <span className={`stat-dot tone-${tone}`} />}
       <span>{label}</span>
@@ -46,21 +98,54 @@ export function Subhead({ filter, setFilter, query, setQuery, counts }: Props) {
       </div>
       <span style={{ display: "inline-flex", gap: 2, alignItems: "center" }}>
         <Tab id="all" label="All" n={counts.all} />
-        <Tab id="waiting" label="Waiting" n={counts.waiting} tone="amber" />
+        <Tab
+          id="waiting"
+          label="Waiting"
+          n={counts.waiting}
+          tone="amber"
+          dataTour="amber-waiting"
+        />
         <Tab id="running" label="Running" n={counts.running} tone="cyan" />
         <Tab id="idle" label="Idle" n={counts.idle} tone="gray" />
       </span>
+      {/* Kind chips (THI-130). Radio-style: click toggles; only one can be
+       *  active. The chip and the per-card kind glyph share icons from
+       *  `kindIcon()` so they stay visually identical. */}
+      <span className="kind-tabs" style={{ display: "inline-flex", gap: 2 }}>
+        <button
+          className={`tab ${kindFilter === "agent" ? "is-active" : ""}`}
+          onClick={() => onChipClick("agent")}
+        >
+          <Icon name="agent" size={11} />
+          <span>Agent</span>
+        </button>
+        <button
+          className={`tab ${kindFilter === "shell" ? "is-active" : ""}`}
+          onClick={() => onChipClick("shell")}
+        >
+          <Icon name="shell" size={11} />
+          <span>Shell</span>
+        </button>
+      </span>
+      <StatusLegend />
+      <ColumnSizeControl />
       <span className="hdr-spacer" />
       <span className="layout-switcher">
-        <button className="is-active" title="Kanban">
-          <Icon name="kanban" size={13} />
-        </button>
-        <button disabled title="Grid (coming soon)">
-          <Icon name="grid" size={13} />
-        </button>
-        <button disabled title="List (coming soon)">
-          <Icon name="list" size={13} />
-        </button>
+        <Tooltip content="Kanban">
+          <button className="is-active">
+            <Icon name="kanban" size={13} />
+          </button>
+        </Tooltip>
+        <Tooltip content="Grid (coming soon)">
+          <button disabled>
+            <Icon name="grid" size={13} />
+          </button>
+        </Tooltip>
+        <Tooltip content="List (coming soon)">
+          <button disabled>
+            <Icon name="list" size={13} />
+          </button>
+        </Tooltip>
       </span>
     </div>
   );

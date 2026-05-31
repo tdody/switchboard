@@ -379,6 +379,24 @@ def test_new_window_none_without_server(monkeypatch) -> None:
     assert tmux.new_window("dev", "logs") is None
 
 
+def test_new_session_invokes_tmux_detached(monkeypatch) -> None:
+    # THI-144: bypass get_server's is_alive guard so the button works from
+    # the empty state (tmux new-session starts the server on demand). We
+    # still want the exact argv to be the detached form.
+    srv, calls = _recording_server()
+    monkeypatch.setattr(tmux.libtmux, "Server", lambda: srv)
+    assert tmux.new_session("feat") is True
+    assert calls == [("new-session", "-d", "-s", "feat")]
+
+
+def test_new_session_returns_false_on_stderr(monkeypatch) -> None:
+    def cmd(*args: str, **_kwargs):
+        return SimpleNamespace(stdout=[], stderr=["duplicate session: feat"])
+
+    monkeypatch.setattr(tmux.libtmux, "Server", lambda: SimpleNamespace(cmd=cmd))
+    assert tmux.new_session("feat") is False
+
+
 def test_rename_session_invokes_tmux_with_old_and_new(monkeypatch) -> None:
     srv, calls = _recording_server()
     monkeypatch.setattr(tmux, "get_server", lambda: srv)
@@ -397,3 +415,89 @@ def test_rename_session_returns_false_on_stderr(monkeypatch) -> None:
 def test_rename_session_false_without_server(monkeypatch) -> None:
     monkeypatch.setattr(tmux, "get_server", lambda: None)
     assert tmux.rename_session("dev", "feat") is False
+
+
+# --- collect_state: filter `sb-usage-*` + race-tolerate per-session failures
+# (THI-110 commit 3 follow-up). The /usage scrape creates `sb-usage-<uuid8>`
+# headless tmux sessions; if /api/state polls between the scrape's
+# new-session and kill-session, libtmux raises on `s.windows`. The fix:
+# skip these sessions entirely (they're internal, shouldn't render anyway)
+# and demote any per-session libtmux exception to a logged skip rather
+# than crashing the whole state poll.
+
+
+def _fake_session(name: str, *, windows_raises: bool = False):
+    """Build a minimal stand-in for a libtmux Session that doesn't need a
+    live tmux server. `windows_raises=True` simulates the race where the
+    session disappeared between srv.sessions and s.windows."""
+
+    class _Win:
+        window_index = "0"
+        window_name = "shell"
+        window_activity = 0
+        active_pane = None  # collect_state's `if pane is None: continue` skips
+
+    class _S:
+        session_name = name
+        session_attached = "0"
+        session_created = "0"
+
+        @property
+        def windows(self):
+            if windows_raises:
+                from libtmux import exc
+
+                raise exc.LibTmuxException("session not found")
+            return [_Win()]
+
+    return _S()
+
+
+def _fake_server(sessions):
+    """Wraps a sessions list in a libtmux-shaped object. The list_clients
+    call inside collect_state hits `srv.cmd`; stub it to return empty."""
+
+    def cmd(*_args, **_kwargs):
+        return SimpleNamespace(stdout=[], stderr=[])
+
+    return SimpleNamespace(sessions=sessions, cmd=cmd)
+
+
+def test_collect_state_skips_sb_usage_sessions(monkeypatch) -> None:
+    """`sb-usage-<uuid8>` sessions are internal — must never appear in the
+    state response."""
+    srv = _fake_server(
+        [
+            _fake_session("main"),
+            _fake_session("sb-usage-deadbeef"),
+            _fake_session("agents"),
+        ]
+    )
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+    state = tmux.collect_state()
+    names = [s.name for s in state.sessions]
+    assert names == ["main", "agents"]
+    # And no windows from those sessions either (defense-in-depth).
+    assert all(w.session != "sb-usage-deadbeef" for w in state.windows)
+
+
+def test_collect_state_tolerates_per_session_libtmux_error(monkeypatch) -> None:
+    """A session that vanishes between `srv.sessions` and `s.windows`
+    (the user runs `tmux kill-session` from a shell) must NOT 500 the
+    /api/state endpoint — the racing session is silently dropped and
+    the other sessions continue to render."""
+    srv = _fake_server(
+        [
+            _fake_session("main"),
+            _fake_session("vanishing", windows_raises=True),
+            _fake_session("agents"),
+        ]
+    )
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+    # Must not raise — the bad session is skipped, others render.
+    state = tmux.collect_state()
+    # `vanishing` was already appended to `sessions` before the windows
+    # query failed (that ordering matches the existing collect_state
+    # loop); the windows from `vanishing` are just absent.
+    assert "vanishing" in [s.name for s in state.sessions]
+    assert all(w.session != "vanishing" for w in state.windows)

@@ -29,12 +29,22 @@ class Session(_CamelModel):
 
 class Agent(_CamelModel):
     branch: str | None = None
-    pr: int | None = None
-    ci: CIState | None = None
     spinner: str | None = None
     duration: str | None = None
     recap: str | None = None
     action: str | None = None
+    # Claude Code's current context-window usage as a 0..100 integer percent,
+    # scraped from the TUI footer by `services/claude_parser._scan_context_pct`.
+    # None when the line isn't visible in the recent capture (e.g. the pane was
+    # just opened, or scrolled past). Serializes as `contextPct` via the
+    # `to_camel` alias generator (THI-131).
+    context_pct: int | None = None
+    # Running USD cost for THIS pane's claude session, scraped from the `💰`
+    # marker in the TUI status line by `_scan_session_cost`. None when the
+    # marker isn't visible (fresh session before the first billed turn, or
+    # a non-conversation TUI screen). The frontend sums these across visible
+    # agent panes for the header pill (THI-139).
+    session_cost_usd: float | None = None
 
 
 class PromptChoice(_CamelModel):
@@ -63,6 +73,25 @@ class Window(_CamelModel):
     cmd: str = ""
     cwd: str = ""
     pending_input: bool = False
+    # The current git branch for the pane's cwd, if it is inside a repo. Shown
+    # as a chip on every pane — not just agent ones — so shell users can see at
+    # a glance which branch a terminal is sitting on (THI-126 follow-up). For
+    # agent panes this is the same value mirrored on `agent.branch`.
+    branch: str | None = None
+    # PR number + CI rollup for the pane's `branch`, looked up via `gh pr view`
+    # in tmux.py. Lifted out of Agent (previously THI-115) so shell panes
+    # sitting on a branch with an open PR also get the CI-tinted chip — same
+    # symmetry as `branch` after THI-126. None for panes without a branch or
+    # whose branch has no PR.
+    pr: int | None = None
+    # Direct URL to the PR — surfaced by `gh pr view --json url` alongside the
+    # number. Used by the frontend to turn the PR chip into a link (THI-146).
+    pr_url: str | None = None
+    ci: CIState | None = None
+    # Normalized `https://github.com/owner/repo` for the pane's cwd, or None if
+    # the cwd isn't inside a github repo. Drives the in-pane `PR #N` linkifier
+    # so a non-current PR mention in an agent footer is still clickable.
+    repo_url: str | None = None
     agent: Agent | None = None
     preview: list[str] = []
 
@@ -84,7 +113,9 @@ class RenameSuggestion(_CamelModel):
 
 class Usage(_CamelModel):
     """Token + cost breakdown for one auto-rename call, surfaced in the modal
-    footer so the user can see what they spent (THI-67)."""
+    footer so the user can see what they spent (THI-67). Distinct from
+    `ClaudeUsage` below — this is per-call Anthropic SDK usage, that one is
+    rolling-window plan usage scraped from `~/.claude/projects/*.jsonl`."""
 
     input_tokens: int
     output_tokens: int
@@ -115,3 +146,52 @@ class AiStatus(_CamelModel):
     model: str
     source: AiKeySource = "none"
     masked: str | None = None
+
+
+class ClaudeUsage(_CamelModel):
+    """Token totals scraped from the rolling window of `~/.claude/projects/*.jsonl`
+    session logs. The plan's 5 h reset fires `window_hours` after the *earliest*
+    in-window message — see `services/claude_usage.compute_claude_usage` for the
+    aggregation contract (THI-110)."""
+
+    available: bool
+    window_hours: float = 5.0
+    messages: int = 0
+    input_tokens: int = 0
+    cache_creation_tokens: int = 0
+    cache_read_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    reset_at: int | None = None  # unix epoch seconds; None when no in-window record
+
+
+class UsageMeter(_CamelModel):
+    """One row of the `claude /usage` TUI screen — session / week-all / week-Sonnet.
+    Populated only when the optional scrape is enabled (THI-110, deferred to commit 2)."""
+
+    label: str
+    percent: int
+    resets: str  # human string carried verbatim from the TUI, e.g. "in 3h 22m"
+
+
+class UsageScrape(_CamelModel):
+    """Plan percentages scraped from `claude /usage`. Optional, opt-in."""
+
+    available: bool
+    meters: dict[str, UsageMeter] = {}
+
+
+class UsageResponse(_CamelModel):
+    tokens: ClaudeUsage
+    scrape: UsageScrape | None = None
+
+
+class UsageConfig(_CamelModel):
+    """Read-only knobs the Settings panel surfaces for the Claude usage pill
+    (THI-110 commit 3). Both TTL knobs are server-startup config — toggling
+    them at runtime would force-clear caches, which isn't worth the
+    complexity for a personal dev tool."""
+
+    scrape_enabled: bool
+    scrape_ttl_s: float
+    token_ttl_s: float

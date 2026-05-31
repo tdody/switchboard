@@ -23,6 +23,11 @@ const TARGET: Window = {
   cmd: "zsh",
   cwd: "/tmp",
   pendingInput: false,
+  branch: null,
+  pr: null,
+  prUrl: null,
+  ci: null,
+  repoUrl: null,
   agent: null,
   preview: [],
 };
