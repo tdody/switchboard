@@ -104,6 +104,16 @@ def test_parse_prompt_numbered_prose_without_cursor_rejected() -> None:
     assert claude_parser.parse_prompt(_load("claude_numbered_prose.txt")) is None
 
 
+def test_parse_prompt_typed_numbered_list_in_input_box_rejected() -> None:
+    # Regression: when the user types a numbered list (`1. AAAA`, `2. BBB`,
+    # `3. CCC`) into Claude Code's input box, the input prompt `>` on the
+    # first line satisfied the "at least one cursor" guard from THI-104 and
+    # the parser misfired the menu overlay. The candidate menu sits inside
+    # the input box, surrounded by a horizontal `────` separator below and
+    # the `? for shortcuts` footer — neither appears around a real menu.
+    assert claude_parser.parse_prompt(_load("claude_typing_numbered_list.txt")) is None
+
+
 def test_parse_prompt_no_prompt_returns_none() -> None:
     assert claude_parser.parse_prompt(_load("claude_idle.txt")) is None
 
