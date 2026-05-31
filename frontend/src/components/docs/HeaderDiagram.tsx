@@ -57,8 +57,20 @@ export function HeaderDiagram() {
         <text x="524" y="217" textAnchor="middle" className="diagram-text strong">4</text>
         {/* ✨ auto-rename (THI-67 / THI-158) — gradient-filled square button
              with the sparkle glyph; sits between count badge and +claude
-             quick-create, matching the real Kanban header order. */}
-        <rect x="544" y="201" width="22" height="22" rx="6" fill="url(#rn-grad)" />
+             quick-create, matching the real Kanban header order. Fill and
+             stroke go through `style` so they outrank the
+             `.diagram-card rect { fill: var(--bg-elev) }` rule in
+             docs.css — presentation attributes (`fill=`) lose to class
+             selectors by CSS specificity, and a class override would just
+             trade one source of confusion for another. */}
+        <rect
+          x="544"
+          y="201"
+          width="22"
+          height="22"
+          rx="6"
+          style={{ fill: "url(#rn-grad)", stroke: "none" }}
+        />
         <g
           transform="translate(548, 205)"
           stroke="var(--bg)"
