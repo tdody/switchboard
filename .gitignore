@@ -16,6 +16,9 @@ dist/
 # Editors
 .idea/
 .vscode/
+# Claude Code session state — per-machine settings + nested-worktree pointers
+# kept out of the repo so they don't get committed accidentally during testing.
+.claude/
 
 # Local
 *.log

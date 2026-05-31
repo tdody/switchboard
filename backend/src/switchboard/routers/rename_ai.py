@@ -219,7 +219,9 @@ def _context_for_pane(*, session: str, index: int, window_name: str, cwd: str) -
     # we get correct PRs even on shell panes (parse_pane only fills the
     # Agent block for kind=="agent" panes).
     branch = claude_parser._git_branch(cwd)
-    pr_num, _ci = claude_parser._gh_pr(cwd, branch)
+    # `_gh_pr` returns (number, CI state, html url) — THI-146 added the URL
+    # for the clickable PR chip. We only need the number for naming context.
+    pr_num, _ci, _pr_url = claude_parser._gh_pr(cwd, branch)
 
     # parse_pane's `pending` boolean tells us *whether* there's a prompt;
     # `agent.action` is its text (when an agent rendered one). For non-
