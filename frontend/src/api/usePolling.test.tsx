@@ -86,4 +86,28 @@ describe("usePolling", () => {
       get: () => "visible",
     });
   });
+
+  it("keeps polling while hidden when pollWhenHidden=true (THI-78)", async () => {
+    // Notifications-on path: skipping ticks while the tab is backgrounded is
+    // exactly when the user *needs* the data to update — otherwise no
+    // pendingInput edge is ever detected and no OS notification fires.
+    const fn = vi.fn().mockResolvedValue("ok");
+    renderHook(() => usePolling(fn, 1000, true));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(fn).toHaveBeenCalledTimes(1);
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    await tick(1000);
+    expect(fn).toHaveBeenCalledTimes(2);
+    await tick(1000);
+    expect(fn).toHaveBeenCalledTimes(3);
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+  });
 });

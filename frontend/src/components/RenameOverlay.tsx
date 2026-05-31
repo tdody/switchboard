@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { renameWindow } from "../api/client";
+import { useScrimClose } from "../lib/useScrimClose";
 import type { Window } from "../types";
 import { Icon } from "./Icon";
 
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function RenameOverlay({ target, onClose, onApplied }: Props) {
+  const scrimProps = useScrimClose(onClose);
   const [name, setName] = useState(target.name);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export function RenameOverlay({ target, onClose, onApplied }: Props) {
   };
 
   return (
-    <div className="scrim" onClick={onClose}>
+    <div className="scrim" {...scrimProps}>
       <div
         className="rename-modal"
         onClick={(e) => e.stopPropagation()}

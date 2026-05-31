@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { sendKeys } from "../api/client";
 import { addRecent, readRecents, removeRecent, type RecentEntry } from "../lib/recents";
+import { useScrimClose } from "../lib/useScrimClose";
 import type { Window } from "../types";
 import { Icon, type IconName } from "./Icon";
 
@@ -59,6 +60,7 @@ const AGENT_PROMPTS: Item[] = [
 ];
 
 export function CommandPalette({ target, onClose }: Props) {
+  const scrimProps = useScrimClose(onClose);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -185,7 +187,7 @@ export function CommandPalette({ target, onClose }: Props) {
   };
 
   return (
-    <div className="scrim" onClick={onClose}>
+    <div className="scrim" {...scrimProps}>
       <div className="palette" onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
         <div className="palette-hd">
           <Icon name="send" />

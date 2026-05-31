@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { FitAddon } from "xterm-addon-fit";
+import { WebLinksAddon } from "xterm-addon-web-links";
 import { Terminal } from "xterm";
 import "xterm/css/xterm.css";
 
-import { fetchPane, openPaneWS, pasteImage } from "../api/client";
+import { fetchPane, openInIde, openPaneWS, pasteImage } from "../api/client";
+import { filePathLinkProvider } from "../lib/filePathLinks";
+import { prNumberLinkProvider } from "../lib/prNumberLinks";
+import { useIdeConfig } from "../lib/useIdeConfig";
 import {
+  COLUMN_SIZE_ORDER,
   TERM_FONT_DEFAULT,
   TERM_FONT_MAX,
   TERM_FONT_MIN,
@@ -13,12 +18,16 @@ import {
 } from "../lib/settings";
 import type { Window } from "../types";
 import { comboBytes, escAction, newlineBytes } from "../lib/termKeys";
+import { Chip } from "./Chip";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
 import { PromptOverlay } from "./PromptOverlay";
 import { parsePromptMessage } from "../lib/prompt";
 import type { Prompt } from "../lib/prompt";
+import { useScrimClose } from "../lib/useScrimClose";
 import { decideCloseAction } from "../lib/wsReconnect";
+import { apply256ColorOverrides, xtermThemeFor } from "../lib/xtermThemes";
+import { XtermStreamRewriter } from "../lib/xtermStreamRewriter";
 
 interface Props {
   window: Window;
@@ -54,6 +63,7 @@ function clampFont(n: number): number {
 }
 
 export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) {
+  const scrimProps = useScrimClose(onClose);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -69,9 +79,48 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   // update the callback without tearing down the terminal + WS.
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  // Same trick for repoUrl — the registerLinkProvider callback closes over
+  // a single value at terminal-construction time, but we want a `git remote
+  // set-url` (very rare) to take effect without rebuilding the terminal.
+  const repoUrlRef = useRef(win.repoUrl);
+  repoUrlRef.current = win.repoUrl;
+  // Same trick for `onToast` — the select-to-copy mouseup listener fires
+  // long after the construction effect runs, and the parent often hands us
+  // a new function identity each render (App's pushToast).
+  const onToastRef = useRef(onToast);
+  onToastRef.current = onToast;
   const [conn, setConn] = useState<Connection>("connecting");
   const [prompt, setPrompt] = useState<Prompt | null>(null);
-  const { wsStreamEnabled: wsEnabled, terminalFontSize } = useSettings();
+  const {
+    wsStreamEnabled: wsEnabled,
+    terminalFontSize,
+    columnSize,
+    selectedIde,
+    theme,
+  } = useSettings();
+
+  // THI-146 PR 3: IDE-launch config + click handler refs. Reading config
+  // through a ref lets the linkProvider toggle live on the first /api/ide-
+  // config response without rebuilding the terminal. PR 4 adds the user's
+  // dropdown pick: empty `selectedIde` ⇒ defer to the server default.
+  const ideConfig = useIdeConfig();
+  const ideEnabledRef = useRef(false);
+  ideEnabledRef.current = ideConfig?.enabled === true;
+  const onPathClickRef = useRef<(p: string) => void>(() => {});
+  onPathClickRef.current = (path: string) => {
+    void openInIde(win.session, win.index, path, selectedIde || undefined).then((status) => {
+      if (status === "ok") return;
+      if (status === "disabled") {
+        onToast("Open-in-IDE disabled — set SWITCHBOARD_IDE_CMD");
+      } else if (status === "not-found") {
+        onToast(`File not found: ${path}`);
+      } else if (status === "escaped") {
+        onToast("Path resolved outside the pane's cwd");
+      } else {
+        onToast(`Couldn't open ${path}`);
+      }
+    });
+  };
 
   // Shared Esc handler — used both by xterm's customKeyEventHandler (when the
   // terminal has focus) and by PromptOverlay (when it grabs focus). Same
@@ -96,6 +145,17 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   // scrollback and WS connection. A separate effect handles live changes.
   const fontSizeRef = useRef(terminalFontSize);
   fontSizeRef.current = terminalFontSize;
+  // Same trick for theme (THI-153) — the construction effect reads from
+  // the ref; a dedicated effect below swaps `term.options.theme` when the
+  // user toggles theme while the modal is open.
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+  // THI-150 follow-up: rewriter that catches truecolor bg escapes
+  // (`\e[48;2;R;G;Bm`) before they reach xterm and rewrites the
+  // dark-fill ones to light pastels in light/contrast themes. One
+  // instance per modal — stateful for cross-chunk escape buffering.
+  const rewriterRef = useRef<XtermStreamRewriter | null>(null);
+  if (rewriterRef.current === null) rewriterRef.current = new XtermStreamRewriter(theme);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -120,36 +180,44 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       // — sequences Claude Code's input box honors.
       macOptionIsMeta: true,
       // Nudge low-contrast source colors to stay readable against the bg
-      // (Ghostty does the same minimum-contrast adjustment).
+      // (Ghostty does the same minimum-contrast adjustment). The
+      // theme-aware palettes already clear WCAG AA, but this stays as a
+      // safety net for unusual escape-code combinations.
       minimumContrastRatio: 4.5,
-      // Ghostty's default palette (Tomorrow Night) — a pane rendered here
-      // looks the same as in the user's Ghostty window.
-      theme: {
-        background: "#282c34",
-        foreground: "#ffffff",
-        cursor: "#ffffff",
-        cursorAccent: "#282c34",
-        selectionBackground: "#373b41",
-        black: "#1d1f21",
-        red: "#cc6666",
-        green: "#b5bd68",
-        yellow: "#f0c674",
-        blue: "#81a2be",
-        magenta: "#b294bb",
-        cyan: "#8abeb7",
-        white: "#c5c8c6",
-        brightBlack: "#666666",
-        brightRed: "#d54e53",
-        brightGreen: "#b9ca4a",
-        brightYellow: "#e7c547",
-        brightBlue: "#7aa6da",
-        brightMagenta: "#c397d8",
-        brightCyan: "#70c0b1",
-        brightWhite: "#eaeaea",
-      },
+      // THI-153: theme follows Switchboard's current Theme setting. A
+      // separate effect below re-applies the palette when the user
+      // toggles theme while the modal is open.
+      theme: xtermThemeFor(themeRef.current),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // THI-146 PR 3: linkify file paths in pane content (e.g. `src/foo.py:42`
+    // in a stack trace). Routes the click to POST /api/open which spawns the
+    // configured IDE. The provider gates on `ideEnabledRef` so paths render
+    // as plain text when the launcher is unconfigured / off-allowlist.
+    term.registerLinkProvider(
+      filePathLinkProvider(
+        term,
+        () => ideEnabledRef.current,
+        (path) => onPathClickRef.current(path),
+      ),
+    );
+    // Linkify `PR #N` mentions in pane content (THI-146 PR 2). The provider
+    // reads `repoUrlRef.current` each call, so the link target follows a live
+    // remote change without rebuilding the terminal. Skipped silently when
+    // the pane has no repoUrl (non-github cwd, or no git at all).
+    term.registerLinkProvider(prNumberLinkProvider(term, () => repoUrlRef.current));
+    // Clickable http(s) URLs (THI-146). Open in a new tab; `noopener` keeps
+    // the popup from gaining a `window.opener` handle back to the dashboard.
+    term.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        // The addon's default handler also opens in a new tab, but it doesn't
+        // pass `noopener` — and our pane content is untrusted (anyone with a
+        // shell can echo a hostile URL). Take the click ourselves.
+        event.preventDefault();
+        window.open(uri, "_blank", "noopener,noreferrer");
+      }),
+    );
     // xterm's keydown handler calls stopPropagation on keys it owns, so
     // document-level listeners never see Cmd-combos or Esc. Anything that
     // needs to override xterm's default byte emission has to live here.
@@ -189,6 +257,11 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       return true;
     });
     term.open(hostRef.current);
+    // THI-150 follow-up: override the 256-color slots that modern dev
+    // TUIs (Claude Code, delta, lazygit) paint as block backgrounds.
+    // Must be applied AFTER `term.open` so the renderer is attached and
+    // re-paints when the OSC 4 packet is parsed.
+    apply256ColorOverrides(term, themeRef.current);
     // Focus immediately so the user can start typing without first clicking
     // inside the modal.
     term.focus();
@@ -249,6 +322,33 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
     };
     viewport?.addEventListener("scroll", onScroll, { passive: true });
 
+    // Select-to-copy (THI-146 extension). On mouseup inside the terminal,
+    // if xterm reports a non-empty selection, copy it to the clipboard and
+    // toast — matches the "select kills mark, mouseup yanks" muscle memory
+    // from terminals like iTerm. We listen on the modal `host` (capture
+    // phase) rather than on `window` so the listener is naturally scoped to
+    // this modal's terminal and doesn't fire for selections elsewhere on
+    // the page (e.g. the modal header text). Clipboard write is
+    // fire-and-forget; the surrounding try/catch handles browsers / iframes
+    // where `navigator.clipboard` is unavailable or rejected.
+    const onSelectMouseUp = () => {
+      const t = termRef.current;
+      if (!t) return;
+      const sel = t.getSelection();
+      if (!sel) return;
+      try {
+        void navigator.clipboard.writeText(sel).then(
+          () => onToastRef.current(`Copied ${sel.length} chars`),
+          () => {
+            /* clipboard denied / unavailable — stay silent */
+          },
+        );
+      } catch {
+        /* navigator.clipboard not available (file://, etc.) */
+      }
+    };
+    host.addEventListener("mouseup", onSelectMouseUp);
+
     let ws: WebSocket | null = null;
     let dataSub: { dispose: () => void } | null = null;
     let cancelled = false;
@@ -274,15 +374,17 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       };
       sock.onmessage = (ev) => {
         const data = ev.data;
+        const rewriter = rewriterRef.current;
         if (typeof data === "string") {
           const parsed = parsePromptMessage(data);
           if (parsed !== undefined) {
             setPrompt(parsed);
             return;
           }
-          term.write(data);
+          term.write(rewriter ? rewriter.rewriteString(data) : data);
         } else if (data instanceof ArrayBuffer) {
-          term.write(new Uint8Array(data));
+          const bytes = new Uint8Array(data);
+          term.write(rewriter ? rewriter.rewriteBytes(bytes) : bytes);
         }
       };
       sock.onerror = () => {
@@ -369,6 +471,7 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       resizeObs.disconnect();
       window.clearTimeout(fitTimer);
       viewport?.removeEventListener("scroll", onScroll);
+      host.removeEventListener("mouseup", onSelectMouseUp);
       window.clearTimeout(scrollbarTimer);
       dataSub?.dispose();
       if (ws) {
@@ -412,6 +515,24 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
     });
     return () => cancelAnimationFrame(id);
   }, [terminalFontSize]);
+
+  // THI-153: live theme swap. Toggling Switchboard's theme re-themes the
+  // open terminal in place — no rebuild, scrollback and WS connection
+  // preserved. xterm honors `term.options.theme = …` by re-rendering the
+  // existing buffer with the new palette on the next frame.
+  // THI-150 follow-up: also re-emit the 256-color overrides so diff bgs
+  // and Claude Code's user-prompt blocks re-color in place; tell the
+  // stream rewriter to switch policies so truecolor escapes in NEW
+  // chunks get the new theme's rewrites (already-rendered cells in
+  // the scrollback keep their original colors — xterm doesn't expose
+  // a "rewrite cells" path for truecolor).
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.theme = xtermThemeFor(theme);
+    apply256ColorOverrides(term, theme);
+    rewriterRef.current?.setTheme(theme);
+  }, [theme]);
 
   // Image paste → upload to the pane. Capture phase so we intercept before
   // xterm's own paste handling. Agent panes only — the `@path` reference is
@@ -477,8 +598,21 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   const zoomReset = () => updateSettings({ terminalFontSize: TERM_FONT_DEFAULT });
   const zoomPct = Math.round((terminalFontSize / TERM_FONT_DEFAULT) * 100);
 
+  // Modal pane size — shares the `columnSize` setting with the kanban subhead
+  // ColumnSizeControl. The CSS width change is picked up by the existing
+  // ResizeObserver on the xterm host (see effect above), which refits xterm
+  // and forwards the new cols/rows to tmux — no extra wiring needed here.
+  const sizeIdx = COLUMN_SIZE_ORDER.indexOf(columnSize);
+  const atNarrow = sizeIdx <= 0;
+  const atWide = sizeIdx >= COLUMN_SIZE_ORDER.length - 1;
+  const sizeStep = (delta: -1 | 1) => {
+    const next = COLUMN_SIZE_ORDER[sizeIdx + delta];
+    if (next) updateSettings({ columnSize: next });
+  };
+  const sizeReset = () => updateSettings({ columnSize: "normal" });
+
   return (
-    <div className="scrim" onClick={onClose}>
+    <div className="scrim" {...scrimProps}>
       <div className="term-modal" onClick={(e) => e.stopPropagation()}>
         <div className="term-hd">
           <span className="traffic">
@@ -491,13 +625,56 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
               {win.session} › :{win.index}
             </span>
             <b>{win.name}</b>
-            {win.agent?.branch && (
-              <span className="chip branch-pr">
-                <Icon name="git-branch" size={10} />
-                <span>{win.agent.branch}</span>
-              </span>
+            {/* Branch / PR / CI / spinner chips mirror the WindowCard layout
+                so the modal header carries the same at-a-glance signal as the
+                kanban card. Data flows through `win.branch` (top-level field
+                so shell panes get the chip too, per THI-126) and `win.agent`
+                on every `/api/state` poll (100ms while modal-open per
+                THI-105 — see MODAL_OPEN_POLL_MS in App.tsx), so React
+                re-renders the chips live without any extra poller. */}
+            {(win.branch || win.pr) && (
+              <Chip
+                className={`branch-pr ${win.ci ? `ci-${win.ci}` : ""}`}
+                title={win.branch || `PR #${win.pr}`}
+              >
+                {win.ci && (
+                  <span className={`ci-dot ci-${win.ci}`} aria-hidden="true" />
+                )}
+                {win.branch && <Icon name="git-branch" size={10} />}
+                {win.branch && <span>{win.branch}</span>}
+                {win.branch && win.pr && <span className="pr-sep">›</span>}
+                {win.pr && win.prUrl ? (
+                  <a
+                    className="pr-num pr-link"
+                    href={win.prUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Open PR #${win.pr} on GitHub`}
+                  >
+                    #{win.pr}
+                  </a>
+                ) : (
+                  win.pr && <span className="pr-num">#{win.pr}</span>
+                )}
+              </Chip>
+            )}
+            {win.agent?.spinner && (
+              <Chip className="spinner" title="agent activity">
+                <span className="spin" />
+                <span>{win.agent.spinner}</span>
+                {win.agent.duration && <span className="dur">{win.agent.duration}</span>}
+              </Chip>
             )}
             <StatusPill status={win.status} />
+            {/* When the pane is waiting on the user, surface the prompt
+                question as an ellipsized hint after the StatusPill so a
+                glance at the modal header tells you what to answer without
+                scrolling the terminal. */}
+            {win.pendingInput && win.agent?.action && (
+              <span className="term-action" title={win.agent.action}>
+                {win.agent.action}
+              </span>
+            )}
           </div>
           <span className="term-spacer" style={{ flex: 1 }} />
           <button
@@ -545,7 +722,8 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
               <span>Kill window</span>
             </button>
           )}
-          <span className="term-zoom">
+          <span className="term-zoom" aria-label="Font zoom">
+            <span className="term-cluster-label">Zoom</span>
             <button
               className="btn btn-icon btn-ghost"
               onClick={() => zoomBy(-ZOOM_STEP)}
@@ -566,6 +744,34 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
               onClick={() => zoomBy(ZOOM_STEP)}
               disabled={terminalFontSize >= TERM_FONT_MAX}
               title="Zoom in (⌘=)"
+            >
+              <Icon name="plus" size={12} />
+            </button>
+          </span>
+          <span className="term-zoom" aria-label="Pane size">
+            <span className="term-cluster-label">Size</span>
+            <button
+              className="btn btn-icon btn-ghost"
+              onClick={() => sizeStep(-1)}
+              disabled={atNarrow}
+              title={`Narrower pane (current: ${columnSize})`}
+              aria-label="Narrower pane"
+            >
+              <Icon name="minus" size={12} />
+            </button>
+            <button
+              className="zoom-level"
+              onClick={sizeReset}
+              title="Reset to normal"
+            >
+              {columnSize}
+            </button>
+            <button
+              className="btn btn-icon btn-ghost"
+              onClick={() => sizeStep(1)}
+              disabled={atWide}
+              title={`Wider pane (current: ${columnSize})`}
+              aria-label="Wider pane"
             >
               <Icon name="plus" size={12} />
             </button>

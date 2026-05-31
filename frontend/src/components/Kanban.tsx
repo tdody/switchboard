@@ -1,8 +1,9 @@
+import { useRef, useState, type DragEvent } from "react";
+
 import type { Session, Window } from "../types";
 import { sortPendingFirst } from "../lib/filter";
 import { formatAgo } from "../lib/format";
 import { DropdownMenu } from "./DropdownMenu";
-import { Icon } from "./Icon";
 import { WindowCard } from "./WindowCard";
 
 interface Props {
@@ -18,7 +19,36 @@ interface Props {
   onNewWindow: (session: string) => void;
   onKillSession: (session: string, skipConfirm: boolean) => void;
   onRenameSession: (session: string) => void;
+  /** Drag-to-reorder callback. `before=true` drops `src` to the left of `dst`,
+   *  `false` to the right. Optional so the component still renders without the
+   *  reorder feature wired up (and in tests). */
+  onReorderSession?: (src: string, dst: string, before: boolean) => void;
+  /** Drag-to-reorder tiles within a column (THI-141). Same-session enforced
+   *  inside Kanban; this callback is only invoked when src and dst share a
+   *  session. `before=true` drops `src` above `dst`; `false` below. */
+  onReorderWindow?: (
+    sessionId: string,
+    src: string,
+    dst: string,
+    before: boolean,
+  ) => void;
+  /** Per-session pin lists for window order (THI-141). Pass `{}` when the
+   *  feature is off; passing missing keys is fine — sortPendingFirst treats
+   *  absent / empty arrays as the natural index order. */
+  windowOrder?: Record<string, string[]>;
+  /** One-click new-window. `mode` "claude" autotypes `claude\n` to boot
+   *  Claude Code; "shell" leaves a bare prompt. (THI-115). */
+  onQuickCreate?: (session: string, mode: "claude" | "shell") => void;
+  /** Session ids currently mid-create; the +claude / +shell buttons are
+   *  disabled for these to prevent double-spawn on a rapid double-click. */
+  quickCreating?: Set<string>;
 }
+
+// Custom mime types for the two drag payloads — keep them distinct so a
+// pane drag can't be mistaken for a column drag (or a text drag from
+// outside the dashboard, which would otherwise satisfy `text/plain`).
+const DRAG_TYPE = "application/x-sb-session";
+const TILE_DRAG_TYPE = "application/x-sb-window";
 
 export function Kanban({
   sessions,
@@ -33,16 +63,185 @@ export function Kanban({
   onNewWindow,
   onKillSession,
   onRenameSession,
+  onReorderSession,
+  onReorderWindow,
+  windowOrder,
+  onQuickCreate,
+  quickCreating,
 }: Props) {
+  // The first card across all visible sessions gets `data-tour="first-card"`
+  // so the first-run tour (THI-96) can anchor its opening steps. Computing
+  // this once per render keeps it O(N) and clearer than threading a mutable
+  // flag through the nested .map() callbacks below.
+  const firstPaneId = sessions
+    .flatMap((s) =>
+      sortPendingFirst(
+        windows.filter((w) => w.session === s.id),
+        windowOrder?.[s.id],
+      ),
+    )
+    .at(0)?.paneId;
+
+  // Local drag-state — kept here (not in App.tsx) because nothing outside
+  // Kanban cares about the in-flight hover side or the source id; the parent
+  // only learns about the drop via `onReorderSession`.
+  const [dragSrcId, setDragSrcId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [dragOverSide, setDragOverSide] = useState<"left" | "right">("left");
+  // Track the column the drag is currently hovering so onDragLeave can be
+  // distinguished from "left this column entirely" (which fires when the
+  // pointer crosses any descendant boundary too — relatedTarget is unreliable
+  // across browsers, so we compare boundingRects instead).
+  const dragOverRef = useRef<string | null>(null);
+
+  // Tile-level drag state (THI-141) is independent of the column drag — they
+  // use distinct mime types and can never resolve simultaneously, but
+  // tracking them in separate state slots keeps the rendering predicates
+  // clean.
+  const [tileDragSrc, setTileDragSrc] = useState<{ paneId: string; session: string } | null>(
+    null,
+  );
+  const [tileDragOverId, setTileDragOverId] = useState<string | null>(null);
+  const [tileDragOverSide, setTileDragOverSide] = useState<"top" | "bottom">("top");
+
+  const handleDragStart = (s: Session) => (e: DragEvent<HTMLElement>) => {
+    if (!onReorderSession) return;
+    setDragSrcId(s.id);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData(DRAG_TYPE, s.id);
+  };
+
+  const handleDragEnd = () => {
+    setDragSrcId(null);
+    setDragOverId(null);
+    dragOverRef.current = null;
+  };
+
+  const handleDragOver = (s: Session) => (e: DragEvent<HTMLElement>) => {
+    if (!onReorderSession || !dragSrcId || dragSrcId === s.id) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const side: "left" | "right" =
+      e.clientX < rect.left + rect.width / 2 ? "left" : "right";
+    setDragOverId(s.id);
+    setDragOverSide(side);
+    dragOverRef.current = s.id;
+  };
+
+  const handleDragLeave = (s: Session) => (e: DragEvent<HTMLElement>) => {
+    // dragleave fires when the pointer crosses any child boundary too — only
+    // clear the indicator if the pointer actually left the section's rect.
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const { clientX: x, clientY: y } = e;
+    if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
+      if (dragOverRef.current === s.id) {
+        setDragOverId(null);
+        dragOverRef.current = null;
+      }
+    }
+  };
+
+  const handleDrop = (s: Session) => (e: DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    const src = e.dataTransfer.getData(DRAG_TYPE) || dragSrcId;
+    setDragSrcId(null);
+    setDragOverId(null);
+    dragOverRef.current = null;
+    if (!src || src === s.id || !onReorderSession) return;
+    onReorderSession(src, s.id, dragOverSide === "left");
+  };
+
+  // ── Tile-level drag (THI-141) ─────────────────────────────────────
+  // Same-session enforcement happens at the over/drop layer: only `preventDefault`
+  // when the source is from this tile's column, so cross-column drags fall through
+  // to the column-level drop handler (which is a no-op for tiles) and the cursor
+  // shows "not allowed".
+
+  const handleTileDragStart =
+    (w: Window) => (e: DragEvent<HTMLElement>) => {
+      if (!onReorderWindow) return;
+      e.stopPropagation(); // don't let this bubble into the column-header drag
+      setTileDragSrc({ paneId: w.paneId, session: w.session });
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData(TILE_DRAG_TYPE, w.paneId);
+    };
+
+  const handleTileDragEnd = () => {
+    setTileDragSrc(null);
+    setTileDragOverId(null);
+  };
+
+  const handleTileDragOver =
+    (w: Window) => (e: DragEvent<HTMLElement>) => {
+      // Only accept the drop when source & target share a session AND the
+      // current drag is a window drag (not a column drag).
+      if (!onReorderWindow || !tileDragSrc) return;
+      if (tileDragSrc.session !== w.session) return;
+      if (tileDragSrc.paneId === w.paneId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "move";
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const side: "top" | "bottom" =
+        e.clientY < rect.top + rect.height / 2 ? "top" : "bottom";
+      setTileDragOverId(w.paneId);
+      setTileDragOverSide(side);
+    };
+
+  const handleTileDragLeave =
+    (w: Window) => (e: DragEvent<HTMLElement>) => {
+      // dragleave fires when the pointer crosses any descendant boundary —
+      // only clear the indicator if the pointer actually left the wrapper.
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const { clientX: x, clientY: y } = e;
+      if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) {
+        if (tileDragOverId === w.paneId) setTileDragOverId(null);
+      }
+    };
+
+  const handleTileDrop =
+    (w: Window) => (e: DragEvent<HTMLElement>) => {
+      if (!onReorderWindow || !tileDragSrc) return;
+      if (tileDragSrc.session !== w.session) return;
+      if (tileDragSrc.paneId === w.paneId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const src = tileDragSrc.paneId;
+      const before = tileDragOverSide === "top";
+      setTileDragSrc(null);
+      setTileDragOverId(null);
+      onReorderWindow(w.session, src, w.paneId, before);
+    };
+
   return (
     <div className="kanban">
       {sessions.map((s) => {
-        const ws = sortPendingFirst(windows.filter((w) => w.session === s.id));
+        const ws = sortPendingFirst(
+          windows.filter((w) => w.session === s.id),
+          windowOrder?.[s.id],
+        );
         const pending = ws.filter((w) => w.pendingInput).length;
         const client = (s.clients || [])[0];
+        const isDragSrc = dragSrcId === s.id;
+        const isDragOver = dragOverId === s.id;
+        const sectionClass =
+          `col${isDragSrc ? " col-dragging" : ""}` +
+          (isDragOver ? ` col-drop-${dragOverSide}` : "");
         return (
-          <section className="col" key={s.id}>
-            <header className="col-hd">
+          <section
+            className={sectionClass}
+            key={s.id}
+            onDragOver={handleDragOver(s)}
+            onDragLeave={handleDragLeave(s)}
+            onDrop={handleDrop(s)}
+          >
+            <header
+              className="col-hd"
+              draggable={!!onReorderSession}
+              onDragStart={handleDragStart(s)}
+              onDragEnd={handleDragEnd}
+            >
               <span className="col-name" tabIndex={0}>
                 <span className={`col-name-dot ${s.attached ? "attached" : ""}`} />
                 <span>{s.name}</span>
@@ -56,16 +255,34 @@ export function Kanban({
                 </span>
               </span>
               <div className="col-actions">
-                <button
-                  className="btn btn-icon"
-                  onClick={() => onNewWindow(s.id)}
-                  title={`New window in ${s.name}`}
-                >
-                  <Icon name="plus" size={14} />
-                </button>
+                {onQuickCreate && (
+                  <>
+                    <button
+                      className="btn col-quick"
+                      onClick={() => onQuickCreate(s.id, "claude")}
+                      disabled={quickCreating?.has(s.id)}
+                      title={`New Claude window in ${s.name}`}
+                    >
+                      +claude
+                    </button>
+                    <button
+                      className="btn col-quick"
+                      onClick={() => onQuickCreate(s.id, "shell")}
+                      disabled={quickCreating?.has(s.id)}
+                      title={`New shell window in ${s.name}`}
+                    >
+                      +shell
+                    </button>
+                  </>
+                )}
                 <DropdownMenu
                   label={`Actions for ${s.name}`}
                   items={[
+                    {
+                      label: "Named window…",
+                      icon: "plus",
+                      onClick: () => onNewWindow(s.id),
+                    },
                     {
                       label: "Rename session",
                       icon: "rename",
@@ -135,19 +352,39 @@ export function Kanban({
                   no matching windows
                 </div>
               ) : (
-                ws.map((w) => (
-                  <WindowCard
-                    key={w.paneId}
-                    w={w}
-                    isFocused={focusedId === w.paneId}
-                    isHighlighted={highlightedId === w.paneId}
-                    onOpen={onOpen}
-                    onSendKeys={onSend}
-                    onRename={onRename}
-                    onFocus={onFocus}
-                    onKill={onKill}
-                  />
-                ))
+                ws.map((w) => {
+                  const isTileDragSrc = tileDragSrc?.paneId === w.paneId;
+                  const dropSide =
+                    tileDragOverId === w.paneId ? tileDragOverSide : undefined;
+                  const wrapClass =
+                    "card-drag-wrap" +
+                    (isTileDragSrc ? " card-dragging" : "");
+                  return (
+                    <div
+                      key={w.paneId}
+                      className={wrapClass}
+                      data-drop-side={dropSide}
+                      draggable={!!onReorderWindow}
+                      onDragStart={handleTileDragStart(w)}
+                      onDragEnd={handleTileDragEnd}
+                      onDragOver={handleTileDragOver(w)}
+                      onDragLeave={handleTileDragLeave(w)}
+                      onDrop={handleTileDrop(w)}
+                    >
+                      <WindowCard
+                        w={w}
+                        isFocused={focusedId === w.paneId}
+                        isHighlighted={highlightedId === w.paneId}
+                        onOpen={onOpen}
+                        onSendKeys={onSend}
+                        onRename={onRename}
+                        onFocus={onFocus}
+                        onKill={onKill}
+                        dataTour={w.paneId === firstPaneId ? "first-card" : undefined}
+                      />
+                    </div>
+                  );
+                })
               )}
             </div>
           </section>

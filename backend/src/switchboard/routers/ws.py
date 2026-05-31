@@ -107,10 +107,15 @@ async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
             # restore is best-effort itself; the test environment is
             # deterministic enough that a single yield is sufficient there.
             await asyncio.sleep(0)
-            # Tell the frontend so its reconnect controller can transition
-            # to `gone` instead of cycling through backoff.
+            # Distinguish "tmux died" (4408) from "pane gone" (4410) so the
+            # frontend can react differently — both route to `gone` in the
+            # reconnect policy, but App can toast the right reason (THI-94).
+            if tmux.get_server() is None:
+                code, reason = 4408, "tmux server gone"
+            else:
+                code, reason = 4410, "pane stream ended"
             with contextlib.suppress(Exception):
-                await ws.close(code=4410, reason="pane stream ended")
+                await ws.close(code=code, reason=reason)
             recv_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await recv_task

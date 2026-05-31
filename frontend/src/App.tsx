@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchState, focusWindow, killSession, killWindow } from "./api/client";
+import {
+  fetchState,
+  fetchUsage,
+  focusWindow,
+  killSession,
+  killWindow,
+} from "./api/client";
 import { usePolling } from "./api/usePolling";
+import { useQuickCreate } from "./lib/useQuickCreate";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { DocsModal } from "./components/DocsModal";
 import { EmptyState } from "./components/EmptyState";
 import { Header, type HeaderCounts } from "./components/Header";
 import { Kanban } from "./components/Kanban";
 import { NeedsStrip } from "./components/NeedsStrip";
+import { NewSessionOverlay } from "./components/NewSessionOverlay";
 import { NewWindowOverlay } from "./components/NewWindowOverlay";
 import { RenameOverlay } from "./components/RenameOverlay";
 import { RenameSessionOverlay } from "./components/RenameSessionOverlay";
@@ -15,21 +24,62 @@ import { ShortcutsSheet } from "./components/ShortcutsSheet";
 import { Subhead } from "./components/Subhead";
 import { TerminalModal } from "./components/TerminalModal";
 import { ToastStack } from "./components/ToastStack";
+import { Tour } from "./components/Tour";
 import type { ToastData } from "./components/Toast";
-import { applyFilter, parseQuery, type StatusFilter } from "./lib/filter";
+import {
+  applyFilter,
+  KIND_FILTERS,
+  parseQuery,
+  stripKindToken,
+  type KindFilter,
+  type StatusFilter,
+} from "./lib/filter";
 import { columnsForNav, navigateCard, type NavDirection } from "./lib/cardNav";
+import {
+  applySessionOrder,
+  loadSessionOrder,
+  reorderSessions,
+  saveSessionOrder,
+} from "./lib/sessionOrder";
+import {
+  loadWindowOrder,
+  reorderWindow,
+  saveWindowOrder,
+  type WindowOrderMap,
+} from "./lib/windowOrder";
+import { faviconDataUrl } from "./lib/favicon";
+import {
+  detectPendingEdges,
+  emptyNotifyState,
+  hydrateNotifyState,
+  markJustEnabled,
+  type NotifyState,
+} from "./lib/pendingNotify";
 import { applyAccent, useSettings } from "./lib/settings";
+import { pickPollInterval } from "./lib/pollTier";
+import { useInputActive } from "./lib/useInputActive";
 import { useURLParam } from "./lib/urlState";
 import type { Window } from "./types";
 
 const FAIL_THRESHOLD = 3;
 const SERVER_ADDR = "127.0.0.1:8765";
 const STATUS_FILTERS: StatusFilter[] = ["all", "waiting", "running", "idle"];
-// While the terminal modal is open we want the header / status pill / pending
-// flag to reflect the open pane within ~one xterm frame, not the user-chosen
-// dashboard cadence. Pane bytes already stream over the WS; this only affects
-// the metadata sourced from /api/state (THI-105).
-const MODAL_OPEN_POLL_MS = 100;
+// While the terminal modal is open we still want the header / status pill /
+// pending flag to update promptly, but the original 100 ms cadence (THI-105)
+// caused two distinct problems: it burned enough React render budget on a
+// busy dashboard to make typing in *other* modals lag (THI-138), and it
+// stacked `/api/state` handlers on the backend faster than they could
+// complete, exhausting the FD budget (THI-142, fixed by single-flight on
+// the backend). 500 ms = 2 Hz, which still reads as live for single-chip
+// changes (humans don't notice sub-200 ms updates on a status pill), frees
+// 5× of the main thread for input handling, and gives the backend's FD
+// budget another 5× headroom on top of the single-flight wrapper. Pane
+// bytes still stream over WebSocket; this only affects /api/state metadata.
+const MODAL_OPEN_POLL_MS = 500;
+// Claude usage is server-side-cached for 30 s; polling more often would just
+// hand the cached value back. Decoupled from the /api/state cadence so a busy
+// modal-open dashboard doesn't pile up jsonl walks (THI-110).
+const USAGE_POLL_MS = 30_000;
 
 /** A pending destructive action awaiting confirmation in the ConfirmDialog. */
 interface ConfirmState {
@@ -49,11 +99,42 @@ export function App() {
   ) as StatusFilter;
   const setFilter = (v: StatusFilter) => setFilterParam(v);
 
+  // Kind chip filter (THI-130). URL-synced for back/forward + shareable links;
+  // not localStorage-backed, matching the status filter convention. Unknown
+  // values fall back to "" (no chip selected).
+  const [kindParam, setKindParam] = useURLParam("kind", "");
+  const kindFilter: KindFilter = (
+    KIND_FILTERS.includes(kindParam as KindFilter) ? kindParam : ""
+  ) as KindFilter;
+  const setKindFilter = (v: KindFilter) => setKindParam(v);
+
   const [query, setQuery] = useURLParam("q", "");
   const [openId, setOpenId] = useURLParam("open", "");
 
-  const pollIntervalMs = openId ? MODAL_OPEN_POLL_MS : settings.pollIntervalMs;
-  const { data: state, consecutiveErrors, refresh } = usePolling(fetchState, pollIntervalMs);
+  // Activity-aware /api/state cadence (THI-127). `pickPollInterval` is pure and
+  // lives in lib/pollTier.ts; we forward the *previous* tick's windows here so
+  // the helper can classify activity. The first tick has no state yet — the
+  // helper defaults to `configured` (normal tier) in that case. Subsequent
+  // renders update `pollIntervalMs` via the effect below, which re-arms the
+  // interval inside `usePolling` via its `[ms]` dep.
+  const [pollIntervalMs, setPollIntervalMs] = useState(settings.pollIntervalMs);
+  // Notifications-on: keep polling /api/state while the tab is backgrounded —
+  // otherwise no pendingInput edge is ever detected and no OS banner fires
+  // exactly when the user has switched away and needs to be told (THI-78).
+  // Browser throttles background timers (~1Hz, dropping to ~1/min after a few
+  // minutes hidden), which bounds the bandwidth cost.
+  const { data: state, consecutiveErrors, refresh } = usePolling(
+    fetchState,
+    pollIntervalMs,
+    settings.notifyBrowser,
+  );
+  const { data: usage } = usePolling(fetchUsage, USAGE_POLL_MS);
+  // Input-active backoff (THI-138). True while the user is typing into a
+  // non-xterm text input within the last 800 ms. Threaded through the
+  // pollTier effect below so a typing burst widens the /api/state cadence
+  // and keystrokes don't compete with polling-driven renders.
+  const inputActive = useInputActive();
+  const { quickCreating, handleQuickCreate } = useQuickCreate(refresh);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -61,11 +142,23 @@ export function App() {
   const [showNeedsStrip, setShowNeedsStrip] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  // In-app Documentation modal (THI-136). Opened from the Header docs button
+  // and from the final step of the first-run tour.
+  const [showDocs, setShowDocs] = useState(false);
   const [paletteTargetId, setPaletteTargetId] = useState<string | null>(null);
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
   const [newWindowSession, setNewWindowSession] = useState<string | null>(null);
+  const [showNewSession, setShowNewSession] = useState(false);
   const [renameSessionTarget, setRenameSessionTarget] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  // User-pinned session order (drag-to-reorder, THI-115). Treated as a
+  // top-floating pin list — see `applySessionOrder` — so newly-spawned
+  // sessions still appear automatically without manual reordering.
+  const [sessionOrder, setSessionOrder] = useState<string[]>(() => loadSessionOrder());
+  // Per-session pin lists for tile drag-reorder (THI-141). Same shape as
+  // sessionOrder but keyed by sessionId. Kept lean: stale entries (killed
+  // panes) drop silently on next render; we don't proactively prune.
+  const [windowOrder, setWindowOrder] = useState<WindowOrderMap>(() => loadWindowOrder());
 
   const sessions = state?.sessions ?? [];
   const windows = state?.windows ?? [];
@@ -98,18 +191,50 @@ export function App() {
     [windows],
   );
 
+  // Sum of per-pane Claude session costs scraped from each agent's TUI `💰`
+  // line (THI-139). Drives the cost figure in the header usage pill — exactly
+  // the same dollar total the user gets if they read `💰` across every
+  // visible claude pane and add them up.
+  const activeSessionCostUsd = useMemo(
+    () =>
+      windows.reduce((sum, w) => sum + (w.agent?.sessionCostUsd ?? 0), 0),
+    [windows],
+  );
+
   const parsed = useMemo(() => parseQuery(query), [query]);
   const visible = useMemo(
-    () => applyFilter(windows, filter, parsed),
-    [windows, filter, parsed],
+    () => applyFilter(windows, filter, kindFilter, parsed),
+    [windows, filter, kindFilter, parsed],
+  );
+
+  // Chip-click handler (THI-130). Toggle semantics: click the active chip to
+  // clear it; click the inactive chip to switch. Clears any conflicting
+  // `kind:` token from the search box so the chip and the search input never
+  // show competing kind filters.
+  const onChipClick = useCallback(
+    (next: KindFilter) => {
+      if (parsed.tokens.kind && parsed.tokens.kind !== next) {
+        setQuery(stripKindToken(query));
+      }
+      setKindFilter(kindFilter === next ? "" : next);
+    },
+    [parsed.tokens.kind, query, kindFilter, setQuery, setKindFilter],
   );
   const pendingWindows = useMemo(
     () => windows.filter((w) => w.pendingInput),
     [windows],
   );
+  // User pin-list applied on top of the natural order from /api/state. Saved
+  // sessions float to the front; new/unsaved sessions keep their server order
+  // (THI-115). `applySessionOrder` returns the input ref when the order is a
+  // no-op, so this useMemo doesn't churn for users who never reorder.
+  const orderedSessions = useMemo(
+    () => applySessionOrder(sessions, sessionOrder),
+    [sessions, sessionOrder],
+  );
   const navCols = useMemo(
-    () => columnsForNav(sessions, visible),
-    [sessions, visible],
+    () => columnsForNav(orderedSessions, visible),
+    [orderedSessions, visible],
   );
 
   const hostTerm = useMemo(() => {
@@ -191,6 +316,44 @@ export function App() {
     (session: string) => setRenameSessionTarget(session),
     [],
   );
+  // Drag-drop reorder of session columns (THI-115). Persisted to localStorage
+  // so the order survives reloads. `reorderSessions` is pure and short-
+  // circuits when src === dst or either is missing — safe to call eagerly
+  // from the drop handler.
+  const handleReorderSession = useCallback(
+    (src: string, dst: string, before: boolean) => {
+      setSessionOrder((prev) => {
+        // Seed the pin list from the *currently-displayed* order, not just
+        // `prev`. Otherwise dropping a never-pinned session next to another
+        // never-pinned one would leave both unpinned and the move would have
+        // no effect.
+        const base = orderedSessions.map((s) => s.id);
+        const seed = prev.length > 0 ? prev : base;
+        // Fold any currently-rendered sessions that aren't already pinned to
+        // the end of the seed so reorderSessions can find both src and dst.
+        const merged = [...seed];
+        for (const id of base) if (!merged.includes(id)) merged.push(id);
+        const next = reorderSessions(merged, src, dst, before);
+        saveSessionOrder(next);
+        return next;
+      });
+    },
+    [orderedSessions],
+  );
+
+  // Drag-drop reorder of tiles within a column (THI-141). Same shape as the
+  // session handler but keyed per session; `reorderWindow` is pure and
+  // handles unpinned src/dst gracefully (creates a fresh pin list).
+  const handleReorderWindow = useCallback(
+    (sessionId: string, src: string, dst: string, before: boolean) => {
+      setWindowOrder((prev) => {
+        const next = reorderWindow(prev, sessionId, src, dst, before);
+        saveWindowOrder(next);
+        return next;
+      });
+    },
+    [],
+  );
 
   // `refresh` and `windows` are replaced on every poll. Read them through refs
   // so the kill handlers stay referentially stable — otherwise every poll would
@@ -266,6 +429,23 @@ export function App() {
     [messageToast, setOpenId],
   );
 
+  // THI-127 tier picker. Recomputes the /api/state poll cadence whenever the
+  // modal-open state, the windows list, the user-configured cadence, or
+  // the input-active flag (THI-138) changes. `pickPollInterval` is pure —
+  // see lib/pollTier.ts and the spec tier table for the exact decision
+  // rules. The setState short-circuits on identical values so we don't
+  // churn `usePolling`'s [ms] dep.
+  useEffect(() => {
+    const next = pickPollInterval(
+      Boolean(openId),
+      windows,
+      settings.pollIntervalMs,
+      MODAL_OPEN_POLL_MS,
+      inputActive,
+    );
+    setPollIntervalMs((prev) => (prev === next ? prev : next));
+  }, [openId, windows, settings.pollIntervalMs, inputActive]);
+
   // Apply persisted appearance settings to <html>. The theme/density/
   // reduced-motion CSS ships in styles.css; accent is written as CSS vars.
   // Previews show only at `preview` density.
@@ -273,16 +453,131 @@ export function App() {
     const el = document.documentElement;
     el.setAttribute("data-theme", settings.theme);
     el.setAttribute("data-density", settings.density);
+    el.setAttribute("data-column-size", settings.columnSize);
     el.setAttribute("data-show-previews", String(settings.density === "preview"));
     el.setAttribute("data-reduced-motion", String(settings.reducedMotion));
-    applyAccent(settings.accent);
-  }, [settings.theme, settings.density, settings.reducedMotion, settings.accent]);
+    // Theme-aware accent application — applyAccent reads `theme` so light
+    // mode gets the bumped focus-ring alpha (THI-151) and selection band
+    // alpha (THI-155). The previous signature wrote dark-theme alphas
+    // unconditionally as inline styles, shadowing the per-theme CSS
+    // overrides. Toggling theme re-runs this effect via the dep array.
+    applyAccent(settings.accent, settings.theme);
+  }, [
+    settings.theme,
+    settings.density,
+    settings.columnSize,
+    settings.reducedMotion,
+    settings.accent,
+  ]);
 
   // Pending-input badge in the browser tab title.
   useEffect(() => {
     const n = pendingWindows.length;
     document.title = settings.notifyBadge && n > 0 ? `(${n}) Switchboard` : "Switchboard";
   }, [settings.notifyBadge, pendingWindows.length]);
+
+  // Favicon red-dot count (THI-78 PR 2). Same gate as the title badge — both
+  // pieces of glanceable feedback turn off together when the user disables
+  // notifications. Updates the existing <link rel="icon"> in index.html in
+  // place so it works across all browsers (Chrome / Firefox / Safari all
+  // honor an href swap on the existing link element).
+  useEffect(() => {
+    const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!link) return;
+    const count = settings.notifyBadge ? pendingWindows.length : 0;
+    link.href = faviconDataUrl(count);
+  }, [settings.notifyBadge, pendingWindows.length]);
+
+  // Native browser notifications on pendingInput edge (THI-78). Edge detection
+  // is a pure module (lib/pendingNotify); we keep the per-tick NotifyState in
+  // a ref so it survives re-renders. State is hydrated on every poll *even
+  // when notifications are off* — that way (a) reload-protection still works
+  // and (b) the off→on toggle has real state to diff against, so currently-
+  // pending panes can be surfaced as edges via markJustEnabled.
+  const notifyStateRef = useRef<NotifyState>(emptyNotifyState());
+  const notifyEnabledRef = useRef<boolean>(false);
+  useEffect(() => {
+    // No state yet → first poll hasn't returned. Nothing to hydrate against.
+    if (!state) return;
+
+    const enabled =
+      settings.notifyBrowser &&
+      typeof Notification !== "undefined" &&
+      Notification.permission === "granted";
+
+    if (!enabled) {
+      // Keep hydrating silently. Bumps `hydrated` to true on the first state
+      // response and keeps `lastPendingIds` in sync with whatever's pending
+      // now, so a later toggle-on can correctly fire only for panes that
+      // were pending at the moment of opting in. Uses hydrateNotifyState
+      // (not detectPendingEdges) so panes going pending while disabled don't
+      // poison lastNotifiedAt — otherwise dedup would silently block the
+      // user's first real notification after they enable.
+      notifyStateRef.current = hydrateNotifyState(windows, notifyStateRef.current);
+      notifyEnabledRef.current = false;
+      return;
+    }
+
+    // Off → on transition mid-session: explicitly opt in to seeing currently-
+    // pending panes. Skipped when !hydrated (initial page load with the
+    // toggle already on) — that case stays under reload protection so a
+    // refresh doesn't barrage the user with everything that was pending
+    // before they could care.
+    if (!notifyEnabledRef.current && notifyStateRef.current.hydrated) {
+      notifyStateRef.current = markJustEnabled(notifyStateRef.current);
+    }
+    notifyEnabledRef.current = true;
+
+    const { edges, state: next } = detectPendingEdges(
+      windows,
+      notifyStateRef.current,
+      Date.now(),
+    );
+    notifyStateRef.current = next;
+    for (const e of edges) {
+      // `tag` collapses repeated notifications for the same pane on most
+      // platforms — belt-and-braces with the in-module dedup window.
+      const n = new Notification(`${e.session}/${e.windowName}`, {
+        body: e.action ?? "waiting on input",
+        tag: e.paneId,
+      });
+      n.onclick = () => {
+        // Bring the tab to the front (Chrome / Safari honor this on a
+        // notification click since the click is a user gesture). Then drive
+        // tmux's `select-window` and open the modal — same pair as a card
+        // click in the kanban.
+        window.focus();
+        void focusWindow(e.session, e.index);
+        setOpenId(e.paneId);
+        setHighlightedId(e.paneId);
+        n.close();
+      };
+    }
+  }, [windows, state, settings.notifyBrowser, setOpenId]);
+
+  // Auto-dismiss the terminal modal when its pane disappears from /api/state —
+  // the pane was killed externally (someone ran `tmux kill-pane` from a
+  // terminal, or tmux itself died). The ref tracks the last-known open window
+  // so we can still toast its name after `openWindow` flips to null. The
+  // `openId` guard suppresses the toast on the user's own close path (where
+  // openId is "" by the time openWindow goes null). The `state` guard avoids
+  // false positives on first hydration when a stale `?open=` URL points at a
+  // pane that never existed (THI-94).
+  const lastOpenWindowRef = useRef<Window | null>(null);
+  useEffect(() => {
+    if (!state) return;
+    if (openWindow) {
+      lastOpenWindowRef.current = openWindow;
+      return;
+    }
+    if (lastOpenWindowRef.current && openId) {
+      const name = lastOpenWindowRef.current.name;
+      lastOpenWindowRef.current = null;
+      setOpenId("");
+      const reason = serverRunning === false ? "tmux server stopped" : `Window "${name}" closed`;
+      messageToast(reason);
+    }
+  }, [state, openWindow, openId, serverRunning, setOpenId, messageToast]);
 
   // Pre-highlight the first visible card on the first non-null state so arrow
   // nav is discoverable (THI-87). The ref guard ensures subsequent polls never
@@ -311,7 +606,9 @@ export function App() {
         renameTargetId ||
         showSettings ||
         showShortcuts ||
+        showDocs ||
         newWindowSession ||
+        showNewSession ||
         renameSessionTarget ||
         confirm;
 
@@ -377,6 +674,14 @@ export function App() {
         return;
       }
       if (e.key === "Enter") {
+        // Don't preempt the native Enter→click activation on focused
+        // <button>s (StatusLegend trigger, header help/settings, filter
+        // tabs, card action icons, etc.). Without this guard our
+        // `preventDefault()` below suppresses the button's click and the
+        // user's Tab+Enter just opens the highlighted card instead. Cards
+        // themselves use `<div role="button">` (tagName "div"), so this
+        // guard doesn't affect card-open from keyboard nav.
+        if (tag === "button") return;
         const w = highlightedId
           ? windows.find((x) => x.paneId === highlightedId)
           : null;
@@ -394,7 +699,9 @@ export function App() {
     renameTargetId,
     showSettings,
     showShortcuts,
+    showDocs,
     newWindowSession,
+    showNewSession,
     renameSessionTarget,
     confirm,
     navCols,
@@ -416,6 +723,18 @@ export function App() {
     <ShortcutsSheet onClose={() => setShowShortcuts(false)} />
   ) : null;
 
+  const docsModal = showDocs ? (
+    <DocsModal onClose={() => setShowDocs(false)} />
+  ) : null;
+
+  const newSessionOverlay = showNewSession ? (
+    <NewSessionOverlay
+      existingNames={sessions.map((s) => s.name)}
+      onClose={() => setShowNewSession(false)}
+      onApplied={refresh}
+    />
+  ) : null;
+
   if (inEmpty) {
     return (
       <div className="app">
@@ -425,6 +744,8 @@ export function App() {
           inEmpty
           onHelp={() => setShowShortcuts(true)}
           onSettings={() => setShowSettings(true)}
+          onOpenDocs={() => setShowDocs(true)}
+          onNewSession={() => setShowNewSession(true)}
           onRetry={refresh}
         />
         <main className="main">
@@ -432,6 +753,9 @@ export function App() {
         </main>
         {settingsModal}
         {shortcutsSheet}
+        {docsModal}
+        {newSessionOverlay}
+        <ToastStack toasts={toasts} />
       </div>
     );
   }
@@ -442,8 +766,12 @@ export function App() {
         counts={counts}
         serverAddr={SERVER_ADDR}
         inEmpty={false}
+        usage={usage}
+        activeSessionCostUsd={activeSessionCostUsd}
         onHelp={() => setShowShortcuts(true)}
         onSettings={() => setShowSettings(true)}
+        onOpenDocs={() => setShowDocs(true)}
+        onNewSession={() => setShowNewSession(true)}
       />
       {pendingWindows.length > 0 && showNeedsStrip && (
         <NeedsStrip
@@ -458,10 +786,12 @@ export function App() {
         query={query}
         setQuery={setQuery}
         counts={counts}
+        kindFilter={kindFilter}
+        onChipClick={onChipClick}
       />
       <main className="main">
         <Kanban
-          sessions={sessions}
+          sessions={orderedSessions}
           windows={visible}
           focusedId={focusedId}
           highlightedId={highlightedId}
@@ -473,6 +803,11 @@ export function App() {
           onNewWindow={handleNewWindow}
           onKillSession={handleKillSession}
           onRenameSession={handleRenameSession}
+          onReorderSession={handleReorderSession}
+          onReorderWindow={handleReorderWindow}
+          windowOrder={windowOrder}
+          onQuickCreate={handleQuickCreate}
+          quickCreating={quickCreating}
         />
       </main>
       {openWindow && (
@@ -521,6 +856,32 @@ export function App() {
       )}
       {settingsModal}
       {shortcutsSheet}
+      {docsModal}
+      {newSessionOverlay}
+      {/* First-run tour (THI-96). Suppressed while any overlay is up — the
+       *  tour's data-tour anchors get covered when a modal is open, and the
+       *  user is mid-interaction anyway. Also requires at least one visible
+       *  card so the `[data-tour="first-card"]` anchor exists.
+       *  Final step renders a "More in Docs →" link via `onOpenDocs`
+       *  (THI-136). */}
+      <Tour
+        enabled={
+          !!state &&
+          !inEmpty &&
+          visible.length > 0 &&
+          !openId &&
+          !paletteTargetId &&
+          !renameTargetId &&
+          !newWindowSession &&
+          !showNewSession &&
+          !renameSessionTarget &&
+          !showSettings &&
+          !showShortcuts &&
+          !showDocs &&
+          !confirm
+        }
+        onOpenDocs={() => setShowDocs(true)}
+      />
       <ToastStack toasts={toasts} />
     </div>
   );

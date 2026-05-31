@@ -1,0 +1,3 @@
+{"timestamp":"2026-05-23T20:00:00Z","message":{"role":"assistant","usage":{"input_tokens":120,"cache_creation_input_tokens":40,"cache_read_input_tokens":800,"output_tokens":60}}}
+{"timestamp":"2026-05-23T20:05:00Z","message":{"role":"assistant","usage":{"input_tokens":15,"cache_creation_input_tokens":0,"cache_read_input_tokens":1200,"output_tokens":90}}}
+{"timestamp":"2026-05-23T20:10:00Z","message":{"role":"user","content":"hi"}}

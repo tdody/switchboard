@@ -5,8 +5,6 @@ let seq = 0;
 export function mkAgent(overrides: Partial<Agent> = {}): Agent {
   return {
     branch: null,
-    pr: null,
-    ci: null,
     spinner: null,
     duration: null,
     recap: null,
@@ -31,6 +29,11 @@ export function mkWindow(overrides: Partial<Window> = {}): Window {
     cmd: "",
     cwd: "",
     pendingInput: false,
+    branch: null,
+    pr: null,
+    prUrl: null,
+    ci: null,
+    repoUrl: null,
     agent: null,
     preview: [],
     ...overrides,

@@ -1,8 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+
+import { fetchUsageConfig } from "../api/client";
 import {
   ACCENT_TOKENS,
   accentColor,
   type Accent,
+  type ColumnSize,
   type Density,
   POLL_MAX_S,
   POLL_MIN_S,
@@ -10,6 +13,10 @@ import {
   updateSettings,
   useSettings,
 } from "../lib/settings";
+import { replayTour } from "../lib/tour";
+import { useIdeConfig } from "../lib/useIdeConfig";
+import { useScrimClose } from "../lib/useScrimClose";
+import type { UsageConfig } from "../types";
 import { Icon } from "./Icon";
 import { SwitchboardMark } from "./SwitchboardMark";
 import { Toggle } from "./Toggle";
@@ -24,7 +31,28 @@ interface Props {
 }
 
 export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }: Props) {
+  const scrimProps = useScrimClose(onClose);
   const settings = useSettings();
+  // IDE config (THI-146 PR 4). Module-level cached, so a re-open of the
+  // modal hits the cache; the dropdown is built from `available`.
+  const ideConfig = useIdeConfig();
+  // Claude usage config (THI-110 commit 3). Fetched once on Settings open;
+  // null while in flight. Read-only — TTL knobs are server-startup config.
+  const [usageConfig, setUsageConfig] = useState<UsageConfig | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchUsageConfig().then(
+      (c) => {
+        if (!cancelled) setUsageConfig(c);
+      },
+      () => {
+        /* /api/usage/config unreachable — leave loading state */
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -48,7 +76,7 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
   };
 
   return (
-    <div className="scrim" onClick={onClose}>
+    <div className="scrim" {...scrimProps}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-hd">
           <SwitchboardMark size={22} />
@@ -112,6 +140,49 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
           </div>
 
           <div className="settings-group">
+            <h4>Claude usage</h4>
+            <div className="settings-row">
+              <span>
+                <div className="name">Token aggregation</div>
+                <div className="desc">
+                  Sums tokens from <code>~/.claude/projects/*.jsonl</code> over
+                  the last {usageConfig ? `${usageConfig.tokenTtlS}s` : "30s"}{" "}
+                  cache. Always on; no claude binary spawn.
+                </div>
+              </span>
+              <span className="val">always on</span>
+              <span />
+            </div>
+            <div className="settings-row">
+              <span>
+                <div className="name">Plan-% scraping</div>
+                <div className="desc">
+                  {usageConfig === null && "Checking…"}
+                  {usageConfig?.scrapeEnabled && (
+                    <>
+                      Runs <code>claude /usage</code> in a hidden tmux session
+                      every {Math.round(usageConfig.scrapeTtlS / 60)}min. Costs a
+                      small claude inference per scrape. Disable with{" "}
+                      <code>SWITCHBOARD_USAGE_SCRAPE_ENABLED=false</code>.
+                    </>
+                  )}
+                  {usageConfig && !usageConfig.scrapeEnabled && (
+                    <>
+                      Disabled. Header pill falls back to the token-window
+                      estimate. Enable with{" "}
+                      <code>SWITCHBOARD_USAGE_SCRAPE_ENABLED=true</code>.
+                    </>
+                  )}
+                </div>
+              </span>
+              <span className="val">
+                {usageConfig === null ? "—" : usageConfig.scrapeEnabled ? "enabled" : "disabled"}
+              </span>
+              <span />
+            </div>
+          </div>
+
+          <div className="settings-group">
             <h4>Appearance</h4>
             <div className="settings-row">
               <span>
@@ -167,6 +238,23 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
             </div>
             <div className="settings-row">
               <span>
+                <div className="name">Column width</div>
+                <div className="desc">Width of each kanban column. Narrow / Normal / Wide.</div>
+              </span>
+              <select
+                value={settings.columnSize}
+                onChange={(e) =>
+                  updateSettings({ columnSize: e.target.value as ColumnSize })
+                }
+              >
+                <option value="narrow">Narrow</option>
+                <option value="normal">Normal</option>
+                <option value="wide">Wide</option>
+              </select>
+              <span />
+            </div>
+            <div className="settings-row">
+              <span>
                 <div className="name">Reduced motion</div>
                 <div className="desc">Disable pulses, spinners, and transitions.</div>
               </span>
@@ -204,6 +292,55 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
                 label="Browser notifications"
                 onChange={(v) => void toggleBrowserNotifications(v)}
               />
+            </div>
+            <div className="settings-row">
+              <span>
+                <div className="name">Replay first-run tour</div>
+                <div className="desc">
+                  Re-show the 4-step intro right now — reloads the dashboard.
+                </div>
+              </span>
+              <span className="val" />
+              <button className="btn" onClick={() => replayTour()}>
+                Reset
+              </button>
+            </div>
+          </div>
+
+          <div className="settings-group">
+            <h4>Editor</h4>
+            <div className="settings-row">
+              <span>
+                <div className="name">Open in IDE</div>
+                <div className="desc">
+                  Which editor opens when you click a file path in a pane.
+                </div>
+              </span>
+              {ideConfig === null ? (
+                // /api/ide-config hasn't returned yet. Module-level cache
+                // means this only happens on the very first open per session.
+                <span className="val">loading…</span>
+              ) : ideConfig.available.length === 0 ? (
+                <span className="val">no supported editors on PATH</span>
+              ) : (
+                <select
+                  value={settings.selectedIde}
+                  onChange={(e) => updateSettings({ selectedIde: e.target.value })}
+                >
+                  {/* Empty string ⇒ defer to server default. Labels the
+                      current default so the user understands what "default"
+                      maps to without leaving the modal. */}
+                  <option value="">
+                    Server default{ideConfig.default ? ` (${ideConfig.default})` : ""}
+                  </option>
+                  {ideConfig.available.map((ide) => (
+                    <option key={ide.id} value={ide.id}>
+                      {ide.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <span />
             </div>
           </div>
         </div>

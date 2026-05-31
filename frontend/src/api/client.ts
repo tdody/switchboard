@@ -1,4 +1,4 @@
-import type { StateResponse } from "../types";
+import type { StateResponse, UsageConfig, UsageResponse } from "../types";
 
 const BASE = "/api";
 
@@ -119,6 +119,20 @@ export async function renameSession(session: string, name: string): Promise<bool
   return r.ok;
 }
 
+/** new-session for `name`. Resolves `"ok"` on success, `"in-use"` when tmux
+ *  rejects the name as a duplicate (HTTP 409), or `"error"` otherwise. The
+ *  in-use case is split so NewSessionOverlay can show a name-specific hint
+ *  instead of a generic failure (THI-144). */
+export async function createSession(name: string): Promise<"ok" | "in-use" | "error"> {
+  const r = await fetch(
+    `${BASE}/session?name=${encodeURIComponent(name)}`,
+    { method: "POST", headers: { ...csrfHeaders() } },
+  );
+  if (r.ok) return "ok";
+  if (r.status === 409) return "in-use";
+  return "error";
+}
+
 /** new-window in `session`; resolves the new window's id, or null on failure. */
 export async function createWindow(
   session: string,
@@ -131,6 +145,29 @@ export async function createWindow(
   if (!r.ok) return null;
   const data = (await r.json()) as { index: number; id: string };
   return { index: data.index, id: data.id };
+}
+
+/** Create a new window and, in `claude` mode, type `claude⏎` into it so
+ *  Claude Code boots automatically. Used by the kanban's quick-create buttons
+ *  (THI-115). Resolves the new window id, or null on failure.
+ *
+ *  Race note: the shell that backs the new window buffers stdin into its pty
+ *  before its prompt is drawn, so the queued `claude\n` reaches it as soon as
+ *  the prompt is ready — no client-side sleep needed. If `sendKeys` fails
+ *  (network blip, etc.) we still leave the empty window behind: the user can
+ *  type `claude` themselves. */
+export async function createWindowWithBoot(
+  session: string,
+  mode: "shell" | "claude",
+): Promise<{ index: number; id: string } | null> {
+  const win = await createWindow(session, mode);
+  if (!win) return null;
+  if (mode === "claude") {
+    // Fire-and-forget the autotype; a failed sendKeys shouldn't roll back the
+    // window creation, just leave an empty shell the user can type into.
+    void sendKeys(session, win.index, { paste: "claude", keys: ["Enter"] });
+  }
+  return win;
 }
 
 /** detach-client for a specific client tty. Resolves false on any non-2xx. */
@@ -155,6 +192,76 @@ export async function fetchPane(
   if (!r.ok) return [];
   const data = (await r.json()) as { lines: string[] };
   return data.lines;
+}
+
+// Claude rolling-window usage — small, no ETag (response changes every poll
+// anyway; the saved bandwidth doesn't pay for the ETag round-trip overhead).
+// Polled on a slower 30 s cadence than `/api/state`; see App.tsx (THI-110).
+export async function fetchUsage(signal?: AbortSignal): Promise<UsageResponse> {
+  const r = await fetch(`${BASE}/usage`, { signal });
+  if (!r.ok) throw new Error(`usage ${r.status}`);
+  return (await r.json()) as UsageResponse;
+}
+
+/** Read-only config knobs for the Claude usage pill — surfaced in the
+ *  Settings panel (THI-110 commit 3). One-shot fetch; no polling. */
+export async function fetchUsageConfig(): Promise<UsageConfig> {
+  const r = await fetch(`${BASE}/usage/config`);
+  if (!r.ok) throw new Error(`usage config ${r.status}`);
+  return (await r.json()) as UsageConfig;
+}
+
+/** One probed entry in IdeConfig.available — drives the Settings dropdown
+ *  (THI-146 PR 4). `id` is the launcher binary (must be in the backend's
+ *  IDE_ALLOWLIST); `label` is the human-readable name. */
+export interface AvailableIde {
+  id: string;
+  label: string;
+}
+
+/** Read-only IDE launcher config — drives whether the file-path linkifier
+ *  inside TerminalModal renders code paths as clickable links (THI-146
+ *  PR 3) and the "Open in IDE" dropdown in Settings (PR 4). One-shot at
+ *  app mount; the launcher is env-controlled so it doesn't change during a
+ *  session, and `available` is cached server-side after the first probe. */
+export interface IdeConfig {
+  enabled: boolean;
+  /** Same value as `default`, retained for backward compat with PR 3 callers. */
+  command: string | null;
+  allowed: string[];
+  /** Probed-and-installed editors, in stable order — render directly into
+   *  the dropdown. Empty when no known editor is on PATH. */
+  available: AvailableIde[];
+  /** What /api/open uses when no `ide` param is sent. Mirrors `command`. */
+  default: string | null;
+}
+export async function fetchIdeConfig(): Promise<IdeConfig> {
+  const r = await fetch(`${BASE}/ide-config`);
+  if (!r.ok) throw new Error(`ide config ${r.status}`);
+  return (await r.json()) as IdeConfig;
+}
+
+/** Open a file from a pane's cwd in an IDE. When `ide` is provided, the
+ *  backend uses that binary instead of its env-var default (subject to the
+ *  allowlist). Resolves a discrete status so the caller can surface the
+ *  right toast — `disabled` (server has no IDE configured, or `ide` is not
+ *  on the allowlist), `not-found` (path doesn't resolve to a file),
+ *  `escaped` (path resolved outside the pane's cwd — almost certainly a
+ *  linkifier bug), or `error` for anything else. */
+export async function openInIde(
+  session: string,
+  index: number,
+  path: string,
+  ide?: string,
+): Promise<"ok" | "disabled" | "not-found" | "escaped" | "error"> {
+  let url = `${BASE}/open?session=${encodeURIComponent(session)}&index=${index}&path=${encodeURIComponent(path)}`;
+  if (ide) url += `&ide=${encodeURIComponent(ide)}`;
+  const r = await fetch(url, { method: "POST", headers: { ...csrfHeaders() } });
+  if (r.ok) return "ok";
+  if (r.status === 400) return "disabled";
+  if (r.status === 404) return "not-found";
+  if (r.status === 422) return "escaped";
+  return "error";
 }
 
 export function openPaneWS(session: string, index: number): WebSocket {

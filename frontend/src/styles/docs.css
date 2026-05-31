@@ -1,0 +1,229 @@
+/* ─────────────────────────────────────────────────────────────
+   Switchboard — Documentation modal (THI-136)
+
+   Phase 2: stylized SVG diagrams (HeaderDiagram / AgentDiagram /
+   ShellDiagram) with callout overlays. Geometry lives in the
+   diagram components; this file maps the diagram classes to
+   themed CSS vars so light/dark/contrast all work.
+   ───────────────────────────────────────────────────────────── */
+
+.docs-modal {
+  width: min(1240px, 96vw);
+  height: min(720px, 88vh);
+  background: var(--panel);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-lg);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .5);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  animation: rise .2s ease-out;
+}
+
+.docs-hd {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--hairline);
+  font-weight: 600;
+}
+
+.docs-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--bg-elev);
+}
+.docs-tabs button {
+  display: inline-flex; align-items: center;
+  height: 28px; padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--text-mute);
+  font-size: 12px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+.docs-tabs button:hover { background: var(--panel); color: var(--text); }
+.docs-tabs button:focus-visible {
+  outline: 1.5px solid var(--accent-edge);
+  outline-offset: 1px;
+}
+.docs-tabs button.is-active {
+  background: var(--panel);
+  border-color: var(--hairline);
+  color: var(--text);
+}
+
+.docs-body {
+  padding: 20px;
+  overflow: auto;
+  display: flex;
+  /* Anchor to top so a tall diagram doesn't get its head clipped off by
+   * the centered alignment (a flex item centered in an overflow:auto
+   * container can't be scrolled back to its top). Horizontal stays
+   * centered. */
+  align-items: flex-start;
+  justify-content: center;
+  /* `position: relative` lets `.docs-secondary` absolutely pin itself
+   * to the body's bottom edge — see the V1 layout in THI-143. */
+  position: relative;
+}
+
+/* "Also visible —" footer strip (THI-143). Pinned to the bottom of the
+ * docs-body so it doesn't move when the diagram above changes height
+ * between tabs. Mono-font, dim hairline above, centered list of bold
+ * label + muted-text pairs separated by dim dots. */
+.docs-secondary {
+  position: absolute;
+  bottom: 24px;
+  left: 24px;
+  right: 24px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-mute);
+}
+.docs-secondary-hd { color: var(--text-dim); }
+.docs-secondary b { color: var(--text); font-weight: 600; }
+.docs-secondary-dot { color: var(--text-dim); }
+
+.docs-foot {
+  display: flex; align-items: center; gap: 10px; justify-content: flex-end;
+  padding: 12px 18px;
+  border-top: 1px solid var(--hairline);
+  background: var(--panel-2);
+}
+.docs-foot .hint {
+  margin-right: auto;
+  font-size: 11.5px;
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+}
+
+/* ───── SVG diagrams ─────────────────────────────────────────── */
+
+.docs-diagram {
+  width: 100%;
+  max-width: 1180px;
+  height: auto;
+}
+
+/* Stylized card body */
+.diagram-card rect { fill: var(--bg-elev); stroke: var(--hairline); }
+.diagram-card .badge,
+.diagram-card .btn-quick,
+.diagram-card .kind-box {
+  fill: var(--panel-2);
+  stroke: var(--hairline);
+}
+.diagram-card .kind-box      { fill: color-mix(in oklch, var(--accent) 18%, var(--bg-elev)); }
+.diagram-card .kind-box-shell{ fill: color-mix(in oklch, var(--tone-cyan) 18%, var(--bg-elev)); }
+
+/* Chip illustrations (branch / spinner / etc.) */
+.diagram-card .chip-illu {
+  fill: var(--bg);
+  stroke: var(--hairline);
+}
+.diagram-card .chip-spinner {
+  stroke: color-mix(in oklch, var(--tone-cyan) 50%, var(--hairline));
+}
+.diagram-card .spin-illu {
+  fill: none;
+  stroke: var(--tone-cyan);
+  stroke-width: 1.5;
+  stroke-dasharray: 12 6;
+}
+
+/* Status pill (cyan = running) */
+.diagram-card .pill-running {
+  fill: color-mix(in oklch, var(--tone-cyan) 14%, transparent);
+  stroke: color-mix(in oklch, var(--tone-cyan) 45%, var(--hairline));
+}
+
+/* Pending block (amber) */
+.diagram-card .pending-illu {
+  fill: color-mix(in oklch, var(--tone-amber) 14%, transparent);
+  stroke: color-mix(in oklch, var(--tone-amber) 45%, var(--hairline));
+}
+
+/* CI dot */
+.diagram-card .ci-dot          { stroke: none; }
+.diagram-card .ci-dot.ci-passing { fill: var(--tone-green); }
+.diagram-card .ci-dot.ci-failing { fill: var(--tone-red); }
+.diagram-card .ci-dot.ci-running { fill: var(--tone-cyan); }
+
+/* Context % left-edge strip — bands match WindowCard's ctx-low/mid/high/crit */
+.diagram-card .ctx-strip         { stroke: none; }
+.diagram-card .ctx-strip-low     { fill: var(--tone-green); }
+.diagram-card .ctx-strip-mid     { fill: var(--tone-amber); }
+.diagram-card .ctx-strip-high    { fill: var(--tone-orange); }
+.diagram-card .ctx-strip-crit    { fill: var(--tone-red); }
+
+/* Preview "text" — short rounded bars suggest lines of mono output */
+.diagram-card .preview-illu rect {
+  fill: color-mix(in oklch, var(--text-mute) 35%, transparent);
+  stroke: none;
+}
+
+/* Footer action buttons */
+.diagram-card .foot-btn rect       { fill: var(--panel-2); stroke: var(--hairline); }
+.diagram-card .foot-btn-danger     {
+  fill: color-mix(in oklch, var(--tone-red) 14%, var(--panel-2));
+  stroke: color-mix(in oklch, var(--tone-red) 45%, var(--hairline));
+}
+
+/* Header-bar bits */
+.diagram-card .dot-attached { fill: var(--accent); stroke: none; }
+.diagram-card .grip circle  { fill: var(--text-dim); stroke: none; }
+
+/* Interior hairlines (separators between card-head / agent / preview / etc.) */
+.diagram-hairline { stroke: var(--hairline); stroke-width: 1; }
+
+/* Text inside the stylized card */
+.diagram-text {
+  fill: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+.diagram-text.small  { font-size: 11px; font-family: var(--font-mono); }
+.diagram-text.strong { font-weight: 600; }
+.diagram-text.dim    { fill: var(--text-dim); }
+.diagram-text .strong { font-weight: 600; }
+.diagram-text .dim    { fill: var(--text-dim); }
+.diagram-text.tone-cyan,
+.diagram-text .tone-cyan  { fill: var(--tone-cyan); }
+.diagram-text.tone-amber,
+.diagram-text .tone-amber { fill: var(--tone-amber); }
+.diagram-text.tone-lilac,
+.diagram-text .tone-lilac { fill: var(--tone-lilac); }
+
+/* ───── Callouts ─────────────────────────────────────────────── */
+
+.callout-line {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  fill: none;
+}
+.callout-dot {
+  fill: var(--accent);
+  stroke: var(--bg);
+  stroke-width: 1;
+}
+.callout-label {
+  fill: var(--text-mute);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+}
+.callout-label-strong {
+  fill: var(--text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+}

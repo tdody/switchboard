@@ -36,7 +36,50 @@ class Settings(BaseSettings):
     # token cost for context quality; 80 mirrors periscope's default.
     anthropic_capture_lines: int = 80
 
+    # Where Claude Code logs each assistant turn — one JSONL per session under a
+    # per-cwd subdirectory. Used by `services/claude_usage` (THI-110) to
+    # aggregate rolling-window token usage.
+    claude_projects_dir: Path = Path.home() / ".claude" / "projects"
+
+    # When True, the /api/usage endpoint also spawns `claude /usage` in a
+    # hidden tmux session every 5 min to parse plan percentages (session / week
+    # / week-Sonnet meters). Each scrape costs ~hundreds of claude tokens and a
+    # ~15s subprocess; the cost is tiny relative to interactive Claude usage
+    # but explicit. Disable via `SWITCHBOARD_USAGE_SCRAPE_ENABLED=false` if you
+    # don't want any background claude invocations (THI-110 commit 2).
+    usage_scrape_enabled: bool = True
+
+    # Binary invoked by POST /api/open to launch the user's IDE on a clicked
+    # file path (THI-146 PR 3). Restricted to a known whitelist of GUI editor
+    # launchers — Switchboard MUST NOT spawn arbitrary commands on behalf of a
+    # mutating HTTP request, because any compromise of the loopback origin
+    # (e.g. a malicious local script with the CSRF cookie) would otherwise
+    # land as full RCE. Set to "" or any non-whitelisted name to disable the
+    # endpoint entirely; the frontend hides file-path linkification when
+    # disabled. Env: SWITCHBOARD_IDE_CMD.
+    ide_cmd: str = "code"
+
     model_config = SettingsConfigDict(env_prefix="SWITCHBOARD_", env_file=".env")
+
+    # GUI editor launchers — extend cautiously. Anything added here can be
+    # spawned with an attacker-supplied (but cwd-contained) path argument; do
+    # not include shells or arbitrary "runners".
+    IDE_ALLOWLIST: frozenset[str] = frozenset(
+        {
+            "code",
+            "code-insiders",
+            "cursor",
+            "subl",
+            "idea",
+            "pycharm",
+            "webstorm",
+            "rubymine",
+            "goland",
+            "rider",
+            "clion",
+            "phpstorm",
+        }
+    )
 
     @property
     def loopback_mode(self) -> bool:
@@ -53,6 +96,12 @@ class Settings(BaseSettings):
         import os
 
         return bool(self.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY"))
+
+    @property
+    def ide_enabled(self) -> bool:
+        """True only when `ide_cmd` is a known GUI editor binary. Frontend
+        hides the file-path linkifier when this is false (THI-146 PR 3)."""
+        return self.ide_cmd in self.IDE_ALLOWLIST
 
     @property
     def auth_enabled(self) -> bool:
