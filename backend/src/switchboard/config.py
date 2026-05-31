@@ -27,6 +27,15 @@ class Settings(BaseSettings):
     auth_required: bool | None = None
     token_file: Path = Path.home() / ".switchboard" / "token"
 
+    # Auto-rename modal (THI-67). The Anthropic SDK is lazy-imported so the
+    # server still boots without a key — `/api/auto-rename/*` returns 503 and
+    # the frontend hides the ✨ button until a key is set.
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-haiku-4-5"
+    # How many lines of pane scrollback to feed the model per window. Trades
+    # token cost for context quality; 80 mirrors periscope's default.
+    anthropic_capture_lines: int = 80
+
     # Where Claude Code logs each assistant turn — one JSONL per session under a
     # per-cwd subdirectory. Used by `services/claude_usage` (THI-110) to
     # aggregate rolling-window token usage.
@@ -75,6 +84,18 @@ class Settings(BaseSettings):
     @property
     def loopback_mode(self) -> bool:
         return is_loopback_host(self.host)
+
+    @property
+    def anthropic_enabled(self) -> bool:
+        """True iff an API key is configured (via env or .env). Drives the
+        503 / 200 fork in `routers/rename_ai` and lets the frontend hide the
+        ✨ button before clicking discovers the key is missing."""
+        # Either an explicit setting or the standard SDK env var counts —
+        # the Anthropic SDK reads ANTHROPIC_API_KEY itself, so a user with
+        # that exported in their shell doesn't need to set the prefixed one.
+        import os
+
+        return bool(self.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY"))
 
     @property
     def ide_enabled(self) -> bool:
