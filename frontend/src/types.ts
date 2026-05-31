@@ -72,6 +72,33 @@ export interface StateResponse {
   serverRunning: boolean;
 }
 
+// Auto-rename modal (THI-67). Preview-only — applying happens via the
+// existing /api/rename per accepted row. `Usage.estCostUsd` is a Haiku 4.5
+// rate-card estimate; actual billing is what Anthropic charges. Note the
+// per-call `Usage` shape here is distinct from `ClaudeUsage` below — that
+// one is rolling-window plan usage scraped from JSONL session logs.
+export interface RenameSuggestion {
+  index: number;
+  old: string;
+  suggested: string;
+}
+
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+  estCostUsd: number;
+}
+
+export interface AutoRenameResponse {
+  suggestions: RenameSuggestion[];
+  usage: Usage;
+}
+
+export interface AiStatus {
+  enabled: boolean;
+  model: string;
+}
+
 // Claude rolling-window token usage parsed from `~/.claude/projects/*.jsonl`
 // (THI-110). `available=false` means the projects directory doesn't exist —
 // e.g. the user has never run Claude Code. `resetAt` is unix epoch seconds for

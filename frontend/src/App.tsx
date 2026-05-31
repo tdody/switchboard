@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  fetchAiStatus,
   fetchState,
   fetchUsage,
   focusWindow,
@@ -8,6 +9,7 @@ import {
 } from "./api/client";
 import { usePolling } from "./api/usePolling";
 import { useQuickCreate } from "./lib/useQuickCreate";
+import { AutoRenameModal } from "./components/AutoRenameModal";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DocsModal } from "./components/DocsModal";
@@ -151,6 +153,27 @@ export function App() {
   const [showNewSession, setShowNewSession] = useState(false);
   const [renameSessionTarget, setRenameSessionTarget] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  // Auto-rename modal target (THI-67). Session id when open, null when closed.
+  const [autoRenameSession, setAutoRenameSession] = useState<string | null>(null);
+  // Whether the backend has an Anthropic key configured — drives whether the
+  // ✨ button shows in the Kanban column headers. Fetched once on mount
+  // (the key doesn't change at runtime); refetched after Settings closes in
+  // case the user pasted a key while there.
+  const [aiEnabled, setAiEnabled] = useState<boolean>(false);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAiStatus().then(
+      (s) => {
+        if (!cancelled) setAiEnabled(s.enabled);
+      },
+      () => {
+        /* status endpoint unreachable — keep button hidden, no toast */
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // User-pinned session order (drag-to-reorder, THI-115). Treated as a
   // top-floating pin list — see `applySessionOrder` — so newly-spawned
   // sessions still appear automatically without manual reordering.
@@ -316,6 +339,15 @@ export function App() {
     (session: string) => setRenameSessionTarget(session),
     [],
   );
+  // Open the auto-rename modal for a session (THI-67). The modal is
+  // self-contained: it fetches its own suggestions via /api/auto-rename-session
+  // and calls /api/rename per accepted row, so App only needs to track which
+  // session (if any) is currently open.
+  const handleAutoRename = useCallback(
+    (session: string) => setAutoRenameSession(session),
+    [],
+  );
+
   // Drag-drop reorder of session columns (THI-115). Persisted to localStorage
   // so the order survives reloads. `reorderSessions` is pure and short-
   // circuits when src === dst or either is missing — safe to call eagerly
@@ -610,6 +642,7 @@ export function App() {
         newWindowSession ||
         showNewSession ||
         renameSessionTarget ||
+        autoRenameSession ||
         confirm;
 
       // ⌘K / Ctrl+K — open palette pre-targeted to first pending, then highlighted,
@@ -703,6 +736,7 @@ export function App() {
     newWindowSession,
     showNewSession,
     renameSessionTarget,
+    autoRenameSession,
     confirm,
     navCols,
     highlightedId,
@@ -803,6 +837,7 @@ export function App() {
           onNewWindow={handleNewWindow}
           onKillSession={handleKillSession}
           onRenameSession={handleRenameSession}
+          onAutoRename={aiEnabled ? handleAutoRename : undefined}
           onReorderSession={handleReorderSession}
           onReorderWindow={handleReorderWindow}
           windowOrder={windowOrder}
@@ -843,6 +878,14 @@ export function App() {
           session={renameSessionTarget}
           onClose={() => setRenameSessionTarget(null)}
           onApplied={refresh}
+        />
+      )}
+      {autoRenameSession && (
+        <AutoRenameModal
+          session={autoRenameSession}
+          onClose={() => setAutoRenameSession(null)}
+          onApplied={refresh}
+          onOpenSettings={() => setShowSettings(true)}
         />
       )}
       {confirm && (

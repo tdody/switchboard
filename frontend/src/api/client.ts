@@ -1,4 +1,10 @@
-import type { StateResponse, UsageConfig, UsageResponse } from "../types";
+import type {
+  AiStatus,
+  AutoRenameResponse,
+  StateResponse,
+  UsageConfig,
+  UsageResponse,
+} from "../types";
 
 const BASE = "/api";
 
@@ -168,6 +174,51 @@ export async function createWindowWithBoot(
     void sendKeys(session, win.index, { paste: "claude", keys: ["Enter"] });
   }
   return win;
+}
+
+// --- Auto-rename modal (THI-67) -------------------------------------------
+
+/** Tagged-union result so the modal can distinguish "key not set" (503) from
+ *  "model returned garbage" (502) and surface a useful CTA per case, instead
+ *  of collapsing every non-2xx into a single error string. */
+export type AutoRenameResult =
+  | { ok: true; data: AutoRenameResponse }
+  | { ok: false; status: number; error: string };
+
+async function readAutoRenameError(r: Response, status: number): Promise<string> {
+  try {
+    const body = (await r.json()) as { detail?: string };
+    return body.detail ?? `HTTP ${status}`;
+  } catch {
+    return `HTTP ${status}`;
+  }
+}
+
+export async function fetchAiStatus(): Promise<AiStatus> {
+  const r = await fetch(`${BASE}/auto-rename/status`);
+  if (!r.ok) throw new Error(`auto-rename status ${r.status}`);
+  return (await r.json()) as AiStatus;
+}
+
+export async function autoRenameSession(session: string): Promise<AutoRenameResult> {
+  const r = await fetch(
+    `${BASE}/auto-rename-session?session=${encodeURIComponent(session)}`,
+    { method: "POST", headers: { ...csrfHeaders() } },
+  );
+  if (!r.ok) return { ok: false, status: r.status, error: await readAutoRenameError(r, r.status) };
+  return { ok: true, data: (await r.json()) as AutoRenameResponse };
+}
+
+export async function autoRenameWindow(
+  session: string,
+  index: number,
+): Promise<AutoRenameResult> {
+  const r = await fetch(
+    `${BASE}/auto-rename-window?session=${encodeURIComponent(session)}&index=${index}`,
+    { method: "POST", headers: { ...csrfHeaders() } },
+  );
+  if (!r.ok) return { ok: false, status: r.status, error: await readAutoRenameError(r, r.status) };
+  return { ok: true, data: (await r.json()) as AutoRenameResponse };
 }
 
 /** detach-client for a specific client tty. Resolves false on any non-2xx. */
