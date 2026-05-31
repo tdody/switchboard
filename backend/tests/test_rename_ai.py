@@ -43,16 +43,48 @@ def test_status_reports_disabled_without_key(
     r = client.get("/api/auto-rename/status")
     assert r.status_code == 200
     body = r.json()
-    assert body == {"enabled": False, "model": settings.anthropic_model}
+    assert body["enabled"] is False
+    assert body["model"] == settings.anthropic_model
+    assert body["source"] == "none"
+    assert body["masked"] is None
 
 
-def test_status_reports_enabled_when_key_is_set(
+def test_status_reports_enabled_when_key_is_set_via_config(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(settings, "anthropic_api_key", "sk-ant-test")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(settings, "anthropic_api_key", "sk-ant-api03-aBcDeFg1234567890XYZ")
     r = client.get("/api/auto-rename/status")
-    assert r.status_code == 200
-    assert r.json()["enabled"] is True
+    body = r.json()
+    assert body["enabled"] is True
+    assert body["source"] == "config"
+    # Never echoes the full key; matches the prefix + last-4 fingerprint.
+    assert body["masked"] == "sk-ant-…0XYZ"
+
+
+def test_status_source_is_env_when_only_env_var_is_set(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "anthropic_api_key", None)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api03-eNvOnlyAbcdef987654")
+    r = client.get("/api/auto-rename/status")
+    body = r.json()
+    assert body["enabled"] is True
+    assert body["source"] == "env"
+    assert body["masked"] == "sk-ant-…7654"
+
+
+def test_status_config_key_takes_priority_over_env(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Both set → the explicit setting wins, since that's what the SDK
+    # constructor will actually receive.
+    monkeypatch.setattr(settings, "anthropic_api_key", "sk-ant-cfgKEYabcdefgh1234")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-ENVKEYxxxxxxxxxxxxxx")
+    r = client.get("/api/auto-rename/status")
+    body = r.json()
+    assert body["source"] == "config"
+    assert body["masked"].endswith("1234")
 
 
 # --- /api/auto-rename-session ----------------------------------------------

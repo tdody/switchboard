@@ -160,6 +160,9 @@ export function App() {
   // (the key doesn't change at runtime); refetched after Settings closes in
   // case the user pasted a key while there.
   const [aiEnabled, setAiEnabled] = useState<boolean>(false);
+  // Re-fetch on mount AND every time Settings closes — that's the window in
+  // which the user might have set a key in their shell + restarted the
+  // backend (and so the ✨ button should newly appear without a page reload).
   useEffect(() => {
     let cancelled = false;
     void fetchAiStatus().then(
@@ -173,7 +176,10 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+    // Refetch when the Settings modal closes — the user may have pasted an
+    // Anthropic key in the meantime, in which case the ✨ button should
+    // appear without a page reload.
+  }, [showSettings]);
   // User-pinned session order (drag-to-reorder, THI-115). Treated as a
   // top-floating pin list — see `applySessionOrder` — so newly-spawned
   // sessions still appear automatically without manual reordering.

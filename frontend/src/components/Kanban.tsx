@@ -262,9 +262,10 @@ export function Kanban({
               <div className="col-actions">
                 {onAutoRename && (
                   <button
-                    className="btn btn-icon"
+                    className="btn-auto-rename"
                     onClick={() => onAutoRename(s.id)}
                     title={`Auto-rename windows in ${s.name}`}
+                    aria-label={`Auto-rename windows in ${s.name}`}
                   >
                     <Icon name="sparkle" size={14} />
                   </button>

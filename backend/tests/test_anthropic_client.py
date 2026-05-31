@@ -14,7 +14,9 @@ from switchboard.services.anthropic_client import (
     build_rename_prompt,
     estimate_cost,
     get_client,
+    mask_key,
     parse_rename_response,
+    resolve_key,
 )
 
 # --- get_client / missing key ----------------------------------------------
@@ -151,3 +153,48 @@ def test_estimate_cost_scales_with_output_more_than_input() -> None:
     out_cost = 10_000 * 5.0 / 1_000_000
     assert estimate_cost(10_000, 10_000) == pytest.approx(in_cost + out_cost, rel=1e-6)
     assert out_cost == 5 * in_cost
+
+
+# --- mask_key + resolve_key (THI-67 commit 3) ------------------------------
+
+
+def test_mask_key_keeps_prefix_and_last_four() -> None:
+    # Long-shape key: 7-char prefix is preserved, then `…`, then last 4.
+    assert mask_key("sk-ant-api03-AAAA1111BBBB2222") == "sk-ant-…2222"
+
+
+def test_mask_key_degrades_for_short_strings() -> None:
+    # < 12 chars: prefix would overlap the last-4 — degrade to just `…XXXX`.
+    assert mask_key("abc12345") == "…2345"
+
+
+def test_mask_key_never_echoes_full_key() -> None:
+    key = "sk-ant-api03-secretSecretSECRETsecret"
+    masked = mask_key(key)
+    assert key not in masked
+    # Always ≤ a tiny constant length so it can't accidentally leak more.
+    assert len(masked) <= 16
+
+
+def test_resolve_key_config_takes_priority_over_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(anthropic_client.settings, "anthropic_api_key", "from-config")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "from-env")
+    assert resolve_key() == ("from-config", "config")
+
+
+def test_resolve_key_falls_back_to_env_when_config_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(anthropic_client.settings, "anthropic_api_key", None)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "from-env")
+    assert resolve_key() == ("from-env", "env")
+
+
+def test_resolve_key_returns_none_source_when_nothing_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(anthropic_client.settings, "anthropic_api_key", None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert resolve_key() == (None, "none")

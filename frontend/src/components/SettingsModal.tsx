@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { fetchUsageConfig } from "../api/client";
+import { fetchAiStatus, fetchUsageConfig } from "../api/client";
 import {
   ACCENT_TOKENS,
   accentColor,
@@ -16,7 +16,7 @@ import {
 import { replayTour } from "../lib/tour";
 import { useIdeConfig } from "../lib/useIdeConfig";
 import { useScrimClose } from "../lib/useScrimClose";
-import type { UsageConfig } from "../types";
+import type { AiStatus, UsageConfig } from "../types";
 import { Icon } from "./Icon";
 import { SwitchboardMark } from "./SwitchboardMark";
 import { Toggle } from "./Toggle";
@@ -33,6 +33,24 @@ interface Props {
 export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }: Props) {
   const scrimProps = useScrimClose(onClose);
   const settings = useSettings();
+  // Anthropic key status (THI-67). Fetched on mount; null while in flight.
+  // Read-only — the user edits their shell rc / .env and reopens Settings.
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAiStatus().then(
+      (s) => {
+        if (!cancelled) setAiStatus(s);
+      },
+      () => {
+        /* status endpoint unreachable — leave loading state */
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // IDE config (THI-146 PR 4). Module-level cached, so a re-open of the
   // modal hits the cache; the dropdown is built from `available`.
   const ideConfig = useIdeConfig();
@@ -136,6 +154,53 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
                 label="Live terminal stream"
                 onChange={(v) => updateSettings({ wsStreamEnabled: v })}
               />
+            </div>
+          </div>
+
+          <div className="settings-group">
+            <h4>Auto-rename</h4>
+            <div className="settings-row">
+              <span>
+                <div className="name">Anthropic API key</div>
+                <div className="desc">
+                  {aiStatus === null && "Checking…"}
+                  {aiStatus?.source === "none" && (
+                    <>
+                      Not set. Export <code>ANTHROPIC_API_KEY</code> in your
+                      shell rc and restart the server to enable auto-rename.
+                    </>
+                  )}
+                  {aiStatus?.source === "env" && (
+                    <>
+                      Picked up from <code>ANTHROPIC_API_KEY</code> in your
+                      shell environment.
+                    </>
+                  )}
+                  {aiStatus?.source === "config" && (
+                    <>
+                      Set via <code>SWITCHBOARD_ANTHROPIC_API_KEY</code> (in
+                      <code>.env</code> or the launch environment).
+                    </>
+                  )}
+                </div>
+              </span>
+              <span className="val" style={{ fontFamily: "var(--font-mono)" }}>
+                {aiStatus?.masked ?? "—"}
+              </span>
+              <span />
+            </div>
+            <div className="settings-row">
+              <span>
+                <div className="name">Model</div>
+                <div className="desc">
+                  Used by the ✨ auto-rename modal. Configure via{" "}
+                  <code>SWITCHBOARD_ANTHROPIC_MODEL</code>.
+                </div>
+              </span>
+              <span className="val" style={{ fontFamily: "var(--font-mono)" }}>
+                {aiStatus?.model ?? "—"}
+              </span>
+              <span />
             </div>
           </div>
 

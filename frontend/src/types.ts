@@ -97,6 +97,13 @@ export interface AutoRenameResponse {
 export interface AiStatus {
   enabled: boolean;
   model: string;
+  /** Where the key was picked up (or "none" if not configured). Drives the
+   *  Settings panel's instruction text — `env` users edit their shell rc,
+   *  `config` users edit `.env`. */
+  source: "env" | "config" | "none";
+  /** Short safe-to-show fingerprint like `sk-ant-…XYZ1`. Null when no key
+   *  is set. Never the full key. */
+  masked: string | null;
 }
 
 // Claude rolling-window token usage parsed from `~/.claude/projects/*.jsonl`

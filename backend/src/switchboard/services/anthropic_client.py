@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, Literal
 
 from switchboard.config import settings
 
@@ -73,6 +73,36 @@ def reset_client_for_tests() -> None:
     (and after a hot SDK swap). Not for production use."""
     global _client
     _client = None
+
+
+def resolve_key() -> tuple[str | None, Literal["env", "config", "none"]]:
+    """Return `(key, source)` where source is `"config"` if the key came from
+    `settings.anthropic_api_key`, `"env"` if from the standard
+    `ANTHROPIC_API_KEY` env var, or `"none"` if neither is set. Matches the
+    same priority order the SDK uses when we hand it our settings."""
+    if settings.anthropic_api_key:
+        return settings.anthropic_api_key, "config"
+    import os
+
+    env = os.environ.get("ANTHROPIC_API_KEY")
+    if env:
+        return env, "env"
+    return None, "none"
+
+
+def mask_key(key: str) -> str:
+    """Short fingerprint for the Settings UI: known prefix (or first 7 chars)
+    + `…` + last 4 chars. Never returns the full key — safe to render in any
+    UI surface that might end up in a screenshot or shoulder-surf.
+
+    For really short strings (test fixtures, malformed keys) we degrade
+    gracefully to `…<last 4>` rather than echoing more than half the key.
+    """
+    if len(key) <= 12:
+        return "…" + key[-4:]
+    # Common shape: `sk-ant-api03-XXX…` — 7-char "sk-ant-" prefix is a stable
+    # tell that lets the user recognize their own key without us echoing it.
+    return key[:7] + "…" + key[-4:]
 
 
 def estimate_cost(input_tokens: int, output_tokens: int) -> float:
