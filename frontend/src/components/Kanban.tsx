@@ -4,6 +4,7 @@ import type { Session, Window } from "../types";
 import { sortPendingFirst } from "../lib/filter";
 import { formatAgo } from "../lib/format";
 import { DropdownMenu } from "./DropdownMenu";
+import { Icon } from "./Icon";
 import { WindowCard } from "./WindowCard";
 
 interface Props {
