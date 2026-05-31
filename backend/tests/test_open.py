@@ -27,6 +27,16 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "token_file", tmp_path / "token")
     monkeypatch.setattr(auth_mod.auth_state, "token", "")
     monkeypatch.setattr(auth_mod.auth_state, "csrf_secret", "")
+    # The app's lifespan calls `claude_usage.prewarm_scrape()` which spawns a
+    # daemon thread that runs `subprocess.run(["tmux", …])`. Several tests in
+    # this module patch `subprocess.Popen` to capture the IDE-spawn argv, but
+    # `subprocess` is a shared module reference — the patch mutates `Popen`
+    # globally, so the prewarm thread's tmux Popen also hits the fake and can
+    # overwrite the captured argv after the IDE call (flaky in CI's slower
+    # timing, reliably green locally). Disabling the scrape here keeps the
+    # prewarm thread from ever spawning, so the only Popen the test observes
+    # is the one its endpoint triggers.
+    monkeypatch.setattr(settings, "usage_scrape_enabled", False)
     with TestClient(create_app(), base_url=BASE_URL) as c:
         c.get("/api/state")
         yield c
