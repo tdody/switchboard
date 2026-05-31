@@ -125,6 +125,13 @@ _PROMPT_BOX_RE = re.compile(r"^\s*[>❯]")
 _MENU_CHOICE_RE = re.compile(r"^[\s│|┃▏╎]*([❯>])?\s*(\d{1,2})\.\s+(.+?)\s*$")
 _BOX_CHARS = " │|┃▏╎─━═╭╮╰╯\t"
 
+# Input-box footer: the literal `? for shortcuts` hint Claude Code renders
+# below the user's input field. Never present below a menu — Claude swaps
+# the footer for navigation hints (or hides it) while a menu is active. Used
+# in `_scan_menu` to reject numbered lists the user has typed INTO the input
+# box (the `>` prompt on the first line otherwise looks like a menu cursor).
+_INPUT_FOOTER_RE = re.compile(r"\?\s+for\s+shortcuts", re.IGNORECASE)
+
 _RECAP_CLIP = 240
 _ACTION_CLIP = 160
 
@@ -259,17 +266,26 @@ def _scan_menu(lines: list[str]) -> Prompt | None:
     starting at 1 — rejects captures caught mid-redraw — AND (b) at least one
     collected choice carries the `❯` cursor — rejects numbered prose (chat
     messages, README excerpts) that happens to look like a menu. A real Claude
-    Code menu always renders a cursor on the selected choice.
+    Code menu always renders a cursor on the selected choice. We also reject
+    (c) candidate runs that sit INSIDE the user's input box — when the user
+    types `> 1. AAAA / 2. BBB / 3. CCC` into Claude Code's input, the `>`
+    prompt indicator satisfies (b) and the structure otherwise looks identical
+    to a real menu. The input box is distinguishable by what follows it: a
+    horizontal `────` separator (line-style input) or the `? for shortcuts`
+    footer hint. Real menus replace the input box and carry neither.
     """
     tail = [_strip_ansi(r) for r in lines[-40:]]
     rev: list[tuple[int, str, bool]] = []  # (number, label, selected) bottom-up
     first_choice_idx: int | None = None
+    last_choice_idx: int | None = None  # highest-numbered choice's tail index
     for i in range(len(tail) - 1, -1, -1):
         m = _MENU_CHOICE_RE.match(tail[i])
         if not m:
             continue
         cursor, num, label = m.group(1), int(m.group(2)), m.group(3)
         rev.append((num, label.strip(_BOX_CHARS), cursor is not None))
+        if last_choice_idx is None:
+            last_choice_idx = i
         first_choice_idx = i
         if num == 1:
             break  # complete run anchored at 1; further matches would be a prior menu
@@ -281,6 +297,18 @@ def _scan_menu(lines: list[str]) -> Prompt | None:
         return None
     if not any(sel for _, _, sel in rev):
         return None
+    # Reject if the candidate is the user's input box (see (c) above). Scan a
+    # short window below the last choice for the box's bottom separator or
+    # the `? for shortcuts` footer; both are exclusive to the input box.
+    if last_choice_idx is not None:
+        for j in range(last_choice_idx + 1, min(last_choice_idx + 6, len(tail))):
+            line = tail[j]
+            if not line.strip():
+                continue
+            if _BORDER_RE.match(line):
+                return None
+            if _INPUT_FOOTER_RE.search(line):
+                return None
     choices = [PromptChoice(index=n, label=lbl, selected=sel) for n, lbl, sel in rev]
     # At most one selected; if a redraw left two cursors, keep only the last.
     selected_positions = [j for j, c in enumerate(choices) if c.selected]
