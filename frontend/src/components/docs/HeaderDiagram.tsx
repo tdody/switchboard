@@ -13,13 +13,25 @@ export function HeaderDiagram() {
   return (
     <svg
       className="docs-diagram"
-      viewBox="0 0 1100 420"
+      viewBox="0 0 1160 420"
       xmlns="http://www.w3.org/2000/svg"
       aria-label="Session header diagram"
     >
-      {/* ── Header bar (centered, x=400..700) ── */}
+      {/* THI-158: ✨ auto-rename button uses the same amber→accent gradient
+          as the real Kanban button (`.btn-auto-rename` in styles.css). OKLCH
+          stops so the swatch tracks the theme. `xlink:href`-style id is fine —
+          there's only one HeaderDiagram in the tree at a time. */}
+      <defs>
+        <linearGradient id="rn-grad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="oklch(0.80 0.14 80)" />
+          <stop offset="100%" stopColor="oklch(0.78 0.13 145)" />
+        </linearGradient>
+      </defs>
+
+      {/* ── Header bar (centered, x=400..732 — widened from 300→332 to fit
+           the ✨ button alongside +claude / +shell / ⋮) ── */}
       <g className="diagram-card">
-        <rect x="400" y="190" width="300" height="44" rx="10" />
+        <rect x="400" y="190" width="332" height="44" rx="10" />
 
         {/* attached dot */}
         <circle cx="420" cy="212" r="5" className="dot-attached" />
@@ -37,14 +49,27 @@ export function HeaderDiagram() {
         {/* count badge */}
         <rect x="510" y="198" width="28" height="28" rx="6" className="badge" />
         <text x="524" y="217" textAnchor="middle" className="diagram-text strong">4</text>
-        {/* +claude */}
-        <rect x="546" y="198" width="58" height="28" rx="6" className="btn-quick" />
-        <text x="575" y="217" textAnchor="middle" className="diagram-text small">+claude</text>
-        {/* +shell */}
-        <rect x="610" y="198" width="50" height="28" rx="6" className="btn-quick" />
-        <text x="635" y="217" textAnchor="middle" className="diagram-text small">+shell</text>
-        {/* ⋮ kebab */}
-        <text x="682" y="220" textAnchor="middle" className="diagram-text strong">⋮</text>
+        {/* ✨ auto-rename (THI-67 / THI-158) — gradient-filled square button
+             with the sparkle glyph; sits between count badge and +claude
+             quick-create, matching the real Kanban header order. */}
+        <rect x="544" y="201" width="22" height="22" rx="6" fill="url(#rn-grad)" />
+        <g
+          transform="translate(548, 205)"
+          stroke="var(--bg)"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+          fill="none"
+        >
+          <path d="M7 2v3M7 11v3M2 7h3M10 7h3M3.5 3.5l2 2M9 9l1.5 1.5M10.5 3.5l-2 2M5 9l-2 2" />
+        </g>
+        {/* +claude — shifted right by 30 to make room for ✨ */}
+        <rect x="576" y="198" width="58" height="28" rx="6" className="btn-quick" />
+        <text x="605" y="217" textAnchor="middle" className="diagram-text small">+claude</text>
+        {/* +shell — shifted right by 30 */}
+        <rect x="640" y="198" width="50" height="28" rx="6" className="btn-quick" />
+        <text x="665" y="217" textAnchor="middle" className="diagram-text small">+shell</text>
+        {/* ⋮ kebab — shifted right by 30 */}
+        <text x="712" y="220" textAnchor="middle" className="diagram-text strong">⋮</text>
       </g>
 
       {/* ───── LEFT GUTTER — anchors at LEFT edge of each control ─────
@@ -76,22 +101,32 @@ export function HeaderDiagram() {
       <text x="380" y="384" textAnchor="end" className="callout-label-strong">Window count</text>
       <text x="380" y="400" textAnchor="end" className="callout-label">Glows when any pane is waiting on input</text>
 
-      {/* ───── RIGHT GUTTER — anchors at RIGHT edge of each control ───── */}
+      {/* ───── RIGHT GUTTER — anchors at RIGHT edge of each control.
+         Label gutter sits at x=742 (was 712 — pushed out 30px to clear the
+         widened bar, in lockstep with the +30 shift applied to every
+         right-side control inside the bar). */}
 
-      {/* +claude — anchor at the button's right edge */}
-      <CalloutLine points={[[604, 212], [604, 100], [712, 100]]} />
-      <text x="720" y="96" className="callout-label-strong">+claude</text>
-      <text x="720" y="112" className="callout-label">Quick-create a new Claude agent window</text>
+      {/* ✨ auto-rename (THI-158) — anchor at right edge of the ✨ rect,
+           fanned to the top so the right-side reading order is
+           ✨ → +claude → +shell → ⋮. */}
+      <CalloutLine points={[[566, 212], [566, 40], [742, 40]]} />
+      <text x="750" y="36" className="callout-label-strong">✨ Auto-rename</text>
+      <text x="750" y="52" className="callout-label">Suggests names for every window via an LLM call</text>
 
-      {/* +shell — anchor at the button's right edge */}
-      <CalloutLine points={[[660, 212], [660, 168], [712, 168]]} />
-      <text x="720" y="164" className="callout-label-strong">+shell</text>
-      <text x="720" y="180" className="callout-label">Quick-create a new shell window</text>
+      {/* +claude — anchor at the button's right edge (shifted +30) */}
+      <CalloutLine points={[[634, 212], [634, 100], [742, 100]]} />
+      <text x="750" y="96" className="callout-label-strong">+claude</text>
+      <text x="750" y="112" className="callout-label">Quick-create a new Claude agent window</text>
 
-      {/* ⋮ actions menu — anchor at the kebab glyph's right edge */}
-      <CalloutLine points={[[688, 212], [688, 268], [712, 268]]} />
-      <text x="720" y="264" className="callout-label-strong">⋮  Actions menu</text>
-      <text x="720" y="280" className="callout-label">Named window · rename session · kill session</text>
+      {/* +shell — anchor at the button's right edge (shifted +30) */}
+      <CalloutLine points={[[690, 212], [690, 168], [742, 168]]} />
+      <text x="750" y="164" className="callout-label-strong">+shell</text>
+      <text x="750" y="180" className="callout-label">Quick-create a new shell window</text>
+
+      {/* ⋮ actions menu — anchor at the kebab glyph's right edge (shifted +30) */}
+      <CalloutLine points={[[718, 212], [718, 268], [742, 268]]} />
+      <text x="750" y="264" className="callout-label-strong">⋮  Actions menu</text>
+      <text x="750" y="280" className="callout-label">Named window · rename session · kill session</text>
     </svg>
   );
 }

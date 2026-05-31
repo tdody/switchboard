@@ -55,11 +55,23 @@ const AGENT_SECONDARY: ReadonlyArray<DocsSecondaryItem> = [
   // point on the diagram (the whole card is the grab target), so it
   // lives in the secondary strip rather than a primary callout.
   { label: "Drag", desc: "reorder within the session column" },
+  // THI-158: cross-reference the ✨ session-level auto-rename. The button
+  // lives on the Session header (its primary callout is over there), but
+  // a user browsing the Agent tile tab should still discover the feature
+  // without having to switch tabs first.
+  {
+    label: "✨ Auto-rename",
+    desc: "see Session header tab — bulk-renames every window via an LLM call",
+  },
 ];
 const SHELL_SECONDARY: ReadonlyArray<DocsSecondaryItem> = [
   { label: "CPU / mem", desc: "when elevated" },
   { label: "Age", desc: "since last output" },
   { label: "Drag", desc: "reorder within the session column" },
+  {
+    label: "✨ Auto-rename",
+    desc: "see Session header tab — bulk-renames every window via an LLM call",
+  },
 ];
 
 // Card placement inside the 1240×480 SVG body. Agent (400-tall) and

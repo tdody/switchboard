@@ -34,6 +34,29 @@ describe("DocsModal", () => {
     expect(strip!.textContent).toMatch(/drag/i);
   });
 
+  it("documents the ✨ auto-rename button on the Session header diagram (THI-158)", () => {
+    // The Session header tab is the default — no click needed.
+    render(<DocsModal onClose={vi.fn()} />);
+    const diagram = document.querySelector('[aria-label*="Session header"]');
+    expect(diagram).toBeTruthy();
+    expect(diagram!.textContent).toMatch(/auto-rename/i);
+    expect(diagram!.textContent).toMatch(/llm call/i);
+  });
+
+  it("cross-references auto-rename from both tile secondary strips (THI-158)", () => {
+    // The button only lives on the Session header tab visually, but a user
+    // who lands on the tile tabs should still discover it.
+    for (const tab of [/agent tile/i, /shell tile/i]) {
+      cleanup();
+      render(<DocsModal onClose={vi.fn()} />);
+      fireEvent.click(screen.getByRole("tab", { name: tab }));
+      const strip = document.querySelector(".docs-secondary");
+      expect(strip).toBeTruthy();
+      expect(strip!.textContent).toMatch(/auto-rename/i);
+      expect(strip!.textContent).toMatch(/see session header tab/i);
+    }
+  });
+
   it("Replay tour button clears the dismissed flag AND triggers a reload (THI-147)", () => {
     // Seed the dismissed flag — like a returning user.
     localStorage.setItem("switchboard:tour:v1:dismissed", "1");
