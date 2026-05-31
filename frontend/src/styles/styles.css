@@ -539,6 +539,36 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .col-actions .col-quick:disabled { opacity: 0.5; }
 
+/* ─── Auto-rename ✨ button (THI-67) ──────────────────────────
+ * Variant F from docs/design-explorations/auto-rename-button-variants.html.
+ * Gradient signals "AI/magic action" without text, distinguishes from the
+ * +claude / +shell quick-creates next to it. Scale-up on hover gives a
+ * tactile press-affordance. Focus-visible ring is honored via the inherited
+ * .btn :focus-visible rule (--accent-edge outline). */
+.col-actions .btn-auto-rename {
+  height: 22px;
+  width: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: linear-gradient(135deg, var(--tone-amber), var(--accent));
+  color: var(--bg);
+  cursor: pointer;
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.col-actions .btn-auto-rename:hover { transform: scale(1.05); filter: brightness(1.05); }
+.col-actions .btn-auto-rename:focus-visible {
+  outline: 1.5px solid var(--accent-edge);
+  outline-offset: 1px;
+}
+[data-reduced-motion="true"] .col-actions .btn-auto-rename {
+  transition: filter 0.15s ease;
+}
+[data-reduced-motion="true"] .col-actions .btn-auto-rename:hover {
+  transform: none;
+}
+
 /* ─── Dropdown / overflow menu ────────────────────────────── */
 .dropdown { position: relative; display: inline-flex; }
 .dropdown-menu {
