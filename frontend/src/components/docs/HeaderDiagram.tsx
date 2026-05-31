@@ -18,13 +18,19 @@ export function HeaderDiagram() {
       aria-label="Session header diagram"
     >
       {/* THI-158: ✨ auto-rename button uses the same amber→accent gradient
-          as the real Kanban button (`.btn-auto-rename` in styles.css). OKLCH
-          stops so the swatch tracks the theme. `xlink:href`-style id is fine —
-          there's only one HeaderDiagram in the tree at a time. */}
+          as the real Kanban button (`.btn-auto-rename` in styles.css). Stops
+          read from the live `--tone-amber` / `--accent` CSS vars so the
+          swatch tracks the active theme automatically — light mode darkens
+          the L of both, contrast/phosphor get their own theme-appropriate
+          values. NOTE: `stop-color` as a presentation attribute doesn't
+          accept `oklch(…)` reliably across renderers (falls back to black);
+          setting it through the CSS property via `style` does, AND it lets
+          us thread CSS vars in. There's only one HeaderDiagram in the tree
+          at a time, so the gradient id is safe to hardcode. */}
       <defs>
         <linearGradient id="rn-grad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="oklch(0.80 0.14 80)" />
-          <stop offset="100%" stopColor="oklch(0.78 0.13 145)" />
+          <stop offset="0%" style={{ stopColor: "var(--tone-amber)" }} />
+          <stop offset="100%" style={{ stopColor: "var(--accent)" }} />
         </linearGradient>
       </defs>
 
