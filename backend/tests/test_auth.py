@@ -520,3 +520,92 @@ def test_regenerate_rejects_csrf_only_without_session_or_bearer(token_path, monk
             headers={"x-csrf-token": csrf_secret},
         )
         assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# THI-173 / sec:L1 — token file perms hardening
+# ---------------------------------------------------------------------------
+
+
+def test_existing_token_file_loose_perms_is_tightened(token_path):
+    """If a prior install (or editor save) left the token file at 0644,
+    load_or_create_token must NOT silently keep using it world-readable.
+    Tighten to 0600 and log a WARNING."""
+    # Pre-create the file at 0644 with a known token.
+    token_path.write_text("oldtoken")
+    token_path.chmod(0o644)
+    assert stat.S_IMODE(token_path.stat().st_mode) == 0o644
+
+    loaded = auth_mod.load_or_create_token()
+    # The token value is preserved (we don't throw it away on a perm fix).
+    assert loaded == "oldtoken"
+    # But the file is now 0600.
+    assert stat.S_IMODE(token_path.stat().st_mode) == 0o600
+
+
+def test_atomic_write_never_creates_world_readable_file(token_path):
+    """`_atomic_write_0600` must produce a 0600 file even if the process
+    umask is permissive (e.g. 0o000 in CI). The implementation defends with
+    explicit fchmod before the replace."""
+    import os as _os
+
+    old_umask = _os.umask(0o000)
+    try:
+        auth_mod._atomic_write_0600(token_path, "fresh")
+    finally:
+        _os.umask(old_umask)
+    assert token_path.read_text() == "fresh"
+    assert stat.S_IMODE(token_path.stat().st_mode) == 0o600
+
+
+def test_regenerate_uses_atomic_write_with_0600(token_path):
+    """Regenerate has to honor the same atomicity guarantee."""
+    auth_mod.regenerate_token()
+    assert stat.S_IMODE(token_path.stat().st_mode) == 0o600
+
+
+# ---------------------------------------------------------------------------
+# THI-178 / sec:L6 — _authenticate runs all comparisons unconditionally
+# ---------------------------------------------------------------------------
+
+
+def test_authenticate_returns_via_query_only_when_query_is_only_match(token_path, monkeypatch):
+    """`via_query_token` should be True ONLY when the request had no other
+    valid auth signal — otherwise the bootstrap redirect (M2) fires
+    unnecessarily on a client that already has a session."""
+    from starlette.datastructures import Headers
+
+    from switchboard.security import SESSION_COOKIE, SecurityMiddleware
+
+    if not auth_mod.auth_state.token:
+        auth_mod.auth_state.init()
+    token = auth_mod.auth_state.token
+    sess = auth_mod.auth_state.create_session()
+
+    # Case 1: bearer + query — bearer wins, via_query=False.
+    authed, via_q = SecurityMiddleware._authenticate(
+        Headers({"authorization": f"Bearer {token}"}),
+        {},
+        {"token": [token]},
+    )
+    assert (authed, via_q) == (True, False)
+
+    # Case 2: session cookie + query — session wins, via_query=False.
+    authed, via_q = SecurityMiddleware._authenticate(
+        Headers(),
+        {SESSION_COOKIE: sess},
+        {"token": [token]},
+    )
+    assert (authed, via_q) == (True, False)
+
+    # Case 3: query only — via_query=True (this is the bootstrap path).
+    authed, via_q = SecurityMiddleware._authenticate(
+        Headers(),
+        {},
+        {"token": [token]},
+    )
+    assert (authed, via_q) == (True, True)
+
+    # Case 4: nothing — both False.
+    authed, via_q = SecurityMiddleware._authenticate(Headers(), {}, {})
+    assert (authed, via_q) == (False, False)

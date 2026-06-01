@@ -219,3 +219,46 @@ def test_window_404_when_pane_missing(client: TestClient, monkeypatch: pytest.Mo
     monkeypatch.setattr(rename_ai, "_collect_window_context", lambda _s, _i: [])
     r = client.post("/api/auto-rename-window?session=main&index=99", headers=_csrf(client))
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# THI-176 / sec:L4 — never echo Anthropic SDK error text in response detail
+# ---------------------------------------------------------------------------
+
+
+def test_invalid_json_response_does_not_leak_raw_model_output(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The parser error embeds the raw output. The HTTP response must NOT
+    contain that — it would be a fingerprinting / data-exfil channel."""
+    _patch_session_context(monkeypatch, [{"index": 1, "current_name": "shell"}])
+    secret_marker = "SEKRIT-DEPLOYMENT-IDENTIFIER-123"
+    monkeypatch.setattr(
+        anthropic_client,
+        "complete",
+        lambda _p, **_kw: (f"NOT JSON but contains {secret_marker}", 10, 5),
+    )
+    r = client.post("/api/auto-rename-session?session=main", headers=_csrf(client))
+    assert r.status_code == 502
+    detail = r.json().get("detail", "")
+    assert secret_marker not in detail
+    # Generic message — no SDK internals.
+    assert detail == "upstream returned unparseable response"
+
+
+def test_unexpected_completion_error_returns_generic_502(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An arbitrary unexpected SDK exception must surface as a generic 502 —
+    no `str(e)` interpolation that could leak request URLs / version hints."""
+    _patch_session_context(monkeypatch, [{"index": 1, "current_name": "shell"}])
+
+    def _explode(_prompt: str, **_kw):
+        raise RuntimeError("internal-request-id=evidence-of-fingerprint")
+
+    monkeypatch.setattr(anthropic_client, "complete", _explode)
+    r = client.post("/api/auto-rename-session?session=main", headers=_csrf(client))
+    assert r.status_code == 502
+    detail = r.json().get("detail", "")
+    assert "evidence-of-fingerprint" not in detail
+    assert detail == "upstream completion failed"

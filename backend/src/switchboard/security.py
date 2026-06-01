@@ -192,18 +192,31 @@ class SecurityMiddleware:
         Session cookie is validated against the server-side session store
         (THI-161, sec:H3) — NOT compared to the token, so a leaked cookie
         cannot be used as a bearer-equivalent token.
+
+        THI-178 (sec:L6): all three candidates are computed unconditionally
+        before returning, so response timing cannot reveal *which* channel
+        matched (or that any matched at all). The early-return pattern would
+        otherwise let an attacker distinguish "bearer present and wrong",
+        "bearer absent, session wrong", "all three absent" from latency
+        — minor on loopback, mildly useful on a network deployment.
         """
         token = auth_state.token
         auth_header = headers.get("authorization", "")
-        if auth_header.startswith("Bearer ") and secrets.compare_digest(auth_header[7:], token):
-            return True, False
+        bearer_value = auth_header[7:] if auth_header.startswith("Bearer ") else ""
+        bearer_ok = bool(bearer_value) and secrets.compare_digest(bearer_value, token)
+
         sess = cookies.get(SESSION_COOKIE, "")
-        if sess and auth_state.is_valid_session(sess):
-            return True, False
+        session_ok = bool(sess) and auth_state.is_valid_session(sess)
+
         q = (query.get("token") or [""])[0]
-        if q and secrets.compare_digest(q, token):
-            return True, True
-        return False, False
+        query_ok = bool(q) and secrets.compare_digest(q, token)
+
+        authed = bearer_ok or session_ok or query_ok
+        # `via_query_token` only matters when query is the *only* successful
+        # path — that's when the bootstrap → 303 redirect should fire. If the
+        # client already has a session cookie, we don't need to re-bootstrap.
+        via_query = query_ok and not (bearer_ok or session_ok)
+        return authed, via_query
 
     @staticmethod
     def _csrf_ok(headers: Headers, cookies: dict[str, str]) -> bool:

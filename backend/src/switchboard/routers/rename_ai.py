@@ -106,20 +106,29 @@ async def _suggest(contexts: list[dict]) -> AutoRenameResponse:
         # Import here so the rest of the app boots when the SDK isn't installed.
         from anthropic import APIStatusError, AuthenticationError, RateLimitError
 
+        # THI-176 (sec:L4): log the full SDK error server-side, but never
+        # echo its message in the HTTP response. SDK error strings can carry
+        # request URLs, internal IDs, and SDK version hints — useful only
+        # for an attacker fingerprinting the deployment.
         if isinstance(e, AuthenticationError):
+            log.warning("auto-rename: Anthropic auth failed: %s", e)
             raise HTTPException(status_code=401, detail="invalid Anthropic API key") from e
         if isinstance(e, RateLimitError):
+            log.warning("auto-rename: Anthropic rate-limited: %s", e)
             raise HTTPException(status_code=429, detail="Anthropic rate limit hit") from e
         if isinstance(e, APIStatusError):
-            raise HTTPException(status_code=502, detail=f"Anthropic API error: {e}") from e
+            log.warning("auto-rename: Anthropic API error: %s", e)
+            raise HTTPException(status_code=502, detail="upstream completion failed") from e
         log.warning("auto-rename completion failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"completion failed: {e}") from e
+        raise HTTPException(status_code=502, detail="upstream completion failed") from e
 
     try:
         mapping = anthropic_client.parse_rename_response(text)
     except anthropic_client.AnthropicResponseError as e:
+        # THI-176 (sec:L4): same treatment for parse failures — the parser
+        # error embeds the raw model output, which we don't want to echo.
         log.warning("auto-rename parse failed: %s; raw[:200]=%r", e, e.raw[:200])
-        raise HTTPException(status_code=502, detail=str(e)) from e
+        raise HTTPException(status_code=502, detail="upstream returned unparseable response") from e
 
     suggestions = _diff_suggestions(contexts, mapping)
     return AutoRenameResponse(

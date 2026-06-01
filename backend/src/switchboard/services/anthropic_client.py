@@ -64,6 +64,12 @@ def get_client() -> Any:
     _client = Anthropic(
         api_key=settings.anthropic_api_key
         or None,  # let SDK fall back to ANTHROPIC_API_KEY env var
+        # THI-175 (sec:L3): explicit timeout. The SDK's default is generous
+        # (10 min); a hung Anthropic call would otherwise hold a `to_thread`
+        # worker indefinitely. 30s is plenty for Haiku to finish a 1024-token
+        # completion and short enough that a stalled upstream doesn't pile
+        # up worker threads under repeated user clicks.
+        timeout=30.0,
     )
     return _client
 
