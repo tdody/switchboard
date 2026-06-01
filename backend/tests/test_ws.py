@@ -21,7 +21,9 @@ from switchboard.services import pane_stream, tmux
 BASE_URL = "http://127.0.0.1:8765"
 # TestClient.websocket_connect ignores base_url and always sets Host: testserver,
 # which the loopback host allowlist rejects. Force the right Host.
-_HOST = {"host": "127.0.0.1:8765"}
+# Origin is required on WS upgrades (THI-159, sec:H1) — must match a configured
+# cors_origins entry. http://localhost:5173 is the default.
+_HOST = {"host": "127.0.0.1:8765", "origin": "http://localhost:5173"}
 
 
 class _NoopStreamer:
