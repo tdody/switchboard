@@ -81,17 +81,25 @@ class SecurityMiddleware:
                 await self._reject(scope, receive, send, 403, "missing or invalid CSRF token")
                 return
 
-        # 4. WebSocket Origin check — exposed mode (loopback already trusts the host).
-        if scope["type"] == "websocket" and settings.auth_enabled:
+        # 4. WebSocket Origin check (THI-159/THI-160, sec:H1+H2) — enforced in
+        # BOTH modes. The WS handshake is fully-mutating (each text frame
+        # becomes a tmux send-keys), but browsers cannot send a CSRF header on
+        # the upgrade, so Origin is our only defense against cross-origin
+        # drive-by attacks. Missing Origin is treated as "not allowed" rather
+        # than fail-open: a non-browser CLI tool can opt in by setting Origin
+        # to one of the configured cors_origins.
+        if scope["type"] == "websocket":
             origin = headers.get("origin")
-            if origin and origin not in settings.cors_origins:
+            if not origin or origin not in settings.cors_origins:
                 await self._reject(scope, receive, send, 403, "origin not allowed")
                 return
 
         set_csrf = scope["type"] == "http" and CSRF_COOKIE not in cookies
-        session_value = (
-            auth_state.token if via_query_token and SESSION_COOKIE not in cookies else None
-        )
+        # Mint an opaque session ID on the ?token= bootstrap (THI-161, sec:H3)
+        # — never echo the raw API token as the cookie value.
+        session_value: str | None = None
+        if via_query_token and SESSION_COOKIE not in cookies:
+            session_value = auth_state.create_session()
         if set_csrf or session_value:
             send = self._cookie_setter(send, scope, set_csrf, session_value)
         await self.app(scope, receive, send)
@@ -100,13 +108,19 @@ class SecurityMiddleware:
     def _authenticate(
         headers: Headers, cookies: dict[str, str], query: dict[str, list[str]]
     ) -> tuple[bool, bool]:
-        """Returns (authenticated, via_query_token)."""
+        """Returns (authenticated, via_query_token).
+
+        Bearer header and ?token= bootstrap compare against the API token.
+        Session cookie is validated against the server-side session store
+        (THI-161, sec:H3) — NOT compared to the token, so a leaked cookie
+        cannot be used as a bearer-equivalent token.
+        """
         token = auth_state.token
         auth_header = headers.get("authorization", "")
         if auth_header.startswith("Bearer ") and secrets.compare_digest(auth_header[7:], token):
             return True, False
         sess = cookies.get(SESSION_COOKIE, "")
-        if sess and secrets.compare_digest(sess, token):
+        if sess and auth_state.is_valid_session(sess):
             return True, False
         q = (query.get("token") or [""])[0]
         if q and secrets.compare_digest(q, token):

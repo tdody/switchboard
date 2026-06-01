@@ -126,3 +126,178 @@ def test_regenerate_endpoint_rotates_token(token_path, monkeypatch):
         new_token = r.json()["token"]
         assert new_token != before
         assert auth_mod.auth_state.token == new_token
+
+
+# ---------------------------------------------------------------------------
+# THI-163 / sec:H5 — refuse non-loopback host with auth_required=False
+# ---------------------------------------------------------------------------
+
+
+def test_create_app_refuses_non_loopback_with_auth_disabled(token_path, monkeypatch):
+    """Starting on 0.0.0.0 with SWITCHBOARD_AUTH_REQUIRED=false would expose
+    an unauthenticated tmux/shell to the LAN. create_app() must fail fast."""
+    monkeypatch.setattr(settings, "host", "0.0.0.0")
+    monkeypatch.setattr(settings, "auth_required", False)
+    with pytest.raises(RuntimeError, match="non-loopback"):
+        create_app()
+
+
+def test_create_app_accepts_loopback_with_auth_disabled(token_path, monkeypatch):
+    """The same explicit auth_required=False is fine when bound to loopback."""
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", False)
+    # Should not raise — this is the documented "I really mean no auth, on
+    # my machine only" path.
+    create_app()
+
+
+def test_create_app_accepts_non_loopback_with_auth_enabled(token_path, monkeypatch):
+    """auto-detect (None) on 0.0.0.0 → auth flips on, no refusal."""
+    monkeypatch.setattr(settings, "host", "0.0.0.0")
+    monkeypatch.setattr(settings, "auth_required", None)
+    create_app()
+
+
+# ---------------------------------------------------------------------------
+# THI-162 / sec:H4 — bootstrap URL must not appear in logs at WARNING
+# ---------------------------------------------------------------------------
+
+
+def test_bootstrap_token_not_logged_in_plaintext(token_path, monkeypatch, caplog):
+    """Auth-enabled startup must log only a masked fingerprint, not the
+    full ?token= URL. The full URL goes to a 0600 file and stdout."""
+    import logging as logging_mod
+
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", True)
+    caplog.set_level(logging_mod.WARNING, logger="switchboard.main")
+
+    with TestClient(create_app(), base_url=BASE_URL):
+        pass
+
+    full_token = auth_mod.auth_state.token
+    assert full_token, "test setup: token should have been generated"
+    # The token MUST NOT appear verbatim in any logger record.
+    for record in caplog.records:
+        assert full_token not in record.getMessage(), (
+            f"plaintext token leaked to log: {record.getMessage()!r}"
+        )
+    # A masked fingerprint should be in there somewhere.
+    assert any(auth_mod.mask(full_token) in r.getMessage() for r in caplog.records), (
+        "expected the masked token fingerprint in the startup log"
+    )
+
+
+def test_bootstrap_url_written_to_0600_file(token_path, monkeypatch):
+    """The bootstrap URL is written to ~/.switchboard/bootstrap.url with
+    mode 0600 so the operator can `cat` it without it landing in any log."""
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", True)
+    bootstrap_file = token_path.parent / "bootstrap.url"
+    with TestClient(create_app(), base_url=BASE_URL):
+        pass
+    assert bootstrap_file.exists()
+    assert stat.S_IMODE(bootstrap_file.stat().st_mode) == 0o600
+    content = bootstrap_file.read_text()
+    assert auth_mod.auth_state.token in content
+    assert content.startswith("http://127.0.0.1:")
+
+
+# ---------------------------------------------------------------------------
+# THI-161 / sec:H3 — opaque session IDs, not the raw API token
+# ---------------------------------------------------------------------------
+
+
+def test_session_cookie_is_not_the_raw_token(token_path, monkeypatch):
+    """After a ?token= bootstrap, the sb_session cookie value MUST be a
+    distinct opaque session ID, not the API token itself."""
+    monkeypatch.setattr(settings, "auth_required", True)
+    with TestClient(create_app(), base_url=BASE_URL) as client:
+        r = client.get(f"/api/state?token={auth_mod.auth_state.token}")
+        assert r.status_code == 200
+        sb_session = client.cookies.get("sb_session")
+        assert sb_session
+        # The cookie must NOT equal the API token (the whole point of H3).
+        assert sb_session != auth_mod.auth_state.token
+        # And the session must be tracked server-side.
+        assert auth_mod.auth_state.is_valid_session(sb_session)
+
+
+def test_regenerate_invalidates_existing_sessions(token_path, monkeypatch):
+    """Rotating the token must clear all sessions — otherwise a leaked
+    cookie survives rotation."""
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", True)
+    with TestClient(create_app(), base_url=BASE_URL) as client:
+        # Bootstrap a session.
+        client.get(f"/api/state?token={auth_mod.auth_state.token}")
+        sb_session = client.cookies.get("sb_session")
+        assert sb_session and auth_mod.auth_state.is_valid_session(sb_session)
+        # Rotate the token via the API: need CSRF + the OLD bearer token.
+        old_token = auth_mod.auth_state.token
+        csrf = client.cookies.get("sb_csrf")
+        r = client.post(
+            "/api/auth/regenerate",
+            headers={
+                "x-csrf-token": csrf,
+                "authorization": f"Bearer {old_token}",
+            },
+        )
+        assert r.status_code == 200
+        # The old session must be gone from the server-side store.
+        assert not auth_mod.auth_state.is_valid_session(sb_session)
+
+
+def test_bearer_token_still_works_independently_of_sessions(token_path, monkeypatch):
+    """A non-browser client using Authorization: Bearer must NOT need a
+    session — bearer auth is the API client path (H3 acceptance criterion)."""
+    monkeypatch.setattr(settings, "auth_required", True)
+    with TestClient(create_app(), base_url=BASE_URL) as client:
+        r = client.get(
+            "/api/state",
+            headers={"authorization": f"Bearer {auth_mod.auth_state.token}"},
+        )
+        assert r.status_code == 200
+        # No session was created — bearer clients don't get cookies.
+        assert "sb_session" not in client.cookies
+
+
+# ---------------------------------------------------------------------------
+# THI-159 / THI-160 — sec:H1+H2 — WS Origin enforcement in all modes
+# ---------------------------------------------------------------------------
+
+
+def test_ws_rejected_without_origin_in_loopback_mode(token_path, monkeypatch):
+    """Missing Origin on a WS upgrade is rejected even in loopback mode —
+    fixes the drive-by RCE vector where any local page could open ws://."""
+    from starlette.websockets import WebSocketDisconnect
+
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", None)
+    monkeypatch.setattr(settings, "cors_origins", ["http://localhost:5173"])
+    with TestClient(create_app(), base_url=BASE_URL) as client:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(
+                "/ws/pane?session=x&index=0",
+                headers={"host": "127.0.0.1:8765"},  # NO origin
+            ):
+                pass
+
+
+def test_ws_rejected_with_evil_origin_in_loopback_mode(token_path, monkeypatch):
+    """A cross-origin page (evil.com) opening ws://127.0.0.1 is rejected."""
+    from starlette.websockets import WebSocketDisconnect
+
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", None)
+    monkeypatch.setattr(settings, "cors_origins", ["http://localhost:5173"])
+    with TestClient(create_app(), base_url=BASE_URL) as client:
+        with pytest.raises(WebSocketDisconnect):
+            with client.websocket_connect(
+                "/ws/pane?session=x&index=0",
+                headers={
+                    "host": "127.0.0.1:8765",
+                    "origin": "http://evil.example.com",
+                },
+            ):
+                pass
