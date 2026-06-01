@@ -301,3 +301,222 @@ def test_ws_rejected_with_evil_origin_in_loopback_mode(token_path, monkeypatch):
                 },
             ):
                 pass
+
+
+# ---------------------------------------------------------------------------
+# THI-164 / sec:M1 — Host header normalization
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "host_header",
+    [
+        "127.0.0.1:8765",
+        "127.0.0.1",
+        "localhost:8765",
+        "localhost",
+        "LocalHost:8765",  # case-insensitive
+        "localhost.",  # trailing dot
+        "localhost.:8765",
+        "[::1]:8765",  # bracketed IPv6
+        "[::1]",
+        "::1",  # bracketless IPv6
+    ],
+)
+def test_host_header_variants_accepted_in_loopback(token_path, monkeypatch, host_header):
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", None)
+    with TestClient(create_app(), base_url=BASE_URL) as client:
+        r = client.get("/api/state", headers={"host": host_header})
+        assert r.status_code == 200, f"expected 200 for Host={host_header!r}"
+
+
+@pytest.mark.parametrize(
+    "host_header",
+    [
+        "evil.example.com",
+        "evil.example.com:8765",
+        "127.0.0.1:9999",  # wrong port
+        "[::1]:9999",  # wrong port (IPv6)
+        "[bad",  # malformed brackets
+    ],
+)
+def test_host_header_variants_rejected_in_loopback(token_path, monkeypatch, host_header):
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", None)
+    with TestClient(create_app(), base_url=BASE_URL) as client:
+        r = client.get("/api/state", headers={"host": host_header})
+        assert r.status_code == 421, f"expected 421 for Host={host_header!r}"
+
+
+# ---------------------------------------------------------------------------
+# THI-165 / sec:M2 — 303-redirect to strip ?token=; Referrer-Policy
+# ---------------------------------------------------------------------------
+
+
+def test_query_token_bootstrap_303_redirects_without_token(token_path, monkeypatch):
+    """The ?token=… bootstrap must NOT keep the token in the URL — set the
+    session cookie and 303-redirect to the bare path."""
+    monkeypatch.setattr(settings, "auth_required", True)
+    with TestClient(create_app(), base_url=BASE_URL, follow_redirects=False) as client:
+        r = client.get(f"/api/state?token={auth_mod.auth_state.token}")
+        assert r.status_code == 303
+        location = r.headers["location"]
+        assert "token=" not in location, f"token must not appear in Location: {location!r}"
+        # Session cookie was set as part of the redirect.
+        assert "sb_session" in client.cookies
+
+
+def test_query_token_preserves_other_query_params_in_redirect(token_path, monkeypatch):
+    monkeypatch.setattr(settings, "auth_required", True)
+    with TestClient(create_app(), base_url=BASE_URL, follow_redirects=False) as client:
+        r = client.get(f"/api/state?token={auth_mod.auth_state.token}&keep=this")
+        assert r.status_code == 303
+        assert "keep=this" in r.headers["location"]
+        assert "token=" not in r.headers["location"]
+
+
+def test_referrer_policy_header_set_on_responses(token_path, monkeypatch):
+    """Every non-open response should carry Referrer-Policy: no-referrer."""
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", None)
+    with TestClient(create_app(), base_url=BASE_URL) as client:
+        r = client.get("/api/state")
+        assert r.headers.get("referrer-policy") == "no-referrer"
+
+
+# ---------------------------------------------------------------------------
+# THI-166 / sec:M3 — Max-Age on cookie + sliding session expiry
+# ---------------------------------------------------------------------------
+
+
+def test_session_cookie_has_max_age(token_path, monkeypatch):
+    monkeypatch.setattr(settings, "auth_required", True)
+    with TestClient(create_app(), base_url=BASE_URL, follow_redirects=False) as client:
+        r = client.get(f"/api/state?token={auth_mod.auth_state.token}")
+        assert r.status_code == 303
+        # httpx merges multiple Set-Cookie headers via `get_list`.
+        set_cookies = r.headers.get_list("set-cookie")
+        sb_session_set_cookies = [c for c in set_cookies if c.startswith("sb_session=")]
+        assert sb_session_set_cookies, (
+            f"expected an sb_session Set-Cookie header; got {set_cookies}"
+        )
+        assert "Max-Age=" in sb_session_set_cookies[0]
+        assert "HttpOnly" in sb_session_set_cookies[0]
+
+
+def test_session_expires_when_idle_past_ttl(token_path, monkeypatch):
+    """is_valid_session refreshes last_seen on use; sessions idle past
+    SESSION_TTL_S are evicted."""
+    import time as _time
+
+    sess = auth_mod.auth_state.create_session()
+    # Fresh session → valid.
+    assert auth_mod.auth_state.is_valid_session(sess)
+    # Backdate last_seen past the TTL.
+    auth_mod.auth_state.sessions[sess]["last_seen"] = _time.monotonic() - auth_mod.SESSION_TTL_S - 1
+    # Now it should be considered expired and dropped.
+    assert not auth_mod.auth_state.is_valid_session(sess)
+    assert sess not in auth_mod.auth_state.sessions
+
+
+# ---------------------------------------------------------------------------
+# THI-167 / sec:M4 — rate limit on auto-rename + WS connect
+# ---------------------------------------------------------------------------
+
+
+def test_rate_limiter_allows_under_budget_then_blocks():
+    from switchboard.rate_limit import RateLimiter
+
+    limiter = RateLimiter(max_calls=3, window_s=60.0, name="t")
+    assert limiter.allow("ip-a")
+    assert limiter.allow("ip-a")
+    assert limiter.allow("ip-a")
+    # 4th call within the window is blocked.
+    assert not limiter.allow("ip-a")
+    # Other keys have their own bucket.
+    assert limiter.allow("ip-b")
+
+
+# ---------------------------------------------------------------------------
+# THI-168 / sec:M5 — reject "*" and malformed CORS origins at startup
+# ---------------------------------------------------------------------------
+
+
+def test_create_app_refuses_wildcard_cors(token_path, monkeypatch):
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", None)
+    monkeypatch.setattr(settings, "cors_origins", ["*"])
+    with pytest.raises(RuntimeError, match="\\*"):
+        create_app()
+
+
+def test_create_app_refuses_origin_without_scheme(token_path, monkeypatch):
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", None)
+    monkeypatch.setattr(settings, "cors_origins", ["localhost:5173"])
+    with pytest.raises(RuntimeError, match="http://"):
+        create_app()
+
+
+def test_create_app_refuses_glob_origin(token_path, monkeypatch):
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", None)
+    monkeypatch.setattr(settings, "cors_origins", ["http://*.example.com"])
+    with pytest.raises(RuntimeError, match="\\*"):
+        create_app()
+
+
+# ---------------------------------------------------------------------------
+# THI-169 / sec:M6 — CSP + security response headers
+# ---------------------------------------------------------------------------
+
+
+def test_csp_and_security_headers_present(token_path, monkeypatch):
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", None)
+    with TestClient(create_app(), base_url=BASE_URL) as client:
+        r = client.get("/api/state")
+        assert "content-security-policy" in r.headers
+        csp = r.headers["content-security-policy"]
+        assert "default-src 'self'" in csp
+        assert "frame-ancestors 'none'" in csp
+        assert r.headers.get("x-frame-options") == "DENY"
+        assert r.headers.get("x-content-type-options") == "nosniff"
+        assert r.headers.get("referrer-policy") == "no-referrer"
+
+
+def test_security_headers_present_on_healthz_too(token_path, monkeypatch):
+    """Open paths still emit baseline security headers — defense in depth."""
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", None)
+    with TestClient(create_app(), base_url=BASE_URL) as client:
+        r = client.get("/healthz")
+        assert r.headers.get("x-frame-options") == "DENY"
+        assert "content-security-policy" in r.headers
+
+
+# ---------------------------------------------------------------------------
+# THI-172 / sec:M9 — regenerate requires authentication even in loopback
+# ---------------------------------------------------------------------------
+
+
+def test_regenerate_rejects_csrf_only_without_session_or_bearer(token_path, monkeypatch):
+    """In loopback mode a same-origin malicious page could previously
+    rotate the token with only the CSRF cookie. The route now requires
+    a valid session OR a bearer match."""
+    monkeypatch.setattr(settings, "host", "127.0.0.1")
+    monkeypatch.setattr(settings, "auth_required", None)
+    with TestClient(create_app(), base_url=BASE_URL) as client:
+        # Force-init AuthState so we have a CSRF secret without first GETting
+        # anything (which would auto-issue a session and defeat the test).
+        if not auth_mod.auth_state.csrf_secret:
+            auth_mod.auth_state.init()
+        csrf_secret = auth_mod.auth_state.csrf_secret
+        # Set the CSRF cookie directly on the client; do NOT set sb_session.
+        client.cookies.set("sb_csrf", csrf_secret)
+        r = client.post(
+            "/api/auth/regenerate",
+            headers={"x-csrf-token": csrf_secret},
+        )
+        assert r.status_code == 401

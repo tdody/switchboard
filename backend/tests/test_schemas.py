@@ -1,4 +1,7 @@
-from switchboard.schemas import Prompt, PromptChoice, Window
+import pytest
+from pydantic import BaseModel, ValidationError
+
+from switchboard.schemas import Prompt, PromptChoice, TmuxName, Window
 
 _BASE = {
     "id": "main:0",
@@ -46,3 +49,45 @@ def test_prompt_defaults_question_and_choices() -> None:
     p = Prompt(kind="enter")
     assert p.question is None
     assert p.choices == []
+
+
+# ---------------------------------------------------------------------------
+# THI-170 / sec:M7 — TmuxName accepts realistic names, rejects flag injection
+# ---------------------------------------------------------------------------
+
+
+class _TmuxNameModel(BaseModel):
+    name: TmuxName
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "dev",
+        "feature-123",
+        "api / web",
+        "test_v2",
+        "switchboard",
+        "a" * 64,  # at max length
+    ],
+)
+def test_tmux_name_accepts_realistic(name):
+    assert _TmuxNameModel(name=name).name == name
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "-Xkill-server",  # leading dash (flag injection)
+        "--help",
+        "-F",
+        "",  # empty
+        "a" * 65,  # over max length
+        "foo\nbar",  # newline
+        "foo\x00bar",  # NUL
+        "foo\x1bbar",  # ESC (terminal escape)
+    ],
+)
+def test_tmux_name_rejects_dangerous(name):
+    with pytest.raises(ValidationError):
+        _TmuxNameModel(name=name)

@@ -8,7 +8,7 @@ lets the user override the model's choice before applying.
 Status codes:
   - 503  no Anthropic key configured (UI then hides the ✨ button)
   - 401  SDK authentication failure (bad key)
-  - 429  upstream rate limit
+  - 429  upstream rate limit (Anthropic) or local per-IP cap (THI-167)
   - 502  model returned non-JSON / unparseable
   - 404  target session / window not found or empty
   - 200  `AutoRenameResponse` (suggestions + usage)
@@ -20,14 +20,28 @@ import asyncio
 import logging
 import re
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from switchboard.config import settings
+from switchboard.rate_limit import RENAME_AI_LIMITER, client_ip
 from switchboard.schemas import AiStatus, AutoRenameResponse, RenameSuggestion, Usage
 from switchboard.services import anthropic_client, claude_parser, tmux
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
+
+
+def _enforce_rate_limit(request: Request) -> None:
+    """THI-167 (sec:M4): cap Anthropic-billed calls at 10/min per IP. A
+    malicious tab in a fetch loop can otherwise run up the bill quickly."""
+    ip = client_ip(request)
+    if not RENAME_AI_LIMITER.allow(ip):
+        log.warning("auto-rename rate-limited for client %s", ip)
+        raise HTTPException(
+            status_code=429,
+            detail="auto-rename rate limit exceeded (max 10/min per client)",
+        )
+
 
 # ANSI SGR strip — captures the `^[[...m` color sequences that capture-pane
 # emits with the `-e` flag. We strip them BEFORE feeding the prompt so we
@@ -55,10 +69,11 @@ def auto_rename_status() -> AiStatus:
 
 
 @router.post("/auto-rename-session", response_model=AutoRenameResponse)
-async def auto_rename_session(session: str) -> AutoRenameResponse:
+async def auto_rename_session(session: str, request: Request) -> AutoRenameResponse:
     """Suggest names for every window in `session`. Sequential per-window
     capture so a slow tmux doesn't pile up parallel `capture-pane` calls.
     The SDK request happens off the event loop via `asyncio.to_thread`."""
+    _enforce_rate_limit(request)
     # Heavy bits (libtmux + Anthropic SDK) all live in worker threads so the
     # event loop stays responsive even on a 30-window session.
     target_windows = await asyncio.to_thread(_collect_session_context, session)
@@ -68,10 +83,11 @@ async def auto_rename_session(session: str) -> AutoRenameResponse:
 
 
 @router.post("/auto-rename-window", response_model=AutoRenameResponse)
-async def auto_rename_window(session: str, index: int) -> AutoRenameResponse:
+async def auto_rename_window(session: str, index: int, request: Request) -> AutoRenameResponse:
     """Single-window variant of `/auto-rename-session`. Same prompt
     machinery, just scoped — useful when one card's name drifted but the
     rest are fine."""
+    _enforce_rate_limit(request)
     contexts = await asyncio.to_thread(_collect_window_context, session, index)
     if not contexts:
         raise HTTPException(status_code=404, detail=f"window {session}:{index} not found")

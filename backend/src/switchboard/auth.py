@@ -10,10 +10,16 @@ from __future__ import annotations
 import logging
 import secrets
 import stat
+import time
 
 from switchboard.config import settings
 
 log = logging.getLogger(__name__)
+
+# Sliding session lifetime (THI-166, sec:M3). Each successful `is_valid_session`
+# call refreshes `last_seen`; sessions idle longer than this are dropped.
+# Must match the Max-Age on the sb_session cookie so client + server agree.
+SESSION_TTL_S = 24 * 60 * 60
 
 
 def _generate() -> str:
@@ -98,17 +104,29 @@ class AuthState:
         """Mint a fresh opaque session ID and remember it. Returns the value
         that should be set as the `sb_session` cookie."""
         session_id = secrets.token_urlsafe(32)
-        self.sessions[session_id] = {}
+        now = time.monotonic()
+        self.sessions[session_id] = {"created_at": now, "last_seen": now}
         return session_id
 
     def is_valid_session(self, session_id: str) -> bool:
-        """True iff `session_id` was issued by `create_session` and not yet
-        revoked. Constant-time membership lookup is not meaningful for opaque
-        random IDs (the attacker has no oracle for the secret), so a normal
-        dict lookup is fine here."""
+        """True iff `session_id` was issued by `create_session`, hasn't been
+        revoked, and isn't past its idle-timeout (THI-166, sec:M3).
+
+        Refreshes `last_seen` on success — sliding window.
+        """
         if not session_id:
             return False
-        return session_id in self.sessions
+        entry = self.sessions.get(session_id)
+        if entry is None:
+            return False
+        now = time.monotonic()
+        last_seen = entry.get("last_seen", 0)
+        if now - last_seen > SESSION_TTL_S:
+            # Idle too long; drop it and don't honor the cookie.
+            self.sessions.pop(session_id, None)
+            return False
+        entry["last_seen"] = now
+        return True
 
 
 auth_state = AuthState()
