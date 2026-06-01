@@ -18,19 +18,50 @@ log = logging.getLogger(__name__)
 
 
 def _assert_safe_config() -> None:
-    """Fail fast on dangerous host/auth combinations (THI-163, sec:H5).
+    """Fail fast on dangerous host/auth/CORS combinations.
 
-    A user who explicitly sets `SWITCHBOARD_AUTH_REQUIRED=false` AND a
-    non-loopback host is asking to expose an unauthenticated tmux/shell to
-    the network. Refuse to start rather than silently doing that — the
-    auto-detect path (`auth_required=None`) still flips auth on for
-    non-loopback hosts, so legitimate exposed deployments are unaffected.
+    THI-163 (sec:H5): a user who explicitly sets `SWITCHBOARD_AUTH_REQUIRED=
+    false` AND a non-loopback host is asking to expose an unauthenticated
+    tmux/shell to the network. Refuse to start rather than silently doing
+    that — the auto-detect path (`auth_required=None`) still flips auth on
+    for non-loopback hosts, so legitimate exposed deployments are unaffected.
+
+    THI-168 (sec:M5): `allow_credentials=True` (we always set this for
+    the SPA's cookie-based auth flow) is incompatible with `*` origins.
+    Reject `*`, reject entries that aren't `scheme://host[:port]`. A user
+    who needs more permissive CORS for some integration can list each
+    origin explicitly.
     """
     if settings.auth_required is False and not is_loopback_host(settings.host):
         raise RuntimeError(
             f"refusing to start: host={settings.host!r} is non-loopback but "
             "SWITCHBOARD_AUTH_REQUIRED=false. Set SWITCHBOARD_AUTH_REQUIRED=true "
             "or unset it to use the auto-detect default."
+        )
+    for origin in settings.cors_origins:
+        if origin == "*":
+            raise RuntimeError(
+                "refusing to start: SWITCHBOARD_CORS_ORIGINS contains '*'. "
+                "Wildcard origins are incompatible with credentialed CORS; "
+                "list each origin explicitly (e.g. http://localhost:5173)."
+            )
+        if not (origin.startswith("http://") or origin.startswith("https://")):
+            raise RuntimeError(
+                f"refusing to start: cors_origins entry {origin!r} must be a "
+                "full http:// or https:// URL with an explicit host."
+            )
+        # Catch glob-ish patterns that some env files attempt; CORS spec
+        # doesn't support them and CORSMiddleware compares string-equal.
+        if "*" in origin:
+            raise RuntimeError(
+                f"refusing to start: cors_origins entry {origin!r} contains '*'. "
+                "Wildcard subdomains are not supported; list each origin."
+            )
+    if len(settings.cors_origins) > 5:
+        log.warning(
+            "cors_origins has %d entries — consider tightening; credentialed "
+            "CORS is more dangerous as the list grows.",
+            len(settings.cors_origins),
         )
 
 

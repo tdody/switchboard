@@ -111,7 +111,12 @@ class Settings(BaseSettings):
 
     @property
     def allowed_hosts(self) -> set[str]:
-        """Host header values accepted in loopback mode (anti DNS-rebinding)."""
+        """Host header values accepted in loopback mode (anti DNS-rebinding).
+
+        Kept for backwards-compatibility / introspection. The middleware
+        actually calls `host_header_is_allowed` for the live check
+        (THI-164, sec:M1) — it normalizes the header before comparing.
+        """
         hosts: set[str] = set()
         for name in ("127.0.0.1", "localhost", "[::1]"):
             hosts.add(name)
@@ -119,6 +124,49 @@ class Settings(BaseSettings):
         hosts.add(self.host)
         hosts.add(f"{self.host}:{self.port}")
         return hosts
+
+    def host_header_is_allowed(self, raw_host: str) -> bool:
+        """Semantic check for the loopback-mode Host header (THI-164, sec:M1).
+
+        Browsers and proxies normalize Host inconsistently — trailing dots,
+        case, bracketless IPv6 — so a static allowlist either rejects valid
+        traffic or fails open on attacker-controlled variants. Parse the
+        header, then accept iff:
+        - the host portion is loopback (or matches the configured bind host)
+        - the port portion is unspecified or matches our configured port
+        """
+        if not raw_host:
+            return False
+        h = raw_host.strip().lower().rstrip(".")
+        if not h:
+            return False
+        # Split host:port. Bracketed IPv6: [::1] or [::1]:8765.
+        port_part: str
+        if h.startswith("["):
+            end = h.find("]")
+            if end == -1:
+                return False  # malformed brackets
+            host_part = h[1:end]
+            rest = h[end + 1 :]
+            if rest and not rest.startswith(":"):
+                return False
+            port_part = rest[1:] if rest.startswith(":") else ""
+        elif h.count(":") == 1:
+            host_part, _, port_part = h.partition(":")
+        elif h.count(":") > 1:
+            # Bare IPv6 without brackets (`::1`) — there is no port.
+            host_part, port_part = h, ""
+        else:
+            host_part, port_part = h, ""
+        # A trailing dot on the hostname (`localhost.`) is the FQDN form;
+        # strip it here too so `localhost.:8765` matches the same way as
+        # `localhost.` does in the non-port branch.
+        host_part = host_part.rstrip(".")
+        if port_part and port_part != str(self.port):
+            return False
+        if is_loopback_host(host_part):
+            return True
+        return host_part == self.host.strip().lower().rstrip(".")
 
 
 settings = Settings()

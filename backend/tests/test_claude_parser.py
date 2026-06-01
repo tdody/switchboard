@@ -419,6 +419,71 @@ def test_gh_pr_returns_none_on_gh_failure(monkeypatch: pytest.MonkeyPatch) -> No
     assert claude_parser._gh_pr("/some/repo", "no-pr-branch") == (None, None, None)
 
 
+# ---------------------------------------------------------------------------
+# THI-171 / sec:M8 — reject dash-prefixed branches; use -- separator on gh
+# ---------------------------------------------------------------------------
+
+
+def test_gh_pr_rejects_dash_prefixed_branch_without_shelling_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`gh pr view -R evil/repo` would be interpreted as a flag. A branch
+    literally named `-R evil/repo` (or `--help`) must never reach gh."""
+    calls: list[list[str]] = []
+
+    def fake_run(argv: list[str], **_kwargs: object) -> object:
+        calls.append(argv)
+        raise AssertionError("subprocess should not have been called")
+
+    monkeypatch.setattr(claude_parser.subprocess, "run", fake_run)
+    monkeypatch.setattr(claude_parser, "_PR_CACHE", {})
+
+    assert claude_parser._gh_pr("/some/repo", "-R evil/repo") == (None, None, None)
+    assert claude_parser._gh_pr("/some/repo", "--help") == (None, None, None)
+    assert calls == []
+
+
+def test_gh_pr_argv_uses_dash_dash_separator_before_branch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defense in depth — even after the leading-dash filter, the branch is
+    passed after `--` so a legitimate branch like `--foo-feature` (unusual
+    but legal) can't be misparsed as a flag."""
+    captured: dict[str, list[str]] = {}
+
+    class FakeProc:
+        returncode = 1
+        stdout = ""
+
+    def fake_run(argv: list[str], **_kwargs: object) -> FakeProc:
+        captured["argv"] = argv
+        return FakeProc()
+
+    monkeypatch.setattr(claude_parser.subprocess, "run", fake_run)
+    monkeypatch.setattr(claude_parser, "_PR_CACHE", {})
+
+    claude_parser._gh_pr("/some/repo", "thibaultdody/feature-x")
+    argv = captured["argv"]
+    # The branch must appear AFTER `--`.
+    assert "--" in argv
+    sep_idx = argv.index("--")
+    assert argv[sep_idx + 1] == "thibaultdody/feature-x"
+
+
+def test_git_branch_drops_dash_prefixed_branch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If `git rev-parse` reports a branch named `-X`, _git_branch returns
+    None rather than propagating it to downstream callers (e.g. _gh_pr)."""
+
+    class FakeProc:
+        returncode = 0
+        stdout = "-Xkill-server\n"
+
+    monkeypatch.setattr(claude_parser.subprocess, "run", lambda *_a, **_k: FakeProc())
+    monkeypatch.setattr(claude_parser, "_BRANCH_CACHE", {})
+
+    assert claude_parser._git_branch("/some/repo") is None
+
+
 # THI-146 PR 2: `_normalize_git_remote` powers the in-pane `PR #N` linkifier.
 # It maps the common origin URL shapes onto a canonical `https://host/owner/repo`
 # string the frontend can append `/pull/N` to.

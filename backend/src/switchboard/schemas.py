@@ -1,7 +1,28 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 from pydantic.alias_generators import to_camel
+
+# THI-170 (sec:M7): tmux session/window names flow as positional argv to
+# `tmux new-session`, `rename-window`, etc. libtmux is shell-safe (argv form,
+# no shell), but tmux itself reinterprets a leading `-` as a flag — so a
+# request body of `{"name": "-Xkill-server"}` would otherwise be parsed as
+# an option to `rename-window`. Reject leading `-`, control chars, and over-
+# long values. The charset is permissive enough for actual human window
+# names ("dev / api", "feature-123", "test_v2") but tight enough to make
+# weaponized names obvious.
+TmuxName = Annotated[
+    str,
+    StringConstraints(
+        min_length=1,
+        max_length=64,
+        # First char: not `-` (flag injection), not a control char. Subsequent
+        # chars: just no control chars — internal dashes are fine ("feature-x").
+        # Pydantic uses Rust's regex crate, which has no lookahead, so the
+        # constraint is expressed with two character classes.
+        pattern=r"^[^-\x00-\x1f\x7f][^\x00-\x1f\x7f]*$",
+    ),
+]
 
 Status = Literal["running", "waiting", "idle", "done", "error"]
 Kind = Literal["shell", "editor", "server", "agent", "logs"]

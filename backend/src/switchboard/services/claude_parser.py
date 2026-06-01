@@ -456,6 +456,12 @@ def _git_branch(cwd: str | None) -> str | None:
         branch = out.stdout.strip() if out.returncode == 0 else None
         if branch == "HEAD":
             branch = None
+        # THI-171 (sec:M8): a branch starting with `-` would be reinterpreted
+        # as a flag by downstream tools (e.g. `gh pr view -R evil/repo`). Even
+        # though git itself created the name without complaint, refuse to
+        # propagate it.
+        if branch and branch.startswith("-"):
+            branch = None
     except (subprocess.TimeoutExpired, FileNotFoundError):
         branch = None
     _BRANCH_CACHE[cwd] = (now, branch)
@@ -464,6 +470,10 @@ def _git_branch(cwd: str | None) -> str | None:
 
 def _gh_pr(cwd: str | None, branch: str | None) -> tuple[int | None, CIState | None, str | None]:
     if not cwd or not branch:
+        return None, None, None
+    # THI-171 (sec:M8): defense in depth — _git_branch should already drop
+    # `-`-prefixed names, but a future caller could pass one in directly.
+    if branch.startswith("-"):
         return None, None, None
     key = (cwd, branch)
     now = time.monotonic()
@@ -478,8 +488,13 @@ def _gh_pr(cwd: str | None, branch: str | None) -> tuple[int | None, CIState | N
         # Earlier we used `--head` and gh exited with "unknown flag", so every
         # call silently cached (None, None) — the modal header chip never got
         # its CI tint. Pin the positional form.
+        #
+        # THI-171 (sec:M8): use `--` separator so the branch positional cannot
+        # be reinterpreted as a flag even if the leading-`-` check above is
+        # ever bypassed. The `--json …` flag stays BEFORE the separator so it's
+        # parsed normally.
         out = subprocess.run(
-            ["gh", "pr", "view", branch, "--json", "number,statusCheckRollup,url"],
+            ["gh", "pr", "view", "--json", "number,statusCheckRollup,url", "--", branch],
             capture_output=True,
             text=True,
             timeout=1.5,

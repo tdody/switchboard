@@ -5,6 +5,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from switchboard.rate_limit import WS_CONNECT_LIMITER, client_ip
 from switchboard.services import pane_stream, tmux
 
 log = logging.getLogger(__name__)
@@ -62,6 +63,15 @@ async def _pane_recv_loop(
 
 @router.websocket("/ws/pane")
 async def pane_socket(ws: WebSocket, session: str, index: int) -> None:
+    # THI-167 (sec:M4): cap WS connect rate at 30/min per client IP. Prevents
+    # connection-flood DoS that would otherwise exhaust file descriptors. The
+    # check runs BEFORE accept() so a refused connection never costs a handshake.
+    ip = client_ip(ws.scope)
+    if not WS_CONNECT_LIMITER.allow(ip):
+        log.warning("WS connect rate-limited for client %s", ip)
+        await ws.close(code=4429, reason="connect rate limit")
+        return
+
     await ws.accept()
     pane = tmux.get_pane(session, index)
     if pane is None:

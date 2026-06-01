@@ -6,21 +6,26 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from switchboard.config import settings
+from switchboard.schemas import TmuxName
 from switchboard.services import tmux
 
 router = APIRouter(prefix="/api")
 
 
 class SendBody(BaseModel):
-    keys: list[str] | None = None
-    paste: str | None = None
+    # THI-170 (sec:M7) related: cap individual key strings so a giant payload
+    # can't flood tmux's argv parser. Send-keys content is intentionally
+    # arbitrary (it's keystrokes — the whole point of the WS / palette), so
+    # the constraint here is a sanity cap, not a charset filter.
+    keys: list[str] | None = Field(default=None, max_length=512)
+    paste: str | None = Field(default=None, max_length=1_000_000)
 
 
 class RenameBody(BaseModel):
-    name: str
+    name: TmuxName
 
 
 @router.post("/focus")
@@ -76,7 +81,7 @@ def post_rename_session(session: str, body: RenameBody) -> dict[str, object]:
 
 
 @router.post("/window")
-def post_window(session: str, name: str) -> dict[str, object]:
+def post_window(session: str, name: TmuxName) -> dict[str, object]:
     index = tmux.new_window(session, name)
     if index is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -84,7 +89,7 @@ def post_window(session: str, name: str) -> dict[str, object]:
 
 
 @router.post("/session")
-def post_session(name: str) -> dict[str, object]:
+def post_session(name: TmuxName) -> dict[str, object]:
     # tmux's own duplicate-name guard does the existence check; we only need
     # to translate the boolean back into 409 so the UI can surface the
     # name-in-use case distinctly from a transport error.
