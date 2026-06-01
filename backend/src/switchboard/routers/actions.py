@@ -4,9 +4,10 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from switchboard.config import settings
 from switchboard.schemas import TmuxName
@@ -14,13 +15,19 @@ from switchboard.services import tmux
 
 router = APIRouter(prefix="/api")
 
+# Per-element cap for keys[] (THI-177, sec:L5). A single key string of a few
+# megabytes would otherwise still slip through the list-length cap. 4 KiB is
+# more than any legitimate keystroke chord ("C-c", "Enter", "C-a C-x") needs
+# and small enough that 512 elements at this cap stays a 2 MiB upper bound.
+_KeyElement = Annotated[str, StringConstraints(max_length=4096)]
+
 
 class SendBody(BaseModel):
-    # THI-170 (sec:M7) related: cap individual key strings so a giant payload
-    # can't flood tmux's argv parser. Send-keys content is intentionally
-    # arbitrary (it's keystrokes — the whole point of the WS / palette), so
-    # the constraint here is a sanity cap, not a charset filter.
-    keys: list[str] | None = Field(default=None, max_length=512)
+    # THI-170 (sec:M7) + THI-177 (sec:L5): cap both the list length AND each
+    # element. Send-keys content is intentionally arbitrary (it's keystrokes —
+    # the whole point of the WS / palette), so the constraint here is a sanity
+    # cap, not a charset filter.
+    keys: list[_KeyElement] | None = Field(default=None, max_length=512)
     paste: str | None = Field(default=None, max_length=1_000_000)
 
 

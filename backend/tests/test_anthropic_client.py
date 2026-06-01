@@ -30,6 +30,25 @@ def test_get_client_raises_without_a_key(monkeypatch: pytest.MonkeyPatch) -> Non
         get_client()
 
 
+def test_get_client_sets_explicit_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """THI-175 (sec:L3): the SDK's default timeout (10 min) would let a hung
+    upstream tie up a worker thread indefinitely. We pin a tighter timeout
+    when constructing the client."""
+    monkeypatch.setattr(anthropic_client.settings, "anthropic_api_key", "sk-ant-test")
+    anthropic_client.reset_client_for_tests()
+    client = get_client()
+    # SDK exposes the configured timeout on the client. Tolerate either a
+    # plain numeric value or an httpx.Timeout shape — both have a `read` /
+    # numeric repr we can compare against. The point is "not the default 10m".
+    timeout = getattr(client, "timeout", None)
+    assert timeout is not None
+    # Convert to float for the comparison; httpx.Timeout(...) repr will fail
+    # this cleanly so a regression is obvious.
+    timeout_s = float(timeout) if isinstance(timeout, (int, float)) else None
+    assert timeout_s is not None, f"expected numeric timeout, got {timeout!r}"
+    assert 1.0 <= timeout_s <= 120.0, f"expected a tight timeout, got {timeout_s}s"
+
+
 # --- prompt builder --------------------------------------------------------
 
 

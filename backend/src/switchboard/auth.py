@@ -8,9 +8,11 @@ that same-origin JS can read and echo, and that a cross-origin attacker can't.
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 import stat
 import time
+from pathlib import Path
 
 from switchboard.config import settings
 
@@ -26,13 +28,60 @@ def _generate() -> str:
     return secrets.token_urlsafe(32)
 
 
+def _atomic_write_0600(path: Path, content: str) -> None:
+    """Write `content` to `path` so the file is NEVER world-readable, not even
+    for the brief moment between `open()` and `chmod()` (THI-173, sec:L1).
+
+    Strategy: create a sibling tempfile via `os.open` with mode 0o600 set at
+    creation time, write, fsync, then `os.replace` onto the target — atomic on
+    POSIX. The umask is honored too: 0o600 is the *requested* mode, masked by
+    the process umask. A user with `umask 0077` gets exactly 0600; a user with
+    a permissive `umask 0000` still gets 0600 because we explicitly tighten
+    via `os.fchmod` before the replace.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)  # defeat permissive umask
+        os.write(fd, content.encode("utf-8"))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(tmp, path)
+
+
+def _ensure_0600(path: Path) -> None:
+    """If `path` exists with looser permissions than 0600, tighten it and
+    log a WARNING. A previously broken install or an editor save could have
+    left the token file world-readable; refuse to keep using it without at
+    least making it private first."""
+    try:
+        st = os.stat(path)
+    except FileNotFoundError:
+        return
+    actual = stat.S_IMODE(st.st_mode)
+    if actual != 0o600:
+        log.warning(
+            "tightening token file %s permissions from %o to 0600 (sec:L1)",
+            path,
+            actual,
+        )
+        try:
+            os.chmod(path, 0o600)
+        except OSError as e:
+            log.warning("could not chmod token file %s: %s", path, e)
+
+
 def load_or_create_token() -> str:
     """Read the persisted API token, creating it (0600) on first run.
 
     If the token file can't be written (read-only home, etc.), falls back to
-    an ephemeral in-memory token rather than failing to boot.
+    an ephemeral in-memory token rather than failing to boot. On read, the
+    file mode is asserted to be 0600 — tightened with a WARNING otherwise.
     """
     path = settings.token_file
+    _ensure_0600(path)
     try:
         existing = path.read_text().strip()
         if existing:
@@ -44,9 +93,7 @@ def load_or_create_token() -> str:
 
     token = _generate()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(token)
-        path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0600
+        _atomic_write_0600(path, token)
     except OSError as e:
         log.warning("could not persist token file %s: %s — using ephemeral token", path, e)
     return token
@@ -55,10 +102,7 @@ def load_or_create_token() -> str:
 def regenerate_token() -> str:
     """Overwrite the token file with a fresh value and return it."""
     token = _generate()
-    path = settings.token_file
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(token)
-    path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    _atomic_write_0600(settings.token_file, token)
     return token
 
 

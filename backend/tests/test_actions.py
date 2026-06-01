@@ -172,6 +172,32 @@ def test_post_send_uses_bracketed_paste(client: TestClient, monkeypatch) -> None
     assert seen["keys"] == ["Enter"]
 
 
+# THI-177 (sec:L5): per-element keys cap. A list of 512 short strings is fine,
+# but a single 100 MiB string slipping through would be a DoS in itself.
+def test_post_send_rejects_oversized_key_element(client: TestClient) -> None:
+    huge_key = "x" * (4096 + 1)  # one over the per-element cap
+    r = client.post(
+        "/api/send?session=dev&index=1",
+        headers={**_csrf(client), "content-type": "application/json"},
+        json={"keys": [huge_key]},
+    )
+    assert r.status_code == 422
+
+
+def test_post_send_accepts_realistic_keys(client: TestClient, monkeypatch) -> None:
+    """Sanity check: normal key chords still validate fine."""
+    monkeypatch.setattr(
+        "switchboard.services.tmux.send_keys",
+        lambda *_a, **_kw: True,
+    )
+    r = client.post(
+        "/api/send?session=dev&index=1",
+        headers={**_csrf(client), "content-type": "application/json"},
+        json={"keys": ["C-c", "Enter", "C-a C-x"]},
+    )
+    assert r.status_code == 200
+
+
 # The endpoint validates the Content-Type header and the byte length, not PNG
 # structure — arbitrary bytes with an image/* content type are sufficient here.
 FAKE_IMAGE = b"\x89PNG\r\n\x1a\n" + b"fake-image-data" * 8  # ~128 bytes
