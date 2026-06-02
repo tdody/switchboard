@@ -3,15 +3,16 @@
 </p>
 
 <p align="center">
-  <a href="#install"><img src="https://img.shields.io/badge/install-pip-7FE4B0?style=flat-square&labelColor=15181e" alt="install" /></a>
+  <a href="#install"><img src="https://img.shields.io/badge/install-uv-7FE4B0?style=flat-square&labelColor=15181e" alt="install" /></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.11+-7FE4B0?style=flat-square&labelColor=15181e" alt="python" /></a>
   <a href="#"><img src="https://img.shields.io/badge/tmux-3.2+-7FE4B0?style=flat-square&labelColor=15181e" alt="tmux" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-7FE4B0?style=flat-square&labelColor=15181e" alt="license" /></a>
 </p>
 
-![Kanban dashboard](docs/screenshots/01-kanban.png)
 
 Live browser dashboard for tmux sessions. Every tmux window becomes a card; clicking a card opens a live xterm.js-style modal bridged over WebSocket. Parses Claude Code agent panes to surface branch, PR, CI status, spinner, recap, and pending input — so a wall of running agents is glanceable instead of a tab fight.
+
+![Kanban dashboard](docs/screenshots/01-kanban.png)
 
 ## Features
 
