@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/logo.svg" alt="Switchboard logo" width="120" />
+</p>
+
 # Switchboard
 
 ![Kanban dashboard](docs/screenshots/01-kanban.png)

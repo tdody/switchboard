@@ -36,6 +36,11 @@ ControlRoom.zip
 *.crt
 *credentials*.json
 
+# Internal docs — design handoff (prototype JSX/CSS) and per-ticket specs/plans
+# stay on local machines but aren't part of the published repo.
+docs/design-reference/
+docs/superpowers/
+
 # Git worktrees — convention is to keep them under `.worktrees/<branch-tail>/`
 # so they're easy to find + clean up. See scripts/wt for the helper.
 .worktrees/
