@@ -1175,8 +1175,10 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 
 .term-modal {
-  /* Width is driven by columnSize via data-column-size on <html> (THI-128 v0.2).
-     vw-based with no px cap so 27"+ monitors actually benefit from "wide". */
+  /* Width AND height driven by columnSize via data-column-size on <html>
+     (THI-128 v0.2 + size-button-bidim follow-up). vw/vh-based so 27"+
+     monitors benefit from "wide" on both axes; px caps stop "wide" from
+     overflowing on portrait or short displays. */
   width: 85vw;
   height: min(82vh, 820px);
   background: #050608;
@@ -1188,10 +1190,10 @@ input, textarea, select { font: inherit; color: inherit; }
   grid-template-rows: auto 1fr auto;
   position: relative;
   animation: rise .22s ease-out;
-  transition: width .15s ease;
+  transition: width .15s ease, height .15s ease;
 }
-[data-column-size="narrow"] .term-modal { width: 70vw; }
-[data-column-size="wide"]   .term-modal { width: 97vw; }
+[data-column-size="narrow"] .term-modal { width: 70vw; height: min(70vh, 700px); }
+[data-column-size="wide"]   .term-modal { width: 97vw; height: min(92vh, 940px); }
 @keyframes rise { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 .term-hd {
