@@ -92,6 +92,17 @@ Switchboard can read your panes and inject keystrokes — treat the endpoint lik
 
 Override the auto-detection with `SWITCHBOARD_AUTH_REQUIRED=true|false`. Rotate the token via `POST /api/auth/regenerate` (this invalidates existing session cookies).
 
+## Reporting a security issue
+
+If you find a way to bypass the loopback Host check or the exposed-mode auth flow, **please don't open a public issue**. Report it privately via [GitHub Security Advisories](https://github.com/tdody/switchboard/security/advisories/new) or email **thibault.dody@gmail.com**.
+
+Include:
+- a clear description and the conditions to trigger it,
+- the Switchboard commit SHA and your OS / Python / Node versions,
+- a PoC if you have one.
+
+You'll get an acknowledgement within a few days. Once a fix lands, the advisory is published and credits the reporter.
+
 ## Architecture
 
 ```mermaid
@@ -146,9 +157,6 @@ scripts/
   screenshots/capture.ts        README capture script (Playwright + tsx)
 docs/
   screenshots/                  README hero shots
-  a11y/screenshots/             a11y review captures (light + dark)
-  superpowers/                  per-ticket spec + plan notes
-  design-reference/             original design handoff (prototype JSX + styles.css)
 ```
 
 ## Development
@@ -172,6 +180,16 @@ cd frontend && npx tsx ../scripts/screenshots/capture.ts
 ```
 
 CI runs the same gates on every push (`.github/workflows/ci.yml`).
+
+## Contributing
+
+Issues and PRs welcome. A few practical notes:
+
+- **One-time setup**: `git config core.hooksPath scripts/hooks` enables the pre-push hook that runs the same gates as CI (ruff format/check, ty, pytest, tsc, vitest, vite build, WCAG audit). Catch failures locally instead of round-tripping through CI.
+- **Tests first** — every backend module has a `tests/test_*.py`; frontend libs and components have colocated `.test.ts(x)`. Add coverage for new behavior; refactors stay green or earn a test.
+- **Commit style** — Conventional Commits (`type(scope): subject`). Recent history uses `feat`, `fix`, `docs`, `refactor`, `test`, `style`, `sec`.
+- **Worktree workflow** — `scripts/wt -b <branch>` creates an isolated worktree under `.worktrees/` (gitignored). Handy when bouncing between branches without disrupting a running dev server.
+- **One PR per logical change**, targeting `main`. Merge commits keep per-commit history readable — squash isn't used.
 
 ## License
 
