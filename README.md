@@ -1,8 +1,13 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="Switchboard logo" width="120" />
+  <img src="assets/switchboard-banner.png" alt="Switchboard — one board for every tmux window" width="100%" />
 </p>
 
-# Switchboard
+<p align="center">
+  <a href="#install"><img src="https://img.shields.io/badge/install-pip-7FE4B0?style=flat-square&labelColor=15181e" alt="install" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/python-3.11+-7FE4B0?style=flat-square&labelColor=15181e" alt="python" /></a>
+  <a href="#"><img src="https://img.shields.io/badge/tmux-3.2+-7FE4B0?style=flat-square&labelColor=15181e" alt="tmux" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-7FE4B0?style=flat-square&labelColor=15181e" alt="license" /></a>
+</p>
 
 ![Kanban dashboard](docs/screenshots/01-kanban.png)
 
