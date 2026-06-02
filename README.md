@@ -41,7 +41,7 @@ Live browser dashboard for tmux sessions. Every tmux window becomes a card; clic
   </tr>
 </table>
 
-## Quickstart
+## Install
 
 ```bash
 # 1. Install backend deps (uses uv)
