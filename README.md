@@ -18,15 +18,15 @@ Live browser dashboard for tmux sessions. Every tmux window becomes a card; clic
 
 - **Kanban view** of every tmux pane — sessions become columns, windows become cards, status colors at a glance
 - **Claude Code detection** — branch + PR chip, CI rollup, spinner with elapsed, recap of last assistant line, and a "waiting on you" badge when an agent prompts
-- **Live terminal modal** powered by xterm.js with WebSocket auto-reconnect ([THI-117](https://linear.app/thibault-dody/issue/THI-117)), buffer paste + image paste ([THI-116](https://linear.app/thibault-dody/issue/THI-116))
-- **Browser notifications + favicon dot** when any agent flips to waiting ([THI-78](https://linear.app/thibault-dody/issue/THI-78))
+- **Live terminal modal** powered by xterm.js with WebSocket auto-reconnect, buffer paste + image paste
+- **Browser notifications + favicon dot** when any agent flips to waiting
 - **⌘K command palette** — send keys to the focused pane from anywhere on the dashboard
-- **Clickable file paths → IDE** and **PR chips → GitHub** inside terminal output ([THI-146](https://linear.app/thibault-dody/issue/THI-146))
-- **✨ Auto-rename** — Anthropic Haiku suggests names for every window in a session, preview/edit/skip per row before applying ([THI-67](https://linear.app/thibault-dody/issue/THI-67))
-- **Claude usage pill** — rolling-window token totals + plan-% scraping ([THI-110](https://linear.app/thibault-dody/issue/THI-110))
-- **Drag to reorder** columns and tiles within a column ([THI-115](https://linear.app/thibault-dody/issue/THI-115) / [THI-141](https://linear.app/thibault-dody/issue/THI-141))
-- **Four themes** — dark / light / high-contrast / phosphor — every interactive surface clears WCAG AA contrast ([THI-149](https://linear.app/thibault-dody/issue/THI-149) and follow-ups)
-- **First-run tour**, replayable from Settings ([THI-96](https://linear.app/thibault-dody/issue/THI-96))
+- **Clickable file paths → IDE** and **PR chips → GitHub** inside terminal output
+- **✨ Auto-rename** — Anthropic Haiku suggests names for every window in a session, preview/edit/skip per row before applying
+- **Claude usage pill** — rolling-window token totals + plan-% scraping
+- **Drag to reorder** columns and tiles within a column
+- **Four themes** — dark / light / high-contrast / phosphor — every interactive surface clears WCAG AA contrast
+- **First-run tour**, replayable from Settings
 
 ## Screenshots
 
@@ -119,7 +119,7 @@ flowchart LR
 
 - **Frontend** — single-page React app served by Vite in dev, a static bundle behind any reverse proxy in prod. Live state polled at an adaptive interval (faster while a modal is open or an agent is waiting); pane bytes stream over a per-pane WebSocket.
 - **Backend** — FastAPI app. State is a single-flight `tmux ls`/`list-windows`/`list-panes` pass parsed into typed Pydantic models. Pane streaming uses `tmux pipe-pane` into a FIFO and forwards bytes to the WS; reconnects re-attach to the same FIFO without losing scrollback.
-- **Agent detection** — `services/claude_parser.py` reads the last ~200 lines of each pane, finds spinner glyphs, the `⏺`/`●` recap marker, prompt boxes, and free-form open questions like `Should I commit?` ([THI-148](https://linear.app/thibault-dody/issue/THI-148)). No Claude binary required.
+- **Agent detection** — `services/claude_parser.py` reads the last ~200 lines of each pane, finds spinner glyphs, the `⏺`/`●` recap marker, prompt boxes, and free-form open questions like `Should I commit?`. No Claude binary required.
 - **Auto-rename** — `services/anthropic_client.py` is lazy-imported so the server boots without a key. `/api/auto-rename/*` returns `503` when disabled, and the frontend hides the ✨ button.
 
 ## Layout
