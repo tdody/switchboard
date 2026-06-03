@@ -174,6 +174,70 @@ def test_ws_plain_text_is_pasted_as_keys(monkeypatch, ws_client: TestClient) -> 
     assert pastes == ["abc"]
 
 
+def test_ws_recv_loop_offloads_tmux_calls_to_thread(
+    monkeypatch, ws_client: TestClient
+) -> None:
+    """THI-184: the recv loop must route blocking libtmux subprocess calls
+    off the asyncio event-loop thread so they don't freeze it during
+    keystroke / signal / resize handling.
+
+    Rather than trying to intercept `asyncio.to_thread` (which is brittle
+    across the TestClient's anyio portal boundary), we make the mocked
+    tmux functions record the thread they ran on. If the recv loop ran
+    them inline on the event-loop thread, every call would land on that
+    same thread; with `to_thread` they land on worker threads from the
+    default executor. We capture the event-loop thread from the recv
+    loop's perspective by recording the thread of `tmux.get_pane`
+    (called from the async `pane_socket` handler, but BEFORE any
+    threading offload).
+    """
+    import threading
+
+    handler_thread_box: list[threading.Thread] = []
+    tmux_call_threads: dict[str, threading.Thread] = {}
+
+    original_get_pane = tmux.get_pane
+
+    def get_pane_capturing(s: str, i: int) -> object:
+        # Runs inline in the async handler → captures the event-loop thread.
+        handler_thread_box.append(threading.current_thread())
+        return original_get_pane(s, i)
+
+    monkeypatch.setattr(tmux, "get_pane", get_pane_capturing)
+
+    def record(name: str):
+        def _inner(*a, **k):
+            tmux_call_threads[name] = threading.current_thread()
+            if name == "get_window_size":
+                return ("latest", 80, 24)
+            return True
+
+        return _inner
+
+    monkeypatch.setattr(tmux, "send_keys", record("send_keys"))
+    monkeypatch.setattr(tmux, "send_signal", record("send_signal"))
+    monkeypatch.setattr(tmux, "get_window_size", record("get_window_size"))
+    monkeypatch.setattr(tmux, "resize_window", record("resize_window"))
+    monkeypatch.setattr(tmux, "restore_window_size", lambda *a, **k: True)
+
+    with ws_client.websocket_connect("/ws/pane?session=dev&index=2", headers=_HOST) as ws:
+        ws.send_text("abc")  # keystroke
+        ws.send_text('{"signal":"C-c"}')  # signal
+        ws.send_text('{"type":"resize","cols":120,"rows":40}')  # resize
+
+    assert handler_thread_box, "handler never ran"
+    loop_thread = handler_thread_box[0]
+
+    # Every recv-loop tmux call must have run on a thread other than the
+    # event-loop thread — i.e. asyncio.to_thread offloaded it.
+    for name in ("send_keys", "send_signal", "get_window_size", "resize_window"):
+        assert name in tmux_call_threads, f"{name} was never called: {tmux_call_threads}"
+        assert tmux_call_threads[name] is not loop_thread, (
+            f"{name} ran inline on the event-loop thread ({loop_thread.name}), "
+            f"not offloaded via asyncio.to_thread"
+        )
+
+
 class _RecordingStreamer:
     """Streamer that records its lifecycle so tests can verify which
     connection actually wins the pane. Sends a sync marker over the WS as

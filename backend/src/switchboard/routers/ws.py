@@ -33,6 +33,12 @@ async def _pane_recv_loop(
     restore the window on disconnect; we need it accessible from outside this
     coroutine because it survives the recv loop's exit.
 
+    Every tmux call is routed through `asyncio.to_thread` (THI-184): libtmux's
+    `Server.cmd` is a synchronous subprocess wrapper that blocks for ~2–10 ms
+    per call. Running those inline in this async coroutine would freeze the
+    event loop for the duration, stalling the outbound streamer and the next
+    inbound keystroke — the dominant contributor to perceived typing lag.
+
     Raises `WebSocketDisconnect` when the client closes; all other exceptions
     propagate unchanged. The caller is responsible for cleanup.
     """
@@ -44,7 +50,9 @@ async def _pane_recv_loop(
             except json.JSONDecodeError:
                 payload = None
             if isinstance(payload, dict) and "signal" in payload:
-                tmux.send_signal(session, index, str(payload["signal"]))
+                await asyncio.to_thread(
+                    tmux.send_signal, session, index, str(payload["signal"])
+                )
                 continue
             if isinstance(payload, dict) and payload.get("type") == "resize":
                 try:
@@ -54,11 +62,15 @@ async def _pane_recv_loop(
                     cols = rows = 0
                 if cols > 0 and rows > 0:
                     if saved_size_box[0] is None:
-                        saved_size_box[0] = tmux.get_window_size(session, index)
-                    tmux.resize_window(session, index, cols, rows)
+                        saved_size_box[0] = await asyncio.to_thread(
+                            tmux.get_window_size, session, index
+                        )
+                    await asyncio.to_thread(
+                        tmux.resize_window, session, index, cols, rows
+                    )
                 continue
         # Default: forward as literal keys to the pane.
-        tmux.send_keys(session, index, paste=msg)
+        await asyncio.to_thread(tmux.send_keys, session, index, paste=msg)
 
 
 @router.websocket("/ws/pane")
