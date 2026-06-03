@@ -219,18 +219,21 @@ def test_menu_multiline_makes_parse_pane_waiting() -> None:
 # THI-126: the branch chip in the dashboard froze on the old branch for up to
 # 30s after `git checkout` because the branch cache shared the PR cache's TTL.
 # Split them, and pin the constants so a future tuning lands deliberately.
-def test_branch_ttl_is_short_enough_for_checkout_to_feel_live() -> None:
-    # 2s upper bound — within "one user-noticeable beat" after a checkout.
-    # If this fails, double-check the subprocess load math (~N / TTL git
-    # invocations per second under modal-open polling at 100 ms).
-    assert claude_parser._BRANCH_TTL_SECONDS <= 2.0
+def test_branch_ttl_balances_freshness_with_subprocess_load() -> None:
+    # 5s (THI-189): trades a small chip-staleness window for ~2.5× fewer
+    # git subprocesses under modal-open polling. Users rarely `git checkout`
+    # more than once every few seconds; the prior 2s value was conservative
+    # beyond practical need. Pinned exact-equal so a future tuning lands
+    # deliberately rather than drifting.
+    assert claude_parser._BRANCH_TTL_SECONDS == 5.0
 
 
-def test_pr_ttl_stays_at_30s_to_amortize_gh_rtt() -> None:
-    # PR state rarely changes and gh shells out ~1s per call. The PR cache
-    # also re-keys on branch, so it adapts naturally when the user switches
-    # — no reason to shorten this.
-    assert claude_parser._PR_TTL_SECONDS == 30.0
+def test_pr_ttl_stays_long_to_amortize_gh_rtt() -> None:
+    # 60s (THI-189): `gh pr view` shells out ~1s per call and PR state
+    # rarely changes mid-session. The PR cache also re-keys on branch, so
+    # branch flips invalidate naturally — no reason to keep the previous
+    # 30s window when 60s halves network-bound blocking.
+    assert claude_parser._PR_TTL_SECONDS == 60.0
 
 
 def test_git_branch_cache_re_queries_after_ttl(monkeypatch) -> None:
