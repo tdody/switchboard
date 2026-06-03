@@ -1,12 +1,15 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  _resetFetchStateCache,
   createSession,
   createWindowWithBoot,
   fetchIdeConfig,
+  fetchState,
   openInIde,
   openPaneWS,
   pasteImage,
 } from "./client";
+import type { StateResponse, Window } from "../types";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -222,5 +225,158 @@ describe("openPaneWS", () => {
 
     expect(ws.binaryType).toBe("arraybuffer");
     expect(created[0].url).toMatch(/\/ws\/pane\?session=dev&index=2$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THI-185: stabilize /api/state response identity at the polling layer
+// ---------------------------------------------------------------------------
+
+function makeWindow(overrides: Partial<Window>): Window {
+  return {
+    id: `${overrides.session ?? "main"}:${overrides.index ?? 0}`,
+    paneId: "%1",
+    session: "main",
+    index: 0,
+    name: "shell",
+    kind: "shell",
+    status: "idle",
+    lastActivity: 1_700_000_000,
+    cpu: 0,
+    mem: 0,
+    cmd: "zsh",
+    cwd: "/Users/test",
+    pendingInput: false,
+    branch: null,
+    pr: null,
+    prUrl: null,
+    ci: null,
+    repoUrl: null,
+    agent: null,
+    preview: [],
+    ...overrides,
+  };
+}
+
+function makeState(windows: Window[]): StateResponse {
+  return {
+    sessions: [
+      { id: "main", name: "main", attached: true, created: 0, clients: [] },
+    ],
+    windows,
+    serverRunning: true,
+  };
+}
+
+function mockStateResponse(body: StateResponse, etag: string) {
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: (h: string) => (h.toLowerCase() === "etag" ? etag : null) },
+    json: async () => body,
+  } as unknown as Response;
+}
+
+describe("fetchState referential stability (THI-185)", () => {
+  beforeEach(() => {
+    _resetFetchStateCache();
+  });
+
+  it("reuses window references for windows whose content is unchanged across polls", async () => {
+    const baseWindows = [
+      makeWindow({ paneId: "%1", index: 0, status: "idle" }),
+      makeWindow({ paneId: "%2", index: 1, status: "idle" }),
+      makeWindow({ paneId: "%3", index: 2, status: "idle" }),
+    ];
+    const firstBody = makeState(baseWindows);
+    // Only the middle window flipped — the backend re-serializes the whole
+    // state (fresh array refs all the way down), but the FE should detect
+    // the unchanged tiles and keep the prior references for them.
+    const secondBody = makeState([
+      makeWindow({ paneId: "%1", index: 0, status: "idle" }),
+      makeWindow({ paneId: "%2", index: 1, status: "running" }),
+      makeWindow({ paneId: "%3", index: 2, status: "idle" }),
+    ]);
+
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        call += 1;
+        return call === 1
+          ? mockStateResponse(firstBody, '"v1"')
+          : mockStateResponse(secondBody, '"v2"');
+      }),
+    );
+
+    const state1 = await fetchState();
+    const state2 = await fetchState();
+
+    expect(state2.windows[0]).toBe(state1.windows[0]);
+    expect(state2.windows[1]).not.toBe(state1.windows[1]);
+    expect(state2.windows[2]).toBe(state1.windows[2]);
+  });
+
+  it("reuses the windows array when every window is unchanged", async () => {
+    // The backend issued a new etag (so fetchState parses a fresh body), but
+    // the content is byte-identical to the prior poll. The FE should detect
+    // this and reuse the previous array reference, not return a fresh
+    // top-level identity — keeps memoized children from re-rendering.
+    const windows = [
+      makeWindow({ paneId: "%1", index: 0 }),
+      makeWindow({ paneId: "%2", index: 1 }),
+    ];
+    const firstBody = makeState(windows);
+    const secondBody = makeState([
+      makeWindow({ paneId: "%1", index: 0 }),
+      makeWindow({ paneId: "%2", index: 1 }),
+    ]);
+
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        call += 1;
+        return call === 1
+          ? mockStateResponse(firstBody, '"v1"')
+          : mockStateResponse(secondBody, '"v2"');
+      }),
+    );
+
+    const state1 = await fetchState();
+    const state2 = await fetchState();
+
+    expect(state2.windows).toBe(state1.windows);
+    expect(state2).toBe(state1);
+  });
+
+  it("returns a fresh windows array when a window is added or removed", async () => {
+    // Pane killed: list length changed, prior reference cannot be reused.
+    const firstBody = makeState([
+      makeWindow({ paneId: "%1", index: 0 }),
+      makeWindow({ paneId: "%2", index: 1 }),
+    ]);
+    const secondBody = makeState([
+      makeWindow({ paneId: "%1", index: 0 }),
+    ]);
+
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        call += 1;
+        return call === 1
+          ? mockStateResponse(firstBody, '"v1"')
+          : mockStateResponse(secondBody, '"v2"');
+      }),
+    );
+
+    const state1 = await fetchState();
+    const state2 = await fetchState();
+
+    expect(state2.windows).not.toBe(state1.windows);
+    expect(state2.windows).toHaveLength(1);
+    // The surviving pane still reuses its prior reference.
+    expect(state2.windows[0]).toBe(state1.windows[0]);
   });
 });

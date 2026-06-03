@@ -1,9 +1,11 @@
 import type {
   AiStatus,
   AutoRenameResponse,
+  Session,
   StateResponse,
   UsageConfig,
   UsageResponse,
+  Window,
 } from "../types";
 
 const BASE = "/api";
@@ -12,12 +14,67 @@ const BASE = "/api";
 let lastEtag: string | null = null;
 let lastState: StateResponse | null = null;
 
+/** Test-only: clear the module-scoped fetchState cache. Production code
+ *  never calls this. */
+export function _resetFetchStateCache(): void {
+  lastEtag = null;
+  lastState = null;
+}
+
 // The backend issues a readable `sb_csrf` cookie on the first GET. Mutating
 // requests must echo it back in the X-CSRF-Token header (double-submit). A
 // cross-origin attacker can't read the cookie, so can't forge the header.
 function csrfHeaders(): Record<string, string> {
   const m = document.cookie.match(/(?:^|;\s*)sb_csrf=([^;]+)/);
   return m ? { "x-csrf-token": decodeURIComponent(m[1]) } : {};
+}
+
+// THI-185: per-element dedup. The backend issues a new ETag whenever ANY
+// field of the state changes — but the FE consumer cares about per-window
+// (and per-session) identity. JSON.parse always produces fresh references,
+// so without this step every poll cascade-invalidates every memoized child.
+// Comparing via JSON.stringify is O(state-size) per poll, but state is small
+// enough (~tens of KB) that the saved render work dominates.
+function structurallyEqual<T>(a: T, b: T): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function dedupeList<T>(
+  prev: readonly T[],
+  next: readonly T[],
+  key: (x: T) => string,
+): T[] | readonly T[] {
+  if (
+    prev.length === next.length &&
+    prev.every((p, i) => structurallyEqual(p, next[i]))
+  ) {
+    // Same length AND every position is structurally equal — reuse the
+    // prior array reference so consumers' shallow-equality checks short-
+    // circuit.
+    return prev;
+  }
+  const prevByKey = new Map(prev.map((x) => [key(x), x]));
+  return next.map((n) => {
+    const p = prevByKey.get(key(n));
+    return p !== undefined && structurallyEqual(p, n) ? p : n;
+  });
+}
+
+function dedupeState(prev: StateResponse, next: StateResponse): StateResponse {
+  const sessions = dedupeList<Session>(prev.sessions, next.sessions, (s) => s.id);
+  const windows = dedupeList<Window>(prev.windows, next.windows, (w) => w.paneId);
+  if (
+    sessions === prev.sessions &&
+    windows === prev.windows &&
+    next.serverRunning === prev.serverRunning
+  ) {
+    return prev;
+  }
+  return {
+    sessions: sessions as Session[],
+    windows: windows as Window[],
+    serverRunning: next.serverRunning,
+  };
 }
 
 export async function fetchState(signal?: AbortSignal): Promise<StateResponse> {
@@ -28,9 +85,10 @@ export async function fetchState(signal?: AbortSignal): Promise<StateResponse> {
   if (!r.ok) throw new Error(`state ${r.status}`);
   const etag = r.headers.get("etag");
   const body = (await r.json()) as StateResponse;
+  const merged = lastState ? dedupeState(lastState, body) : body;
   if (etag) lastEtag = etag;
-  lastState = body;
-  return body;
+  lastState = merged;
+  return merged;
 }
 
 export async function focusWindow(session: string, index: number): Promise<boolean> {
