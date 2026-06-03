@@ -868,3 +868,76 @@ def test_open_question_skips_turn_timing_note() -> None:
     assert agent is not None
     assert agent.action is not None
     assert "should i commit" in agent.action.lower()
+
+
+# ---------------------------------------------------------------------------
+# THI-188: cache parse_pane output keyed by capture content
+# ---------------------------------------------------------------------------
+
+
+def test_parse_pane_skips_regex_pipeline_on_repeat_calls_within_ttl(monkeypatch) -> None:
+    """Within the cache TTL, parse_pane must short-circuit on identical input
+    and not re-run the scan helpers. Stacks with THI-181's capture cache: when
+    capture-pane returns the same lines twice in a row, the parser pipeline
+    should also reuse the prior result."""
+    spinner_calls = 0
+    real_scan_spinner = claude_parser._scan_spinner
+
+    def counted_scan_spinner(lines):
+        nonlocal spinner_calls
+        spinner_calls += 1
+        return real_scan_spinner(lines)
+
+    monkeypatch.setattr(claude_parser, "_scan_spinner", counted_scan_spinner)
+    claude_parser.reset_parse_cache()
+
+    lines = _load("claude_running.txt")
+
+    claude_parser.parse_pane(lines, cwd=None)
+    claude_parser.parse_pane(lines, cwd=None)
+
+    assert spinner_calls == 1, (
+        f"expected 1 _scan_spinner call (second hits cache), got {spinner_calls}"
+    )
+
+
+def test_parse_pane_re_runs_pipeline_after_ttl_expires(monkeypatch) -> None:
+    """Past the cache TTL, parse_pane must re-run the pipeline — otherwise
+    stale parse results would persist after the underlying pane changed."""
+    import time as _time
+
+    spinner_calls = 0
+    real_scan_spinner = claude_parser._scan_spinner
+
+    def counted_scan_spinner(lines):
+        nonlocal spinner_calls
+        spinner_calls += 1
+        return real_scan_spinner(lines)
+
+    monkeypatch.setattr(claude_parser, "_scan_spinner", counted_scan_spinner)
+    monkeypatch.setattr(claude_parser, "_PARSE_CACHE_TTL_S", 0.01)
+    claude_parser.reset_parse_cache()
+
+    lines = _load("claude_running.txt")
+
+    claude_parser.parse_pane(lines, cwd=None)
+    _time.sleep(0.03)
+    claude_parser.parse_pane(lines, cwd=None)
+
+    assert spinner_calls == 2
+
+
+def test_parse_pane_distinguishes_different_captures(monkeypatch) -> None:
+    """The cache key must include the capture content — two panes with
+    DIFFERENT lines must each get their own parse, not share a cached result."""
+    claude_parser.reset_parse_cache()
+
+    status1, _, agent1 = claude_parser.parse_pane(_load("claude_running.txt"), cwd=None)
+    status2, _, agent2 = claude_parser.parse_pane(_load("claude_idle.txt"), cwd=None)
+
+    # Different captures → different parse results.
+    assert status1 == "running"
+    assert status2 == "idle"
+    assert agent1 is not None and agent1.spinner is not None
+    assert agent2 is not None
+    assert agent2.spinner is None

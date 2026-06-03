@@ -15,10 +15,31 @@ from __future__ import annotations
 
 import re
 import subprocess
+import threading
 import time
 from typing import Final
 
 from switchboard.schemas import Agent, CIState, Prompt, PromptChoice, Status
+
+# THI-188: cache parse_pane output keyed by capture content + cwd.
+# parse_pane runs ~5 regex scans per call (`_scan_spinner`, `_scan_recap`,
+# `parse_prompt`, `_scan_context_pct`, `_scan_session_cost`, plus
+# `_scan_open_question` on the no-structured-prompt branch). With THI-181's
+# capture cache returning identical inputs within ~0.5s under modal-open
+# polling, a parallel TTL here lets us skip the whole regex pipeline on the
+# cache hit. cwd is part of the key because _git_branch(cwd) feeds the result.
+_PARSE_CACHE_TTL_S = 0.5
+_parse_cache_lock = threading.Lock()
+_parse_cache: dict[
+    tuple[int, str | None], tuple[float, tuple[Status, bool, Agent | None]]
+] = {}
+
+
+def reset_parse_cache() -> None:
+    """Clear the THI-188 parse_pane result cache. Exposed for tests; production
+    code does not call this."""
+    with _parse_cache_lock:
+        _parse_cache.clear()
 
 # Spinner: line starting with one of Claude's spinner glyphs (braille, the
 # original ✻●, plus the star/middle-dot family Claude rotates through in
@@ -587,6 +608,16 @@ def _normalize_git_remote(remote: str) -> str | None:
 
 
 def parse_pane(lines: list[str], cwd: str | None) -> tuple[Status, bool, Agent | None]:
+    # THI-188: short-TTL cache on (lines-hash, cwd). When THI-181's capture
+    # cache returns the same input twice in a row (the modal-open polling
+    # pattern), we skip the regex pipeline entirely.
+    key = (hash(tuple(lines)), cwd)
+    now = time.monotonic()
+    with _parse_cache_lock:
+        entry = _parse_cache.get(key)
+        if entry is not None and now - entry[0] < _PARSE_CACHE_TTL_S:
+            return entry[1]
+
     spinner, duration = _scan_spinner(lines)
     recap = _scan_recap(lines)
     prompt = parse_prompt(lines)
@@ -619,4 +650,7 @@ def parse_pane(lines: list[str], cwd: str | None) -> tuple[Status, bool, Agent |
         context_pct=context_pct,
         session_cost_usd=session_cost_usd,
     )
-    return status, pending, agent
+    result = (status, pending, agent)
+    with _parse_cache_lock:
+        _parse_cache[key] = (now, result)
+    return result
