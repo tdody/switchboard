@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { XtermStreamRewriter } from "./xtermStreamRewriter";
 
@@ -122,5 +122,41 @@ describe("XtermStreamRewriter", () => {
     const r2 = new XtermStreamRewriter("light");
     const input = "\x1b[48;2;30;30;36mUser\x1b[0m";
     expect(decode(r1.rewriteBytes(encode(input)))).toBe(r2.rewriteString(input));
+  });
+});
+
+describe("XtermStreamRewriter fast-path (THI-191)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function truecolorReplaceCalls(spy: ReturnType<typeof vi.spyOn>) {
+    return spy.mock.calls.filter(
+      ([arg]) => arg instanceof RegExp && arg.source.includes("48;2"),
+    );
+  }
+
+  it("skips the truecolor regex on chunks with no \\x1b[48;2; escape", () => {
+    const r = new XtermStreamRewriter("light");
+    const replaceSpy = vi.spyOn(String.prototype, "replace");
+    // Plain content + a 16-color FG escape (no truecolor) — the rewriter
+    // has nothing to do, and the hot regex must not run.
+    r.rewriteBytes(encode("hello \x1b[31mworld\x1b[0m and more text"));
+    expect(truecolorReplaceCalls(replaceSpy)).toHaveLength(0);
+  });
+
+  it("still runs the regex when a truecolor bg escape IS present", () => {
+    const r = new XtermStreamRewriter("light");
+    const replaceSpy = vi.spyOn(String.prototype, "replace");
+    r.rewriteBytes(encode("\x1b[48;2;58;14;16mdiff\x1b[0m"));
+    expect(truecolorReplaceCalls(replaceSpy).length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("rewriteString fast-path: same behavior on chunks with no truecolor bg", () => {
+    const r = new XtermStreamRewriter("light");
+    const replaceSpy = vi.spyOn(String.prototype, "replace");
+    const out = r.rewriteString("\x1b[33mwarning\x1b[0m no bg here");
+    expect(truecolorReplaceCalls(replaceSpy)).toHaveLength(0);
+    expect(out).toBe("\x1b[33mwarning\x1b[0m no bg here");
   });
 });
