@@ -14,7 +14,7 @@ import {
   TERM_FONT_MAX,
   TERM_FONT_MIN,
   updateSettings,
-  useSettings,
+  useSetting,
 } from "../lib/settings";
 import type { Window } from "../types";
 import { comboBytes, escAction, newlineBytes } from "../lib/termKeys";
@@ -91,13 +91,14 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
   onToastRef.current = onToast;
   const [conn, setConn] = useState<Connection>("connecting");
   const [prompt, setPrompt] = useState<Prompt | null>(null);
-  const {
-    wsStreamEnabled: wsEnabled,
-    terminalFontSize,
-    columnSize,
-    selectedIde,
-    theme,
-  } = useSettings();
+  // THI-186: subscribe per-field instead of taking the whole Settings object.
+  // Object.is comparison inside useSyncExternalStore now short-circuits the
+  // re-render when an unrelated field (theme, density, layout, …) changes.
+  const wsEnabled = useSetting("wsStreamEnabled");
+  const terminalFontSize = useSetting("terminalFontSize");
+  const columnSize = useSetting("columnSize");
+  const selectedIde = useSetting("selectedIde");
+  const theme = useSetting("theme");
 
   // THI-146 PR 3: IDE-launch config + click handler refs. Reading config
   // through a ref lets the linkProvider toggle live on the first /api/ide-
