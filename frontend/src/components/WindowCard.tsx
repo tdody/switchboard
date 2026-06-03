@@ -185,6 +185,16 @@ function WindowCardImpl({
   );
 }
 
+function previewEqual(a: string[], b: string[]): boolean {
+  // Backend hands us a fresh array on each poll, so `===` would flip every
+  // tick and force a re-render even when content is unchanged. Content-equal
+  // check keeps the memo effective while still catching real preview updates.
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 export const WindowCard = memo(WindowCardImpl, (prev, next) => {
   if (prev.isFocused !== next.isFocused) return false;
   if (prev.isHighlighted !== next.isHighlighted) return false;
@@ -212,11 +222,13 @@ export const WindowCard = memo(WindowCardImpl, (prev, next) => {
     a.pendingInput === b.pendingInput &&
     a.branch === b.branch &&
     a.pr === b.pr &&
+    a.prUrl === b.prUrl &&
     a.ci === b.ci &&
     a.agent?.spinner === b.agent?.spinner &&
     a.agent?.duration === b.agent?.duration &&
     a.agent?.recap === b.agent?.recap &&
     a.agent?.action === b.agent?.action &&
-    a.agent?.contextPct === b.agent?.contextPct
+    a.agent?.contextPct === b.agent?.contextPct &&
+    previewEqual(a.preview, b.preview)
   );
 });
