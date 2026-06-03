@@ -31,6 +31,59 @@ log = logging.getLogger(__name__)
 _inflight_lock = threading.Lock()
 _inflight: Future[StateResponse] | None = None
 
+# THI-181: per-pane capture cache, sized for the modal-open polling cadence
+# (MODAL_OPEN_POLL_MS = 500 ms on the frontend). With TTL roughly equal to
+# the polling cadence, two consecutive polls separated by ~500 ms have a
+# coin-flip chance of sharing a cache entry — halving capture-pane subprocess
+# load while a modal is open without staling the 8-line preview meaningfully.
+# Keyed by pane_id (tmux's stable %N identity) so window renames and session
+# restarts don't poison the cache. Bounded only by distinct panes ever seen
+# in this process — small enough not to need explicit eviction.
+_CAPTURE_CACHE_TTL_S = 0.5
+_capture_cache_lock = threading.Lock()
+_capture_cache: dict[str, tuple[float, list[str]]] = {}
+
+
+def reset_capture_cache() -> None:
+    """Clear the THI-181 per-pane capture cache. Exposed for tests that need
+    isolation from prior runs; production code does not call this."""
+    with _capture_cache_lock:
+        _capture_cache.clear()
+
+
+def _raw_capture(pane) -> list[str]:
+    """Run pane.capture_pane() and normalize to list[str]. No caching, no
+    exception leak — failures become an empty capture so collect_state
+    still emits the window with whatever non-capture metadata it has."""
+    try:
+        capture = pane.capture_pane()
+    except Exception:  # noqa: BLE001
+        return []
+    if isinstance(capture, str):
+        capture = capture.splitlines()
+    return capture
+
+
+def _capture_pane_cached(pane) -> list[str]:
+    """Cache-wrapped pane.capture_pane() for collect_state (THI-181).
+
+    See `_CAPTURE_CACHE_TTL_S` for the lifetime and rationale. Cache miss
+    fires a fresh capture-pane; hits within TTL skip the subprocess entirely.
+    Panes without a stable pane_id bypass the cache.
+    """
+    pane_id = pane.pane_id or ""
+    if not pane_id:
+        return _raw_capture(pane)
+    now = time.monotonic()
+    with _capture_cache_lock:
+        entry = _capture_cache.get(pane_id)
+        if entry is not None and now - entry[0] < _CAPTURE_CACHE_TTL_S:
+            return entry[1]
+    capture = _raw_capture(pane)
+    with _capture_cache_lock:
+        _capture_cache[pane_id] = (now, capture)
+    return capture
+
 
 def get_server() -> libtmux.Server | None:
     srv = libtmux.Server()
@@ -161,12 +214,10 @@ def collect_state() -> StateResponse:
             pane = w.active_pane
             if pane is None:
                 continue
-            try:
-                capture = pane.capture_pane()
-            except Exception:  # noqa: BLE001
-                capture = []
-            if isinstance(capture, str):
-                capture = capture.splitlines()
+            # THI-181: routed through a short-TTL per-pane cache so back-to-back
+            # /api/state polls under modal-open cadence don't fan out into one
+            # capture-pane subprocess per window per tick.
+            capture = _capture_pane_cached(pane)
 
             cmd = pane.pane_current_command or ""
             cwd = pane.pane_current_path or ""
