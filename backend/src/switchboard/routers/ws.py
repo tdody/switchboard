@@ -34,7 +34,7 @@ async def _pane_recv_loop(
     coroutine because it survives the recv loop's exit.
 
     Every tmux call is routed through `asyncio.to_thread` (THI-184): libtmux's
-    `Server.cmd` is a synchronous subprocess wrapper that blocks for ~2–10 ms
+    `Server.cmd` is a synchronous subprocess wrapper that blocks for ~2-10 ms
     per call. Running those inline in this async coroutine would freeze the
     event loop for the duration, stalling the outbound streamer and the next
     inbound keystroke — the dominant contributor to perceived typing lag.

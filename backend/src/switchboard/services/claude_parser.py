@@ -449,7 +449,7 @@ _REPO_URL_CACHE: dict[str, tuple[float, str | None]] = {}
 #
 # THI-189: raised from 2.0 → 5.0. The 2s value was conservative beyond
 # practical need — users rarely `git checkout` more than once every few
-# seconds, and the 5s window cuts git subprocess load by ~2.5× while keeping
+# seconds, and the 5s window cuts git subprocess load by ~2.5x while keeping
 # chip staleness imperceptible in normal use.
 _BRANCH_TTL_SECONDS = 5.0
 # PR resolution shells out to `gh` (~1s), and PR state changes far less often
