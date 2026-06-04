@@ -721,7 +721,7 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
         <div
           className="term-body"
           ref={hostRef}
-          style={{ padding: 6, background: "#282c34" }}
+          style={{ padding: 6 }}
         />
         {prompt && (
           <PromptOverlay

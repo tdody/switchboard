@@ -693,6 +693,16 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 
 /* Single-window rename overlay (different layout from the multi-row auto-rename) */
+.rename-modal {
+  width: min(480px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-lg);
+  box-shadow: 0 30px 80px rgba(0,0,0,.5);
+  overflow: hidden;
+  animation: rise .2s ease-out;
+}
+[data-reduced-motion="true"] .rename-modal { animation: none; }
 .rename-modal .rename-hd {
   display: flex; align-items: center; gap: 8px;
   font-size: 13.5px;
