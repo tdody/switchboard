@@ -132,7 +132,7 @@ describe("XtermStreamRewriter fast-path (THI-191)", () => {
 
   function truecolorReplaceCalls(spy: ReturnType<typeof vi.spyOn>) {
     return spy.mock.calls.filter(
-      ([arg]) => arg instanceof RegExp && arg.source.includes("48;2"),
+      ([arg]: unknown[]) => arg instanceof RegExp && arg.source.includes("48;2"),
     );
   }
 
