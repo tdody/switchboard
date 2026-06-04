@@ -160,6 +160,16 @@ export class XtermStreamRewriter {
       }
     }
 
+    // THI-191: fast-path — if the processable slice has no truecolor bg
+    // marker at all, skip the regex.replace entirely. The regex engine
+    // still walks the whole string on a no-match call (allocating internal
+    // match state along the way); `String.prototype.includes` is a tight
+    // memchr-style scan with no allocation. The vast majority of WS chunks
+    // (keystroke echoes, plain command output, etc.) carry no truecolor
+    // bg escape, so this shortcuts the common case.
+    if (!processable.includes("\x1b[48;2;")) {
+      return processable;
+    }
     return processable.replace(
       /\x1b\[48;2;(\d{1,3});(\d{1,3});(\d{1,3})m/g,
       (match, r, g, b) => {
