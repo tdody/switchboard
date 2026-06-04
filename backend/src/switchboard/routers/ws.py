@@ -50,9 +50,7 @@ async def _pane_recv_loop(
             except json.JSONDecodeError:
                 payload = None
             if isinstance(payload, dict) and "signal" in payload:
-                await asyncio.to_thread(
-                    tmux.send_signal, session, index, str(payload["signal"])
-                )
+                await asyncio.to_thread(tmux.send_signal, session, index, str(payload["signal"]))
                 continue
             if isinstance(payload, dict) and payload.get("type") == "resize":
                 try:
@@ -65,9 +63,7 @@ async def _pane_recv_loop(
                         saved_size_box[0] = await asyncio.to_thread(
                             tmux.get_window_size, session, index
                         )
-                    await asyncio.to_thread(
-                        tmux.resize_window, session, index, cols, rows
-                    )
+                    await asyncio.to_thread(tmux.resize_window, session, index, cols, rows)
                 continue
         # Default: forward as literal keys to the pane.
         await asyncio.to_thread(tmux.send_keys, session, index, paste=msg)

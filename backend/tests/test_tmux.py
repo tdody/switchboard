@@ -542,9 +542,7 @@ def _capturing_session(pane_id: str, capture_value: list[str]):
 
 def _stub_git_and_gh(monkeypatch) -> None:
     monkeypatch.setattr(tmux.claude_parser, "_git_branch", lambda cwd: None)
-    monkeypatch.setattr(
-        tmux.claude_parser, "_gh_pr", lambda cwd, branch: (None, None, None)
-    )
+    monkeypatch.setattr(tmux.claude_parser, "_gh_pr", lambda cwd, branch: (None, None, None))
     monkeypatch.setattr(tmux.claude_parser, "_git_repo_url", lambda cwd: None)
 
 

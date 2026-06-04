@@ -30,9 +30,7 @@ from switchboard.schemas import Agent, CIState, Prompt, PromptChoice, Status
 # cache hit. cwd is part of the key because _git_branch(cwd) feeds the result.
 _PARSE_CACHE_TTL_S = 0.5
 _parse_cache_lock = threading.Lock()
-_parse_cache: dict[
-    tuple[int, str | None], tuple[float, tuple[Status, bool, Agent | None]]
-] = {}
+_parse_cache: dict[tuple[int, str | None], tuple[float, tuple[Status, bool, Agent | None]]] = {}
 
 
 def reset_parse_cache() -> None:
@@ -40,6 +38,7 @@ def reset_parse_cache() -> None:
     code does not call this."""
     with _parse_cache_lock:
         _parse_cache.clear()
+
 
 # Spinner: line starting with one of Claude's spinner glyphs (braille, the
 # original ✻●, plus the star/middle-dot family Claude rotates through in
