@@ -220,7 +220,7 @@ def test_menu_multiline_makes_parse_pane_waiting() -> None:
 # 30s after `git checkout` because the branch cache shared the PR cache's TTL.
 # Split them, and pin the constants so a future tuning lands deliberately.
 def test_branch_ttl_balances_freshness_with_subprocess_load() -> None:
-    # 5s (THI-189): trades a small chip-staleness window for ~2.5× fewer
+    # 5s (THI-189): trades a small chip-staleness window for ~2.5x fewer
     # git subprocesses under modal-open polling. Users rarely `git checkout`
     # more than once every few seconds; the prior 2s value was conservative
     # beyond practical need. Pinned exact-equal so a future tuning lands

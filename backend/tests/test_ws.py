@@ -174,9 +174,7 @@ def test_ws_plain_text_is_pasted_as_keys(monkeypatch, ws_client: TestClient) -> 
     assert pastes == ["abc"]
 
 
-def test_ws_recv_loop_offloads_tmux_calls_to_thread(
-    monkeypatch, ws_client: TestClient
-) -> None:
+def test_ws_recv_loop_offloads_tmux_calls_to_thread(monkeypatch, ws_client: TestClient) -> None:
     """THI-184: the recv loop must route blocking libtmux subprocess calls
     off the asyncio event-loop thread so they don't freeze it during
     keystroke / signal / resize handling.

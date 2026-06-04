@@ -30,9 +30,7 @@ from switchboard.schemas import Agent, CIState, Prompt, PromptChoice, Status
 # cache hit. cwd is part of the key because _git_branch(cwd) feeds the result.
 _PARSE_CACHE_TTL_S = 0.5
 _parse_cache_lock = threading.Lock()
-_parse_cache: dict[
-    tuple[int, str | None], tuple[float, tuple[Status, bool, Agent | None]]
-] = {}
+_parse_cache: dict[tuple[int, str | None], tuple[float, tuple[Status, bool, Agent | None]]] = {}
 
 
 def reset_parse_cache() -> None:
@@ -40,6 +38,7 @@ def reset_parse_cache() -> None:
     code does not call this."""
     with _parse_cache_lock:
         _parse_cache.clear()
+
 
 # Spinner: line starting with one of Claude's spinner glyphs (braille, the
 # original ✻●, plus the star/middle-dot family Claude rotates through in
@@ -450,7 +449,7 @@ _REPO_URL_CACHE: dict[str, tuple[float, str | None]] = {}
 #
 # THI-189: raised from 2.0 → 5.0. The 2s value was conservative beyond
 # practical need — users rarely `git checkout` more than once every few
-# seconds, and the 5s window cuts git subprocess load by ~2.5× while keeping
+# seconds, and the 5s window cuts git subprocess load by ~2.5x while keeping
 # chip staleness imperceptible in normal use.
 _BRANCH_TTL_SECONDS = 5.0
 # PR resolution shells out to `gh` (~1s), and PR state changes far less often

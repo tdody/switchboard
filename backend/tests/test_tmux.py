@@ -531,20 +531,23 @@ def _capturing_session(pane_id: str, capture_value: list[str]):
         window_activity = 0
         active_pane = pane
 
+    win = _Win()
+
     class _S:
         session_name = "main"
         session_attached = "0"
         session_created = "0"
-        windows = [_Win()]
+
+        @property
+        def windows(self) -> list[object]:
+            return [win]
 
     return _S(), pane
 
 
 def _stub_git_and_gh(monkeypatch) -> None:
     monkeypatch.setattr(tmux.claude_parser, "_git_branch", lambda cwd: None)
-    monkeypatch.setattr(
-        tmux.claude_parser, "_gh_pr", lambda cwd, branch: (None, None, None)
-    )
+    monkeypatch.setattr(tmux.claude_parser, "_gh_pr", lambda cwd, branch: (None, None, None))
     monkeypatch.setattr(tmux.claude_parser, "_git_repo_url", lambda cwd: None)
 
 
