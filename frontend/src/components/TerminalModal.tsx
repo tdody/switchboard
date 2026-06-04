@@ -288,17 +288,22 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
         /* socket racing with cleanup */
       }
     };
-    let fitTimer: number | undefined;
+    // THI-195: debounce via rAF instead of an 80 ms setTimeout. ResizeObserver
+    // bursts (sidebar animation, column-size step) collapse into a single
+    // pre-paint fit() so the modal tracks the layout in lockstep with the
+    // frame the user sees, instead of trailing by up to ~80 ms.
+    let fitRafId: number | undefined;
     const scheduleFit = () => {
-      window.clearTimeout(fitTimer);
-      fitTimer = window.setTimeout(() => {
+      if (fitRafId !== undefined) window.cancelAnimationFrame(fitRafId);
+      fitRafId = window.requestAnimationFrame(() => {
+        fitRafId = undefined;
         try {
           fit.fit();
         } catch {
           return;
         }
         sendSize();
-      }, 80);
+      });
     };
     try {
       fit.fit();
@@ -469,7 +474,7 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       }
       cancelled = true;
       resizeObs.disconnect();
-      window.clearTimeout(fitTimer);
+      if (fitRafId !== undefined) window.cancelAnimationFrame(fitRafId);
       viewport?.removeEventListener("scroll", onScroll);
       host.removeEventListener("mouseup", onSelectMouseUp);
       window.clearTimeout(scrollbarTimer);
