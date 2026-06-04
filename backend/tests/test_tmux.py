@@ -501,3 +501,86 @@ def test_collect_state_tolerates_per_session_libtmux_error(monkeypatch) -> None:
     # loop); the windows from `vanishing` are just absent.
     assert "vanishing" in [s.name for s in state.sessions]
     assert all(w.session != "vanishing" for w in state.windows)
+
+
+# ---------------------------------------------------------------------------
+# THI-181: cache pane.capture_pane() under modal-open polling
+# ---------------------------------------------------------------------------
+
+
+def _capturing_session(pane_id: str, capture_value: list[str]):
+    """A fake libtmux session whose single window has a pane that records
+    every capture_pane() invocation. Used to assert the THI-181 cache."""
+
+    class _Pane:
+        def __init__(self) -> None:
+            self.pane_id = pane_id
+            self.pane_current_command = "zsh"
+            self.pane_current_path = ""
+            self.capture_calls = 0
+
+        def capture_pane(self):
+            self.capture_calls += 1
+            return list(capture_value)
+
+    pane = _Pane()
+
+    class _Win:
+        window_index = "0"
+        window_name = "shell"
+        window_activity = 0
+        active_pane = pane
+
+    class _S:
+        session_name = "main"
+        session_attached = "0"
+        session_created = "0"
+        windows = [_Win()]
+
+    return _S(), pane
+
+
+def _stub_git_and_gh(monkeypatch) -> None:
+    monkeypatch.setattr(tmux.claude_parser, "_git_branch", lambda cwd: None)
+    monkeypatch.setattr(
+        tmux.claude_parser, "_gh_pr", lambda cwd, branch: (None, None, None)
+    )
+    monkeypatch.setattr(tmux.claude_parser, "_git_repo_url", lambda cwd: None)
+
+
+def test_collect_state_caches_pane_capture_within_ttl(monkeypatch) -> None:
+    """Two collect_state() calls inside the cache window must fire only one
+    pane.capture_pane() subprocess (THI-181). MODAL_OPEN_POLL_MS=500ms on the
+    frontend, so a cache TTL near that range halves capture-pane load while
+    a modal is open without staling preview meaningfully."""
+    session, pane = _capturing_session("%17", ["a", "b"])
+    srv = _fake_server([session])
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+    _stub_git_and_gh(monkeypatch)
+    tmux.reset_capture_cache()  # isolate from prior tests
+
+    tmux.collect_state()
+    tmux.collect_state()
+
+    assert pane.capture_calls == 1
+
+
+def test_collect_state_recaptures_pane_after_ttl_expiry(monkeypatch) -> None:
+    """When the cache entry is older than the TTL, the next collect_state()
+    must re-run pane.capture_pane(). Otherwise stale captures would persist
+    forever after the pane changed."""
+    import time as _time
+
+    session, pane = _capturing_session("%17", ["a"])
+    srv = _fake_server([session])
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+    _stub_git_and_gh(monkeypatch)
+    # Tiny TTL so the test doesn't have to actually sleep half a second.
+    monkeypatch.setattr(tmux, "_CAPTURE_CACHE_TTL_S", 0.01)
+    tmux.reset_capture_cache()
+
+    tmux.collect_state()
+    _time.sleep(0.03)
+    tmux.collect_state()
+
+    assert pane.capture_calls == 2
