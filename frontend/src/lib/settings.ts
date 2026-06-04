@@ -166,3 +166,22 @@ export function useSettings(): Settings {
     () => current,
   );
 }
+
+/**
+ * Selector hook (THI-186). Subscribes to a single Settings field; `Object.is`
+ * comparison inside `useSyncExternalStore` short-circuits the re-render when
+ * the selected field is unchanged, so a `updateSettings({ theme: "light" })`
+ * does not re-render consumers of unrelated keys (`pollIntervalMs`,
+ * `density`, etc.).
+ *
+ * Prefer this over `useSettings()` when a component only needs a handful of
+ * specific fields. `useSettings()` stays available for backward compat with
+ * callers that read most of the object at once.
+ */
+export function useSetting<K extends keyof Settings>(key: K): Settings[K] {
+  return useSyncExternalStore(
+    subscribe,
+    () => current[key],
+    () => current[key],
+  );
+}
