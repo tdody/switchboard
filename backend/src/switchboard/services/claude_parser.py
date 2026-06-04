@@ -423,15 +423,25 @@ _PR_CACHE: dict[
 _REPO_URL_CACHE: dict[str, tuple[float, str | None]] = {}
 # Branch resolution caches per-cwd; the key doesn't change when the user runs
 # `git checkout` from inside the pane, so a long TTL freezes the dashboard
-# branch chip until expiry (THI-126). Keep it short — ~one user-noticeable
-# beat. With N agent panes polled at 100ms (THI-105), the upper bound on git
-# subprocess invocations is N / _BRANCH_TTL_SECONDS per second.
-_BRANCH_TTL_SECONDS = 2.0
+# branch chip until expiry (THI-126). With N agent panes polled at ~500 ms
+# under modal-open polling (THI-105), the upper bound on git subprocess
+# invocations is N / _BRANCH_TTL_SECONDS per second.
+#
+# THI-189: raised from 2.0 → 5.0. The 2s value was conservative beyond
+# practical need — users rarely `git checkout` more than once every few
+# seconds, and the 5s window cuts git subprocess load by ~2.5× while keeping
+# chip staleness imperceptible in normal use.
+_BRANCH_TTL_SECONDS = 5.0
 # PR resolution shells out to `gh` (~1s), and PR state changes far less often
 # than branch state. The PR cache also keys on (cwd, branch) so a branch flip
 # already invalidates it naturally — staleness here is bounded by gh's RTT,
 # not user impatience.
-_PR_TTL_SECONDS = 30.0
+#
+# THI-189: raised from 30.0 → 60.0. PR state is stable for minutes-to-hours
+# in practice; the extra 30s halves the rate of gh subprocess calls (and
+# therefore network-bound blocking on slow connections) at zero perceptible
+# cost.
+_PR_TTL_SECONDS = 60.0
 # Repo URL is `git remote get-url origin` + a tiny parse — local, no network,
 # and the origin almost never changes. Long TTL is fine. Cached separately
 # from `_PR_CACHE` so panes on a branch with no PR still get the URL for the
