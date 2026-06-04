@@ -263,6 +263,19 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
     // Must be applied AFTER `term.open` so the renderer is attached and
     // re-paints when the OSC 4 packet is parsed.
     apply256ColorOverrides(term, themeRef.current);
+    // THI-183: paint the cached 8-line `preview` (already in win) as a
+    // placeholder so the modal isn't blank during the WS-connect + server-
+    // side capture-pane round-trip. The real scrollback replaces this when
+    // it arrives — see the snapshot-clearing block inside sock.onmessage
+    // (WS path) and in the fetchPane.then() (snapshot-only path).
+    const previewPainted = win.preview && win.preview.length > 0;
+    if (previewPainted) {
+      term.write(win.preview.join("\r\n") + "\r\n");
+    }
+    // Tracks whether we've already swapped the preview for the real scrollback,
+    // so a second text message (e.g. a prompt re-emit) doesn't trigger another
+    // term.clear() and wipe live content.
+    let snapshotReceived = false;
     // Focus immediately so the user can start typing without first clicking
     // inside the modal.
     term.focus();
@@ -387,6 +400,15 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
             setPrompt(parsed);
             return;
           }
+          // THI-183: first non-prompt text frame is the server's initial
+          // capture-pane snapshot. Wipe the preview placeholder we painted
+          // at mount so its lines don't double up with the snapshot's
+          // tail. Guarded so subsequent text frames (e.g. defensive re-
+          // emits) don't keep clearing live content.
+          if (previewPainted && !snapshotReceived) {
+            snapshotReceived = true;
+            term.clear();
+          }
           term.write(rewriter ? rewriter.rewriteString(data) : data);
         } else if (data instanceof ArrayBuffer) {
           const bytes = new Uint8Array(data);
@@ -461,7 +483,12 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       // Live streaming disabled in settings — show a one-shot snapshot (read-only).
       setConn("snapshot");
       void fetchPane(win.session, win.index).then((lines) => {
-        if (!cancelled) term.write(lines.join("\r\n") + (lines.length ? "\r\n" : ""));
+        if (cancelled) return;
+        // THI-183: same swap as the WS path — clear the preview placeholder
+        // before writing the real scrollback so the preview lines don't
+        // double up with the snapshot's tail.
+        if (previewPainted) term.clear();
+        term.write(lines.join("\r\n") + (lines.length ? "\r\n" : ""));
       });
     }
 

@@ -550,3 +550,100 @@ describe("TerminalModal — select-to-copy (THI-146)", () => {
     expect(onToast).not.toHaveBeenCalled();
   });
 });
+
+describe("TerminalModal — preview placeholder (THI-183)", () => {
+  it("paints the cached preview into xterm at mount, before the WS snapshot arrives", () => {
+    // The /api/state response carries an 8-line `preview` for every window.
+    // Painting it as a placeholder gives the modal something to show
+    // immediately, hiding the 100-500 ms round-trip while the WS connects
+    // and the server's capture-pane runs.
+    const winWithPreview = {
+      ...win,
+      preview: ["initial line a", "initial line b", "initial line c"],
+    } as unknown as Window;
+
+    render(
+      <TerminalModal window={winWithPreview} onClose={() => {}} onToast={() => {}} />,
+    );
+
+    // No WS opened yet — anything in `writes` came from the synchronous
+    // mount-time paint.
+    const joined = (mockTerminals[0]?.writes ?? []).join("");
+    expect(joined).toContain("initial line a");
+    expect(joined).toContain("initial line b");
+    expect(joined).toContain("initial line c");
+  });
+
+  it("does nothing when the window has no preview content", () => {
+    const winNoPreview = { ...win, preview: [] } as unknown as Window;
+
+    render(<TerminalModal window={winNoPreview} onClose={() => {}} onToast={() => {}} />);
+
+    // Empty preview must not produce a preview-painting write. (Other writes
+    // — reconnect notices, WS messages — fire later, but at this point we
+    // assert ONLY that no synthetic preview was written.) We check by
+    // negation: no entry should equal the would-be preview output.
+    const writes = mockTerminals[0]?.writes ?? [];
+    // The preview-paint always ends with "\r\n"; an empty preview joined
+    // would become just "\r\n". Assert that didn't happen.
+    expect(writes).not.toContain("\r\n");
+  });
+
+  it("clears the preview placeholder when the first WS snapshot text arrives", () => {
+    const winWithPreview = {
+      ...win,
+      preview: ["preview only"],
+    } as unknown as Window;
+
+    render(
+      <TerminalModal window={winWithPreview} onClose={() => {}} onToast={() => {}} />,
+    );
+
+    const term = mockTerminals[0]!;
+    const clearedBefore = term.cleared;
+
+    const ws = FakeWebSocket.instances[0];
+    act(() => {
+      ws.open();
+    });
+    act(() => {
+      ws.onmessage?.({ data: "real snapshot line\r\n" });
+    });
+
+    // The first non-prompt text message is the server-side capture-pane
+    // snapshot. The modal must wipe the placeholder and write the real
+    // scrollback so the preview lines don't double up.
+    expect(term.cleared).toBe(clearedBefore + 1);
+    const joined = term.writes.join("");
+    expect(joined).toContain("real snapshot line");
+  });
+
+  it("does not re-clear when subsequent WS messages arrive", () => {
+    const winWithPreview = {
+      ...win,
+      preview: ["x"],
+    } as unknown as Window;
+
+    render(
+      <TerminalModal window={winWithPreview} onClose={() => {}} onToast={() => {}} />,
+    );
+
+    const term = mockTerminals[0]!;
+    const ws = FakeWebSocket.instances[0];
+    act(() => {
+      ws.open();
+    });
+    act(() => {
+      ws.onmessage?.({ data: "snapshot\r\n" });
+    });
+    const clearedAfterSnapshot = term.cleared;
+
+    // A second text message (e.g. an additional snapshot-style write that
+    // shouldn't ever happen but defensively) must NOT clear again — the
+    // first clear already swapped the placeholder.
+    act(() => {
+      ws.onmessage?.({ data: "live update\r\n" });
+    });
+    expect(term.cleared).toBe(clearedAfterSnapshot);
+  });
+});
