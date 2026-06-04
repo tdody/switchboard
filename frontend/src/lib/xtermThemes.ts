@@ -239,11 +239,30 @@ const PHOSPHOR_256: IndexedOverrides = {
   237: "#1a3628",
 };
 
-const OVERRIDES_256: Record<Theme, IndexedOverrides> = {
-  dark: DARK_256,
-  light: LIGHT_256,
-  contrast: CONTRAST_256,
-  phosphor: PHOSPHOR_256,
+/**
+ * Precomputed OSC 4 packet per theme (THI-192). The override maps above
+ * are static module-level constants, so the packet string is too —
+ * there's no reason to rebuild it (with a regex per slot) on every modal
+ * mount and every theme toggle. Build once at module load;
+ * `apply256ColorOverrides` is then just a dict lookup + one `term.write`.
+ */
+function buildOscPacket(overrides: IndexedOverrides): string {
+  let seq = "";
+  for (const [index, hex] of Object.entries(overrides)) {
+    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+    if (!m) continue;
+    // ESC ] 4 ; N ; rgb:RR/GG/BB BEL — the BEL (`\x07`) terminator is
+    // the form xterm.js parses most reliably across versions.
+    seq += `\x1b]4;${index};rgb:${m[1]}/${m[2]}/${m[3]}\x07`;
+  }
+  return seq;
+}
+
+const OSC_PACKETS_256: Record<Theme, string> = {
+  dark: buildOscPacket(DARK_256),
+  light: buildOscPacket(LIGHT_256),
+  contrast: buildOscPacket(CONTRAST_256),
+  phosphor: buildOscPacket(PHOSPHOR_256),
 };
 
 /**
@@ -259,14 +278,6 @@ export function apply256ColorOverrides(
   term: { write(data: string): void },
   theme: Theme,
 ): void {
-  const overrides = OVERRIDES_256[theme] ?? DARK_256;
-  let seq = "";
-  for (const [index, hex] of Object.entries(overrides)) {
-    const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-    if (!m) continue;
-    // ESC ] 4 ; N ; rgb:RR/GG/BB BEL — the BEL (`\x07`) terminator is
-    // the form xterm.js parses most reliably across versions.
-    seq += `\x1b]4;${index};rgb:${m[1]}/${m[2]}/${m[3]}\x07`;
-  }
+  const seq = OSC_PACKETS_256[theme] ?? OSC_PACKETS_256.dark;
   if (seq) term.write(seq);
 }
