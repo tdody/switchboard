@@ -508,22 +508,19 @@ export function App() {
     settings.accent,
   ]);
 
-  // Pending-input badge in the browser tab title.
+  // Pending-input badge in the browser tab title + favicon red-dot count
+  // (THI-78 PR 2). Both gate on `notifyBadge` and react to `pendingWindows`,
+  // so merge into one effect (THI-193) — saves a redundant effect
+  // schedule per tick and keeps the two pieces of glanceable feedback
+  // applied together. Favicon update swaps `href` on the existing
+  // <link rel="icon"> in index.html so Chrome / Firefox / Safari all
+  // honor it without re-creating the element.
   useEffect(() => {
     const n = pendingWindows.length;
-    document.title = settings.notifyBadge && n > 0 ? `(${n}) Switchboard` : "Switchboard";
-  }, [settings.notifyBadge, pendingWindows.length]);
-
-  // Favicon red-dot count (THI-78 PR 2). Same gate as the title badge — both
-  // pieces of glanceable feedback turn off together when the user disables
-  // notifications. Updates the existing <link rel="icon"> in index.html in
-  // place so it works across all browsers (Chrome / Firefox / Safari all
-  // honor an href swap on the existing link element).
-  useEffect(() => {
+    const badgeOn = settings.notifyBadge;
+    document.title = badgeOn && n > 0 ? `(${n}) Switchboard` : "Switchboard";
     const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-    if (!link) return;
-    const count = settings.notifyBadge ? pendingWindows.length : 0;
-    link.href = faviconDataUrl(count);
+    if (link) link.href = faviconDataUrl(badgeOn ? n : 0);
   }, [settings.notifyBadge, pendingWindows.length]);
 
   // Native browser notifications on pendingInput edge (THI-78). Edge detection
