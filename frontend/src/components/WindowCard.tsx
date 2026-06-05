@@ -1,7 +1,8 @@
 import { memo, useMemo } from "react";
 import type { Window } from "../types";
-import { formatAgo, formatMem } from "../lib/format";
+import { formatMem } from "../lib/format";
 import { contextBand, cpuLevel, kindIcon, memLevel } from "../lib/status";
+import { AgoSpan } from "./AgoSpan";
 import { Chip } from "./Chip";
 import { Icon } from "./Icon";
 import { StatusPill } from "./StatusPill";
@@ -34,7 +35,6 @@ function WindowCardImpl({
   dataTour,
 }: Props) {
   const pending = !!w.pendingInput;
-  const ago = formatAgo(w.lastActivity);
   const agent = w.agent;
   const cpu = cpuLevel(w.cpu);
   const mem = memLevel(w.mem);
@@ -178,7 +178,9 @@ function WindowCardImpl({
         <span className="spacer" />
         <span className="ago" title="last activity">
           <Icon name="clock" size={11} style={{ opacity: 0.6 }} />
-          <span>{ago}</span>
+          <span>
+            <AgoSpan ts={w.lastActivity} />
+          </span>
         </span>
       </div>
     </div>

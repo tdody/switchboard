@@ -2,7 +2,7 @@ import { useRef, useState, type DragEvent } from "react";
 
 import type { Session, Window } from "../types";
 import { sortPendingFirst } from "../lib/filter";
-import { formatAgo } from "../lib/format";
+import { AgoSpan } from "./AgoSpan";
 import { DropdownMenu } from "./DropdownMenu";
 import { Icon } from "./Icon";
 import { WindowCard } from "./WindowCard";
@@ -343,13 +343,17 @@ export function Kanban({
                     </div>
                     <div className="row">
                       <span className="k">since</span>
-                      <span className="v">{formatAgo(client.since)} ago</span>
+                      <span className="v">
+                        <AgoSpan ts={client.since} /> ago
+                      </span>
                     </div>
                   </>
                 )}
                 <div className="row">
                   <span className="k">created</span>
-                  <span className="v">{formatAgo(s.created)} ago</span>
+                  <span className="v">
+                    <AgoSpan ts={s.created} /> ago
+                  </span>
                 </div>
               </div>
             </header>
