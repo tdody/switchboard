@@ -141,3 +141,102 @@ describe("CommandPalette", () => {
     expect(input.tagName).toBe("TEXTAREA");
   });
 });
+
+describe("CommandPalette broadcast mode (THI-66)", () => {
+  const A: Window = { ...TARGET, paneId: "%1", session: "main", index: 1, name: "alpha" };
+  const B: Window = { ...TARGET, paneId: "%2", session: "dev", index: 4, name: "beta" };
+  const C: Window = { ...TARGET, paneId: "%3", session: "ops", index: 0, name: "gamma" };
+
+  it("renders an amber broadcast pill in the header", () => {
+    const { container } = render(
+      <CommandPalette
+        target={A}
+        broadcastTargets={[A, B, C]}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(container.querySelector(".palette-broadcast-pill")).not.toBeNull();
+  });
+
+  it("renders one chip per broadcast target", () => {
+    const { container } = render(
+      <CommandPalette
+        target={A}
+        broadcastTargets={[A, B, C]}
+        onClose={vi.fn()}
+      />,
+    );
+    const chips = container.querySelectorAll(".palette-target-chip");
+    expect(chips).toHaveLength(3);
+    const texts = Array.from(chips).map((c) => c.textContent);
+    expect(texts.join(" ")).toContain("alpha");
+    expect(texts.join(" ")).toContain("beta");
+    expect(texts.join(" ")).toContain("gamma");
+  });
+
+  it('footer shows "target: N panes" when broadcasting', () => {
+    const { container } = render(
+      <CommandPalette
+        target={A}
+        broadcastTargets={[A, B, C]}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(container.textContent).toMatch(/target:\s*3 panes/i);
+  });
+
+  it("submit iterates sendKeys for every target", async () => {
+    const onClose = vi.fn();
+    render(
+      <CommandPalette
+        target={A}
+        broadcastTargets={[A, B, C]}
+        onClose={onClose}
+      />,
+    );
+    const input = screen.getByPlaceholderText(/Broadcast to 3 panes/);
+    fireEvent.change(input, { target: { value: "uptime" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // Three serialized awaits inside the iterator, one per target.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sendKeysMock).toHaveBeenCalledTimes(3);
+    const sessions = sendKeysMock.mock.calls.map((c) => c[0]).sort();
+    expect(sessions).toEqual(["dev", "main", "ops"]);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("a broadcastTargets list of length 1 falls back to single-target UI", () => {
+    const { container } = render(
+      <CommandPalette
+        target={A}
+        broadcastTargets={[A]}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(container.querySelector(".palette-broadcast-pill")).toBeNull();
+    expect(container.querySelector(".palette-target-chip")).toBeNull();
+  });
+
+  it("clicking the X on a target chip removes it from the broadcast set", () => {
+    const { container } = render(
+      <CommandPalette
+        target={A}
+        broadcastTargets={[A, B, C]}
+        onClose={vi.fn()}
+      />,
+    );
+    const chipB = Array.from(
+      container.querySelectorAll<HTMLElement>(".palette-target-chip"),
+    ).find((c) => c.textContent?.includes("beta"))!;
+    const rm = chipB.querySelector<HTMLButtonElement>(".palette-target-rm")!;
+    fireEvent.click(rm);
+    const remaining = Array.from(
+      container.querySelectorAll(".palette-target-chip"),
+    ).map((c) => c.textContent);
+    expect(remaining.join(" ")).not.toContain("beta");
+    expect(container.textContent).toMatch(/target:\s*2 panes/i);
+  });
+});

@@ -5,9 +5,14 @@ interface Props {
   windows: Window[];
   onOpen: (w: Window) => void;
   onDismiss: () => void;
+  /** THI-66 broadcast button. Shown only when there are ≥2 pending panes
+   *  AND the parent wired this callback. Clicking it hands the full pending
+   *  list to the parent, which opens the command palette in broadcast mode. */
+  onBroadcast?: (windows: Window[]) => void;
 }
 
-export function NeedsStrip({ windows, onOpen, onDismiss }: Props) {
+export function NeedsStrip({ windows, onOpen, onDismiss, onBroadcast }: Props) {
+  const showBroadcast = !!onBroadcast && windows.length > 1;
   return (
     <div className="needs-strip">
       <span className="label">
@@ -30,6 +35,16 @@ export function NeedsStrip({ windows, onOpen, onDismiss }: Props) {
           </button>
         ))}
       </div>
+      {showBroadcast && (
+        <button
+          className="needs-broadcast btn btn-ghost"
+          onClick={() => onBroadcast!(windows)}
+          title={`Broadcast to all ${windows.length} pending panes`}
+        >
+          <Icon name="send" size={12} />
+          <span>Broadcast</span>
+        </button>
+      )}
       <button
         className="dismiss btn-ghost btn btn-icon"
         onClick={onDismiss}

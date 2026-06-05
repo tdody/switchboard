@@ -160,6 +160,13 @@ export function App() {
   // and from the final step of the first-run tour.
   const [showDocs, setShowDocs] = useState(false);
   const [paletteTargetId, setPaletteTargetId] = useState<string | null>(null);
+  // THI-66 broadcast palette state. When non-null, the palette opens with
+  // these as targets; `paletteTargetId` still holds the "anchor" pane (used
+  // for the recents seed and the placeholder fallback if the user prunes
+  // every other target).
+  const [broadcastTargetIds, setBroadcastTargetIds] = useState<string[] | null>(
+    null,
+  );
   const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
   const [newWindowSession, setNewWindowSession] = useState<string | null>(null);
   const [showNewSession, setShowNewSession] = useState(false);
@@ -217,6 +224,25 @@ export function App() {
     () => (paletteTargetId ? windows.find((w) => w.paneId === paletteTargetId) || null : null),
     [paletteTargetId, windows],
   );
+  // Resolve broadcast pane ids back into Window objects each render so the
+  // chips show fresh names/cwd if the backend renamed something between
+  // open and submit. Filter out gone panes (kill mid-broadcast → drop).
+  const broadcastTargets = useMemo(() => {
+    if (!broadcastTargetIds) return undefined;
+    const live = broadcastTargetIds
+      .map((id) => windows.find((w) => w.paneId === id))
+      .filter((w): w is Window => !!w);
+    return live.length > 0 ? live : undefined;
+  }, [broadcastTargetIds, windows]);
+  const closePalette = useCallback(() => {
+    setPaletteTargetId(null);
+    setBroadcastTargetIds(null);
+  }, []);
+  const openBroadcast = useCallback((ws: Window[]) => {
+    if (ws.length === 0) return;
+    setPaletteTargetId(ws[0].paneId);
+    setBroadcastTargetIds(ws.map((w) => w.paneId));
+  }, []);
   const renameTarget = useMemo(
     () => (renameTargetId ? windows.find((w) => w.paneId === renameTargetId) || null : null),
     [renameTargetId, windows],
@@ -911,6 +937,7 @@ export function App() {
           windows={visiblePending}
           onOpen={openCard}
           onDismiss={dismissNeedsStrip}
+          onBroadcast={openBroadcast}
         />
       )}
       <Subhead
@@ -998,7 +1025,8 @@ export function App() {
       {paletteTarget && (
         <CommandPalette
           target={paletteTarget}
-          onClose={() => setPaletteTargetId(null)}
+          broadcastTargets={broadcastTargets}
+          onClose={closePalette}
         />
       )}
       {renameTarget && (
