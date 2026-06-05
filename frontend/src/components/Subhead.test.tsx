@@ -1,10 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
+import { updateSettings } from "../lib/settings";
 import type { FilterPreset } from "../lib/usePresets";
 import { Subhead } from "./Subhead";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  // Reset the module-level settings singleton so layout=grid set inside one
+  // test can't leak into the next file (these settings tests mutate a global).
+  updateSettings({ layout: "kanban" });
+});
 
 const noopCounts = { all: 0, waiting: 0, running: 0, idle: 0 };
 
@@ -140,5 +146,41 @@ describe("Subhead presets (THI-98)", () => {
     const { container } = render(<Subhead {...baseProps} />);
     expect(container.querySelector(".preset-chip")).toBeNull();
     expect(container.querySelector(".preset-save")).toBeNull();
+  });
+});
+
+describe("Subhead layout switcher (THI-59)", () => {
+  it("kanban and grid buttons are both enabled; only the active one has is-active", () => {
+    localStorage.clear();
+    const { container } = render(<Subhead {...baseProps} />);
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      ".layout-switcher button",
+    );
+    expect(buttons).toHaveLength(3); // kanban, grid, list
+    const [kanban, grid, list] = buttons;
+    expect(kanban.disabled).toBe(false);
+    expect(grid.disabled).toBe(false);
+    expect(list.disabled).toBe(true);
+    // Default layout is kanban — only the kanban button has the active class.
+    expect(kanban.className).toContain("is-active");
+    expect(grid.className).not.toContain("is-active");
+  });
+
+  it("clicking the grid button flips the active state to grid", () => {
+    localStorage.clear();
+    const { container } = render(<Subhead {...baseProps} />);
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      ".layout-switcher button",
+    );
+    fireEvent.click(buttons[1]); // grid
+    const updated = container.querySelectorAll<HTMLButtonElement>(
+      ".layout-switcher button",
+    );
+    expect(updated[0].className).not.toContain("is-active"); // kanban
+    expect(updated[1].className).toContain("is-active"); // grid
+    // And the setting actually persisted.
+    expect(JSON.parse(localStorage.getItem("switchboard:settings")!).layout).toBe(
+      "grid",
+    );
   });
 });

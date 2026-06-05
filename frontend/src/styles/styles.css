@@ -502,6 +502,59 @@ input, textarea, select { font: inherit; color: inherit; }
   box-shadow: 0 0 0 1px color-mix(in oklch, var(--tone-amber) 35%, transparent) inset;
 }
 
+/* ─── Grid view (THI-59) ──────────────────────────────────── */
+/* Grouped-by-session: each session gets a full-width header followed by a
+ * responsive grid of cards. Sessions stack vertically; the grid auto-fills
+ * 300px columns so wide screens fan out and narrow ones reflow.
+ *
+ * Background colors intentionally mirror .col so a user switching layouts
+ * keeps the same visual frame around their windows. */
+.grid-view {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 18px 20px;
+  overflow-y: auto;
+  height: 100%;
+}
+.gv-section {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elev);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  padding: 10px 12px 14px;
+}
+.gv-head {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 8px;
+}
+.gv-name {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+}
+.gv-count {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.gv-count.has-pending { color: var(--tone-amber); }
+.gv-spacer { flex: 1; }
+.gv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+}
+.gv-empty {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 14px 0;
+  text-align: center;
+}
+
 /* ─── Layout suggestion chip ──────────────────────────────── */
 .layout-hint {
   display: inline-flex; align-items: center; gap: 6px;
