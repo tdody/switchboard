@@ -149,6 +149,48 @@ describe("Subhead presets (THI-98)", () => {
   });
 });
 
+describe("Subhead layout hint (THI-61)", () => {
+  it("renders no hint when no visibleCount is provided", () => {
+    const { container } = render(<Subhead {...baseProps} />);
+    expect(container.querySelector(".layout-hint")).toBeNull();
+  });
+
+  it("suggests grid when on kanban with a status filter and few cards", () => {
+    const { container } = render(
+      <Subhead {...baseProps} filter="waiting" visibleCount={3} />,
+    );
+    const hint = container.querySelector<HTMLButtonElement>(".layout-hint");
+    expect(hint).not.toBeNull();
+    expect(hint!.textContent).toMatch(/grid/i);
+  });
+
+  it("suggests list when on kanban with many cards", () => {
+    const { container } = render(
+      <Subhead {...baseProps} filter="all" visibleCount={25} />,
+    );
+    const hint = container.querySelector<HTMLButtonElement>(".layout-hint");
+    expect(hint).not.toBeNull();
+    expect(hint!.textContent).toMatch(/list/i);
+  });
+
+  it("clicking the hint flips the layout to the suggested one", () => {
+    const { container } = render(
+      <Subhead {...baseProps} filter="all" visibleCount={25} />,
+    );
+    fireEvent.click(container.querySelector(".layout-hint")!);
+    expect(JSON.parse(localStorage.getItem("switchboard:settings")!).layout).toBe(
+      "list",
+    );
+  });
+
+  it("renders no hint when the current layout already fits", () => {
+    const { container } = render(
+      <Subhead {...baseProps} filter="all" visibleCount={10} />,
+    );
+    expect(container.querySelector(".layout-hint")).toBeNull();
+  });
+});
+
 describe("Subhead layout switcher (THI-59)", () => {
   it("kanban and grid buttons are both enabled; only the active one has is-active", () => {
     localStorage.clear();
