@@ -60,6 +60,7 @@ import {
 import { applyAccent, useSettings } from "./lib/settings";
 import { pickPollInterval } from "./lib/pollTier";
 import { useInputActive } from "./lib/useInputActive";
+import { useNeedsStripDismiss } from "./lib/useNeedsStripDismiss";
 import { useURLParam } from "./lib/urlState";
 import type { Window } from "./types";
 
@@ -141,7 +142,6 @@ export function App() {
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
-  const [showNeedsStrip, setShowNeedsStrip] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   // In-app Documentation modal (THI-136). Opened from the Header docs button
@@ -253,6 +253,12 @@ export function App() {
     () => windows.filter((w) => w.pendingInput),
     [windows],
   );
+  // THI-89: per-pane dismissal state for the NeedsStrip, persisted via
+  // sessionStorage. Strip re-shows when a previously-undismissed pending
+  // pane appears; previously-dismissed panes that resolve and then re-pend
+  // are also treated as new.
+  const { visibleWindows: visiblePending, dismiss: dismissNeedsStrip } =
+    useNeedsStripDismiss(pendingWindows);
   // User pin-list applied on top of the natural order from /api/state. Saved
   // sessions float to the front; new/unsaved sessions keep their server order
   // (THI-115). `applySessionOrder` returns the input ref when the order is a
@@ -810,11 +816,11 @@ export function App() {
         onOpenDocs={() => setShowDocs(true)}
         onNewSession={() => setShowNewSession(true)}
       />
-      {pendingWindows.length > 0 && showNeedsStrip && (
+      {visiblePending.length > 0 && (
         <NeedsStrip
-          windows={pendingWindows}
+          windows={visiblePending}
           onOpen={openCard}
-          onDismiss={() => setShowNeedsStrip(false)}
+          onDismiss={dismissNeedsStrip}
         />
       )}
       <Subhead
