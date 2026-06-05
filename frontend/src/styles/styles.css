@@ -994,6 +994,18 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .act .ico { color: var(--text-dim); }
 .act-icon { width: 24px; padding: 0; justify-content: center; }
+/* THI-97: per-kind quick-action buttons (y, n, ⎋, ⌫). Sit between the
+ * regular actions and the kill button. Slightly bolder than .act-icon so
+ * the letter labels read clearly at 11px. */
+.act-quick {
+  min-width: 24px;
+  padding: 0 6px;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-mute);
+}
+.act-quick:hover { color: var(--accent); }
 .card-foot .spacer { flex: 1; }
 .card-foot .ago {
   display: inline-flex; align-items: center; gap: 5px;

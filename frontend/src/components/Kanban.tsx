@@ -17,6 +17,12 @@ interface Props {
   onRename: (w: Window) => void;
   onFocus: (w: Window) => void;
   onKill: (w: Window, skipConfirm: boolean) => void;
+  /** Per-kind quick action callback (THI-97). Optional — when omitted the
+   *  card hides the quick-action buttons. */
+  onQuickAction?: (
+    w: Window,
+    action: import("../lib/quickActions").QuickAction,
+  ) => void;
   onNewWindow: (session: string) => void;
   onKillSession: (session: string, skipConfirm: boolean) => void;
   onRenameSession: (session: string) => void;
@@ -64,6 +70,7 @@ export function Kanban({
   onRename,
   onFocus,
   onKill,
+  onQuickAction,
   onNewWindow,
   onKillSession,
   onRenameSession,
@@ -399,6 +406,7 @@ export function Kanban({
                         onRename={onRename}
                         onFocus={onFocus}
                         onKill={onKill}
+                        onQuickAction={onQuickAction}
                         dataTour={w.paneId === firstPaneId ? "first-card" : undefined}
                       />
                     </div>

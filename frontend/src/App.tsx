@@ -6,6 +6,7 @@ import {
   focusWindow,
   killSession,
   killWindow,
+  sendKeys,
 } from "./api/client";
 import { usePolling } from "./api/usePolling";
 import { useQuickCreate } from "./lib/useQuickCreate";
@@ -61,6 +62,7 @@ import { applyAccent, useSettings } from "./lib/settings";
 import { pickPollInterval } from "./lib/pollTier";
 import { useInputActive } from "./lib/useInputActive";
 import { useNeedsStripDismiss } from "./lib/useNeedsStripDismiss";
+import type { QuickAction } from "./lib/quickActions";
 import { useURLParam } from "./lib/urlState";
 import type { Window } from "./types";
 
@@ -410,6 +412,20 @@ export function App() {
   // the modal on success without baking openId into its dep list (THI-111).
   const openIdRef = useRef(openId);
   openIdRef.current = openId;
+
+  // THI-97: route a card's quick-action click straight to /api/send.
+  // `messageToast` is itself memoized, so this handler keeps a stable
+  // identity across renders and WindowCard's memo comparator stays
+  // effective when this prop threads through.
+  const handleQuickAction = useCallback(
+    async (w: Window, action: QuickAction) => {
+      const ok = await sendKeys(w.session, w.index, action.payload);
+      if (!ok) {
+        messageToast(`Couldn't send ${action.label} to ${w.session}:${w.index}`);
+      }
+    },
+    [messageToast],
+  );
 
   const handleKill = useCallback(
     (w: Window, skipConfirm: boolean) => {
@@ -843,6 +859,7 @@ export function App() {
           onRename={handleRename}
           onFocus={handleFocus}
           onKill={handleKill}
+          onQuickAction={handleQuickAction}
           onNewWindow={handleNewWindow}
           onKillSession={handleKillSession}
           onRenameSession={handleRenameSession}

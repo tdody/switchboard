@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react";
 import type { Window } from "../types";
 import { formatMem } from "../lib/format";
+import { quickActionsFor, type QuickAction } from "../lib/quickActions";
 import { contextBand, cpuLevel, kindIcon, memLevel } from "../lib/status";
 import { AgoSpan } from "./AgoSpan";
 import { Chip } from "./Chip";
@@ -18,6 +19,11 @@ interface Props {
   onFocus: (w: Window) => void;
   /** `skipConfirm` is true when the user Shift-clicked the kill button. */
   onKill: (w: Window, skipConfirm: boolean) => void;
+  /** Optional THI-97 callback. When provided, the card renders per-kind
+   *  quick-action buttons (y/n/Ctrl-C for pending agents, clear for shell,
+   *  etc.) — clicks fire `onQuickAction(w, action)` so the parent can route
+   *  the payload to `sendKeys(...)`. */
+  onQuickAction?: (w: Window, action: QuickAction) => void;
   /** Optional anchor selector for the first-run tour (THI-96). Set by Kanban
    *  on the very first rendered card so the tour can find it. */
   dataTour?: string;
@@ -32,10 +38,17 @@ function WindowCardImpl({
   onRename,
   onFocus,
   onKill,
+  onQuickAction,
   dataTour,
 }: Props) {
   const pending = !!w.pendingInput;
   const agent = w.agent;
+  // Per-kind quick actions (THI-97) — only render the row when the parent
+  // wired the callback AND this kind has at least one action.
+  const quickActions = useMemo(
+    () => (onQuickAction ? quickActionsFor(w) : []),
+    [onQuickAction, w],
+  );
   const cpu = cpuLevel(w.cpu);
   const mem = memLevel(w.mem);
   const showResources = !!cpu || !!mem;
@@ -167,6 +180,19 @@ function WindowCardImpl({
             <Icon name="send" size={12} />
           </button>
         </Tooltip>
+        {quickActions.map((a) => (
+          <Tooltip key={a.id} content={a.title}>
+            <button
+              className="act act-quick"
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickAction!(w, a);
+              }}
+            >
+              {a.label}
+            </button>
+          </Tooltip>
+        ))}
         <Tooltip content="Kill window — Shift-click to skip the confirm">
           <button
             className="act act-icon act-danger"
@@ -205,6 +231,7 @@ export const WindowCard = memo(WindowCardImpl, (prev, next) => {
   if (prev.onRename !== next.onRename) return false;
   if (prev.onFocus !== next.onFocus) return false;
   if (prev.onKill !== next.onKill) return false;
+  if (prev.onQuickAction !== next.onQuickAction) return false;
   if (prev.dataTour !== next.dataTour) return false;
   // The Window object is replaced wholesale on each poll. Shallow-compare the
   // fields the card actually renders. (No deep-compare to keep this cheap.)
