@@ -234,9 +234,7 @@ def test_ws_recv_loop_offloads_tmux_calls_to_thread(monkeypatch, ws_client: Test
         # are observed (or time out) so the assertion below sees a complete
         # set on every run.
         deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline and not expected.issubset(
-            tmux_call_threads.keys()
-        ):
+        while time.monotonic() < deadline and not expected.issubset(tmux_call_threads.keys()):
             time.sleep(0.01)
 
     assert handler_thread_box, "handler never ran"
