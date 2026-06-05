@@ -1,6 +1,7 @@
 import type {
   AiStatus,
   AutoRenameResponse,
+  SearchResponse,
   Session,
   StateResponse,
   UsageConfig,
@@ -301,6 +302,18 @@ export async function fetchPane(
   if (!r.ok) return [];
   const data = (await r.json()) as { lines: string[] };
   return data.lines;
+}
+
+/** THI-100: full-text search across every pane's capture buffer. Empty
+ *  query is rejected by the backend with 400 — callers should short-circuit
+ *  on an empty trimmed string before calling. */
+export async function searchPanes(
+  q: string,
+  signal?: AbortSignal,
+): Promise<SearchResponse> {
+  const r = await fetch(`${BASE}/search?q=${encodeURIComponent(q)}`, { signal });
+  if (!r.ok) return { query: q, matches: [] };
+  return (await r.json()) as SearchResponse;
 }
 
 // Claude rolling-window usage — small, no ETag (response changes every poll

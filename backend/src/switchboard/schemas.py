@@ -123,6 +123,26 @@ class StateResponse(_CamelModel):
     server_running: bool
 
 
+class SearchMatch(_CamelModel):
+    """One substring match inside a pane's capture buffer (THI-100).
+
+    `context` is exactly three entries — line above, match line, line below
+    — with empty strings padding the ends of the buffer.
+    """
+
+    pane_id: str
+    session: str
+    window_name: str
+    window_index: int
+    line_number: int  # 1-based within the capture
+    context: list[str]
+
+
+class SearchResponse(_CamelModel):
+    query: str
+    matches: list[SearchMatch]
+
+
 class RenameSuggestion(_CamelModel):
     """One row of the auto-rename modal: the LLM's suggested name for a window,
     paired with the old name for diff rendering (THI-67)."""
