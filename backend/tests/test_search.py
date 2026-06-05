@@ -29,7 +29,7 @@ def client(tmp_path, monkeypatch):
 
 def _make_fake_server(panes: dict[tuple[str, int], dict[str, object]]):
     """Build a libtmux-shaped fake. `panes` maps (session, index) to:
-        {"pane_id": "%N", "window_name": "...", "lines": ["..."]}
+    {"pane_id": "%N", "window_name": "...", "lines": ["..."]}
     """
     from types import SimpleNamespace
 
@@ -93,9 +93,7 @@ def test_search_returns_matches_with_one_line_context_above_and_below(
     assert m["context"] == ["alpha", "beta NEEDLE here", "gamma"]
 
 
-def test_search_is_case_insensitive(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_search_is_case_insensitive(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     panes = {
         ("main", 0): {
             "pane_id": "%1",
@@ -134,9 +132,7 @@ def test_search_strips_ansi_before_matching_so_color_codes_dont_break_grep(
     assert body["matches"][0]["context"][1] == "error: something broke"
 
 
-def test_search_across_multiple_panes(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_search_across_multiple_panes(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     panes = {
         ("main", 0): {
             "pane_id": "%1",

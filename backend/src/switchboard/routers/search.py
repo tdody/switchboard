@@ -98,16 +98,12 @@ async def search(q: str, lines: int = _DEFAULT_LINES) -> SearchResponse:
                 idx = int(w.window_index or 0)
             except (TypeError, ValueError):
                 continue
-            targets.append(
-                (sess_name, idx, w.window_name or "", pane.pane_id or "")
-            )
+            targets.append((sess_name, idx, w.window_name or "", pane.pane_id or ""))
 
     needle = q.lower()
     results = await asyncio.gather(
         *(
-            asyncio.to_thread(
-                _search_one_pane, sess, idx, win_name, pane_id, needle, lines
-            )
+            asyncio.to_thread(_search_one_pane, sess, idx, win_name, pane_id, needle, lines)
             for sess, idx, win_name, pane_id in targets
         )
     )
