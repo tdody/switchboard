@@ -663,6 +663,22 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 [data-reduced-motion="true"] .card-pending { animation: none; }
 
+/* THI-98: pinned card. A subtle accent-tinted border + a small badge in the
+ * head so users can see at-a-glance which cards are pinned (sorted to top of
+ * the column). Keeps clear of .card-pending (border-color) and .card-hl
+ * (outline) by using box-shadow instead. */
+.card-pinned {
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 50%, transparent),
+    var(--shadow-card);
+}
+.card-pin-badge {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+  margin-left: 2px;
+  opacity: 0.85;
+}
+
 /* Keyboard-nav highlight — calmer than focusFlash; persists until move/escape. */
 .card-hl {
   border-color: var(--accent-edge);
@@ -1216,6 +1232,16 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--text-mute);
 }
 .act-quick:hover { color: var(--accent); }
+/* THI-98: pin button + active-pin styling. The pin button is an .act-icon
+ * with a subtle tinted background when active so users can see toggle state
+ * without hovering. */
+.act-pin.is-pinned {
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+}
+.act-pin.is-pinned:hover {
+  background: color-mix(in oklch, var(--accent) 22%, transparent);
+}
 .card-foot .spacer { flex: 1; }
 .card-foot .ago {
   display: inline-flex; align-items: center; gap: 5px;
@@ -1358,6 +1384,50 @@ input, textarea, select { font: inherit; color: inherit; }
   flex: 1; color: var(--text); font-size: 12px;
 }
 .search input::placeholder { color: var(--text-dim); }
+
+/* THI-98: saved-filter presets bar. Each preset shows as a pill (.preset-chip)
+ * with an inline X for delete; a small Save button at the end captures the
+ * current filter/kind/query as a named preset. Tones intentionally muted so
+ * the bar doesn't compete with the status tabs. */
+.preset-chip {
+  display: inline-flex; align-items: center;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  gap: 4px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 11px;
+  color: var(--text-mute);
+  cursor: default;
+}
+.preset-chip:hover { color: var(--text); }
+.preset-chip-apply {
+  background: transparent; border: 0; padding: 0;
+  color: inherit; font: inherit;
+  cursor: pointer;
+}
+.preset-chip-apply:hover { color: var(--accent); }
+.preset-chip-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px;
+  background: transparent; border: 0; padding: 0;
+  border-radius: 50%;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.preset-chip-x:hover { color: var(--tone-red); background: var(--hairline); }
+.preset-save {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 24px; padding: 0 10px;
+  border: 1px dashed var(--hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+.preset-save:hover { color: var(--text); border-color: var(--accent-edge); }
 
 /* ─── Modal — terminal ─────────────────────────────────────── */
 .scrim {
