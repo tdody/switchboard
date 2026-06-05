@@ -10,7 +10,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from switchboard.auth import auth_state, mask
 from switchboard.config import is_loopback_host, settings
 from switchboard.logconfig import RequestContextMiddleware, setup_logging
-from switchboard.routers import actions, auth, pane, rename_ai, search, state, usage, ws
+from switchboard.routers import (
+    actions,
+    auth,
+    pane,
+    rename_ai,
+    search,
+    state,
+    templates,
+    usage,
+    ws,
+)
 from switchboard.security import SecurityMiddleware
 from switchboard.services import claude_usage, pane_stream
 
@@ -151,6 +161,7 @@ def create_app() -> FastAPI:
     app.include_router(actions.router)
     app.include_router(auth.router)
     app.include_router(rename_ai.router)
+    app.include_router(templates.router)
     app.include_router(usage.router)
     app.include_router(ws.router)
     return app

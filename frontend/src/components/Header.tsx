@@ -26,6 +26,9 @@ interface Props {
   onSettings: () => void;
   onOpenDocs: () => void;
   onNewSession: () => void;
+  /** Open the templates modal (THI-99). Optional so older callers that
+   *  don't wire it up don't have to ship a button they won't use. */
+  onOpenTemplates?: () => void;
   onRetry?: () => void;
 }
 
@@ -39,6 +42,7 @@ export function Header({
   onSettings,
   onOpenDocs,
   onNewSession,
+  onOpenTemplates,
   onRetry,
 }: Props) {
   return (
@@ -97,6 +101,17 @@ export function Header({
             <Icon name="plus" /> Session
           </button>
         </Tooltip>
+        {onOpenTemplates && (
+          <Tooltip content="Bootstrap from a template">
+            <button
+              className="btn btn-ghost"
+              onClick={onOpenTemplates}
+              aria-label="Open session templates"
+            >
+              Templates
+            </button>
+          </Tooltip>
+        )}
         <Tooltip content="Keyboard shortcuts" shortcut="?">
           <button className="btn btn-icon btn-ghost" onClick={onHelp} data-tour="kbar-hint">
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, lineHeight: 1 }}>?</span>

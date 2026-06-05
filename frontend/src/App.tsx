@@ -24,6 +24,7 @@ import { RenameOverlay } from "./components/RenameOverlay";
 import { RenameSessionOverlay } from "./components/RenameSessionOverlay";
 import { SearchModal } from "./components/SearchModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { TemplatesModal } from "./components/TemplatesModal";
 import { ShortcutsSheet } from "./components/ShortcutsSheet";
 import { Subhead } from "./components/Subhead";
 import { TerminalModal } from "./components/TerminalModal";
@@ -149,6 +150,8 @@ export function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   // THI-100: pane history search modal (`⌘⇧F` / `Ctrl+Shift+F`).
   const [showSearch, setShowSearch] = useState(false);
+  // THI-99: session templates modal.
+  const [showTemplates, setShowTemplates] = useState(false);
   // In-app Documentation modal (THI-136). Opened from the Header docs button
   // and from the final step of the first-run tour.
   const [showDocs, setShowDocs] = useState(false);
@@ -667,6 +670,7 @@ export function App() {
         showSettings ||
         showShortcuts ||
         showSearch ||
+        showTemplates ||
         showDocs ||
         newWindowSession ||
         showNewSession ||
@@ -812,6 +816,18 @@ export function App() {
     />
   ) : null;
 
+  // THI-99: templates modal — on success, kick a state refresh so the new
+  // session's column appears immediately and toast the name.
+  const templatesModal = showTemplates ? (
+    <TemplatesModal
+      onClose={() => setShowTemplates(false)}
+      onApplied={(session) => {
+        refresh();
+        messageToast(`Created session ${session}`);
+      }}
+    />
+  ) : null;
+
   const docsModal = showDocs ? (
     <DocsModal onClose={() => setShowDocs(false)} />
   ) : null;
@@ -835,6 +851,7 @@ export function App() {
           onSettings={() => setShowSettings(true)}
           onOpenDocs={() => setShowDocs(true)}
           onNewSession={() => setShowNewSession(true)}
+          onOpenTemplates={() => setShowTemplates(true)}
           onRetry={refresh}
         />
         <main className="main">
@@ -843,6 +860,7 @@ export function App() {
         {settingsModal}
         {shortcutsSheet}
         {searchModal}
+        {templatesModal}
         {docsModal}
         {newSessionOverlay}
         <ToastStack toasts={toasts} />
@@ -862,6 +880,7 @@ export function App() {
         onSettings={() => setShowSettings(true)}
         onOpenDocs={() => setShowDocs(true)}
         onNewSession={() => setShowNewSession(true)}
+        onOpenTemplates={() => setShowTemplates(true)}
       />
       {visiblePending.length > 0 && (
         <NeedsStrip
@@ -957,6 +976,7 @@ export function App() {
       {settingsModal}
       {shortcutsSheet}
       {searchModal}
+      {templatesModal}
       {docsModal}
       {newSessionOverlay}
       {/* First-run tour (THI-96). Suppressed while any overlay is up — the

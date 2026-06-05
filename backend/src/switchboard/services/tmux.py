@@ -640,11 +640,13 @@ def rename_session(old: str, new: str) -> bool:
     return _cmd_ok(srv, "rename-session", "-t", old, new)
 
 
-def new_window(session: str, name: str) -> int | None:
+def new_window(session: str, name: str, *, cwd: str | None = None) -> int | None:
     """new-window in `session`; return the new window index, or None on failure.
 
     `-P -F #{window_index}` makes tmux print the created window's index so the
     caller can build its `session:index` id without a follow-up state query.
+    `cwd` (THI-99) passes `-c` so the new window starts in a specific
+    directory — used by the templates instantiate path.
     """
     srv = get_server()
     if srv is None:
@@ -655,7 +657,11 @@ def new_window(session: str, name: str) -> int | None:
         # session name like "83" is taken as window-index 83 of the current
         # session — landing the new window in the wrong session (THI-119).
         target = f"{session}:"
-        result = srv.cmd("new-window", "-t", target, "-n", name, "-P", "-F", "#{window_index}")  # ty: ignore
+        args: list[str] = ["new-window", "-t", target, "-n", name]
+        if cwd:
+            args.extend(["-c", cwd])
+        args.extend(["-P", "-F", "#{window_index}"])
+        result = srv.cmd(*args)  # ty: ignore
         if result.stderr and any(result.stderr):
             return None
         out = [line for line in (result.stdout or []) if line.strip()]
@@ -664,15 +670,24 @@ def new_window(session: str, name: str) -> int | None:
         return None
 
 
-def new_session(name: str) -> bool:
+def new_session(name: str, *, window_name: str | None = None, cwd: str | None = None) -> bool:
     """new-session -d -s `name`. False on tmux error (duplicate name, etc).
 
     Intentionally bypasses `get_server()` — `tmux new-session` starts a tmux
     server on demand, so the "New Session" button in the header (THI-144)
     works from the empty state too.
+
+    `window_name` and `cwd` (THI-99) pass `-n` and `-c` so the session's
+    first window can be named and rooted in one tmux call — used by the
+    templates instantiate path.
     """
     srv = libtmux.Server()
-    return _cmd_ok(srv, "new-session", "-d", "-s", name)
+    args: list[str] = ["new-session", "-d", "-s", name]
+    if window_name:
+        args.extend(["-n", window_name])
+    if cwd:
+        args.extend(["-c", cwd])
+    return _cmd_ok(srv, *args)
 
 
 def detach_client(tty: str) -> bool:

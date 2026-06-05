@@ -89,6 +89,17 @@ export interface SearchResponse {
   matches: SearchMatch[];
 }
 
+// Session templates (THI-99).
+export interface TemplateSummary {
+  name: string;
+  windowCount: number;
+  variables: string[];
+}
+
+export interface TemplatesResponse {
+  templates: TemplateSummary[];
+}
+
 // Auto-rename modal (THI-67). Preview-only — applying happens via the
 // existing /api/rename per accepted row. `Usage.estCostUsd` is a Haiku 4.5
 // rate-card estimate; actual billing is what Anthropic charges. Note the

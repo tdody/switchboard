@@ -4,6 +4,7 @@ import type {
   SearchResponse,
   Session,
   StateResponse,
+  TemplatesResponse,
   UsageConfig,
   UsageResponse,
   Window,
@@ -314,6 +315,29 @@ export async function searchPanes(
   const r = await fetch(`${BASE}/search?q=${encodeURIComponent(q)}`, { signal });
   if (!r.ok) return { query: q, matches: [] };
   return (await r.json()) as SearchResponse;
+}
+
+/** THI-99: list every available session template (built-ins + user). */
+export async function fetchTemplates(): Promise<TemplatesResponse> {
+  const r = await fetch(`${BASE}/templates`);
+  if (!r.ok) return { templates: [] };
+  return (await r.json()) as TemplatesResponse;
+}
+
+/** THI-99: instantiate a template with the user's variable values.
+ *  Resolves the new session name on success, null on failure. */
+export async function instantiateTemplate(
+  name: string,
+  variables: Record<string, string>,
+): Promise<string | null> {
+  const r = await fetch(`${BASE}/templates/instantiate`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ name, variables }),
+  });
+  if (!r.ok) return null;
+  const data = (await r.json()) as { ok: boolean; session: string };
+  return data.ok ? data.session : null;
 }
 
 // Claude rolling-window usage — small, no ETag (response changes every poll
