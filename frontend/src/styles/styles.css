@@ -555,6 +555,128 @@ input, textarea, select { font: inherit; color: inherit; }
   text-align: center;
 }
 
+/* ─── List view (THI-60) ──────────────────────────────────── */
+/* Dense tabular layout — one row per window. Columns:
+ *  [dot] [kind] [session/name + description (flex)] [chips] [cpu/mem]
+ *  [status pill] [ago] [actions]
+ * Row body is a button so the whole middle area is one big click target,
+ * matching the card click-anywhere behavior. Right-side actions live in
+ * their own container with stopPropagation so a kill-click never opens
+ * the modal underneath. */
+.list-view {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 18px 20px;
+  gap: 2px;
+  overflow-y: auto;
+  height: 100%;
+}
+.list-empty {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 24px 0;
+  text-align: center;
+}
+.list-row {
+  display: grid;
+  grid-template-columns:
+    14px 18px minmax(0, 1fr) auto auto auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--bg-elev);
+  font-size: 12px;
+}
+.list-row + .list-row { border-top: 1px solid var(--hairline); border-radius: 0; }
+.list-row:first-child { border-radius: 6px 6px 0 0; }
+.list-row:last-child { border-radius: 0 0 6px 6px; }
+.list-row:only-child { border-radius: 6px; }
+.list-row:hover { background: var(--panel); }
+.list-row.is-pending {
+  background: color-mix(in oklch, var(--tone-amber) 6%, var(--bg-elev));
+}
+.list-row.is-focused {
+  box-shadow: 0 0 0 1px var(--accent-edge) inset;
+}
+.list-row.is-hl {
+  box-shadow: 0 0 0 1px var(--accent-edge) inset;
+}
+.list-row.is-pinned {
+  background: color-mix(in oklch, var(--accent) 6%, var(--bg-elev));
+}
+.list-status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--tone-gray, var(--text-dim));
+}
+.list-status-dot.tone-amber { background: var(--tone-amber); }
+.list-status-dot.tone-cyan  { background: var(--tone-cyan); }
+.list-status-dot.tone-green { background: var(--tone-green); }
+.list-status-dot.tone-red   { background: var(--tone-red); }
+.list-status-dot.tone-gray  { background: var(--text-dim); }
+.list-kind {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-mute);
+}
+.list-row-body {
+  display: inline-flex; align-items: center; gap: 8px;
+  min-width: 0;
+  background: transparent; border: 0; padding: 0;
+  text-align: left;
+  color: inherit; font: inherit;
+  cursor: pointer;
+}
+.list-session {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+.list-session::after { content: " /"; }
+.list-name {
+  color: var(--text);
+  font-weight: 600;
+  flex: 0 0 auto;
+  max-width: 220px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.list-idx {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  flex: 0 0 auto;
+}
+.list-pin-badge {
+  display: inline-flex; align-items: center;
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+.list-desc {
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.list-chips { display: inline-flex; align-items: center; gap: 4px; }
+.list-resources {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.list-resources .sep { opacity: 0.6; }
+.list-ago {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.list-actions { display: inline-flex; align-items: center; gap: 2px; }
+
 /* ─── Layout suggestion chip ──────────────────────────────── */
 .layout-hint {
   display: inline-flex; align-items: center; gap: 6px;

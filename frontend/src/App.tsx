@@ -18,6 +18,7 @@ import { EmptyState } from "./components/EmptyState";
 import { Header, type HeaderCounts } from "./components/Header";
 import { GridView } from "./components/GridView";
 import { Kanban } from "./components/Kanban";
+import { ListView } from "./components/ListView";
 import { NeedsStrip } from "./components/NeedsStrip";
 import { NewSessionOverlay } from "./components/NewSessionOverlay";
 import { NewWindowOverlay } from "./components/NewWindowOverlay";
@@ -926,7 +927,21 @@ export function App() {
         onDeletePreset={deletePreset}
       />
       <main className="main">
-        {settings.layout === "grid" ? (
+        {settings.layout === "list" ? (
+          <ListView
+            windows={visible}
+            focusedId={focusedId}
+            highlightedId={highlightedId}
+            onOpen={openCard}
+            onSend={handleSend}
+            onRename={handleRename}
+            onFocus={handleFocus}
+            onKill={handleKill}
+            onQuickAction={handleQuickAction}
+            pinnedPaneIds={pinnedIds}
+            onTogglePin={onTogglePinWindow}
+          />
+        ) : settings.layout === "grid" ? (
           <GridView
             sessions={orderedSessions}
             windows={visible}

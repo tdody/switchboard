@@ -160,7 +160,7 @@ describe("Subhead layout switcher (THI-59)", () => {
     const [kanban, grid, list] = buttons;
     expect(kanban.disabled).toBe(false);
     expect(grid.disabled).toBe(false);
-    expect(list.disabled).toBe(true);
+    expect(list.disabled).toBe(false);
     // Default layout is kanban — only the kanban button has the active class.
     expect(kanban.className).toContain("is-active");
     expect(grid.className).not.toContain("is-active");

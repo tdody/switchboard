@@ -232,8 +232,12 @@ function LayoutSwitcher() {
           <Icon name="grid" size={13} />
         </button>
       </Tooltip>
-      <Tooltip content="List (coming soon)">
-        <button disabled aria-label="List layout">
+      <Tooltip content="List">
+        <button
+          className={layout === "list" ? "is-active" : ""}
+          onClick={() => updateSettings({ layout: "list" })}
+          aria-label="List layout"
+        >
           <Icon name="list" size={13} />
         </button>
       </Tooltip>
