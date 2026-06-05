@@ -22,6 +22,7 @@ import { NewSessionOverlay } from "./components/NewSessionOverlay";
 import { NewWindowOverlay } from "./components/NewWindowOverlay";
 import { RenameOverlay } from "./components/RenameOverlay";
 import { RenameSessionOverlay } from "./components/RenameSessionOverlay";
+import { SearchModal } from "./components/SearchModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { ShortcutsSheet } from "./components/ShortcutsSheet";
 import { Subhead } from "./components/Subhead";
@@ -146,6 +147,8 @@ export function App() {
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  // THI-100: pane history search modal (`⌘⇧F` / `Ctrl+Shift+F`).
+  const [showSearch, setShowSearch] = useState(false);
   // In-app Documentation modal (THI-136). Opened from the Header docs button
   // and from the final step of the first-run tour.
   const [showDocs, setShowDocs] = useState(false);
@@ -663,6 +666,7 @@ export function App() {
         renameTargetId ||
         showSettings ||
         showShortcuts ||
+        showSearch ||
         showDocs ||
         newWindowSession ||
         showNewSession ||
@@ -679,6 +683,18 @@ export function App() {
           (highlightedId ? windows.find((w) => w.paneId === highlightedId) : null) ||
           windows[0];
         if (target) setPaletteTargetId(target.paneId);
+        return;
+      }
+
+      // ⌘⇧F / Ctrl+Shift+F — open pane history search. Always available,
+      // even from inside inputs. (THI-100)
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        e.shiftKey &&
+        e.key.toLowerCase() === "f"
+      ) {
+        e.preventDefault();
+        setShowSearch(true);
         return;
       }
 
@@ -782,6 +798,20 @@ export function App() {
     <ShortcutsSheet onClose={() => setShowShortcuts(false)} />
   ) : null;
 
+  // THI-100: Click a search result → open the matching pane's terminal
+  // modal AND dismiss the search modal so the open pane is fully visible.
+  // (Scroll-to-line in the modal is a follow-up.)
+  const searchModal = showSearch ? (
+    <SearchModal
+      onClose={() => setShowSearch(false)}
+      onOpenMatch={(paneId) => {
+        const target = windows.find((w) => w.paneId === paneId);
+        if (target) openCard(target);
+        setShowSearch(false);
+      }}
+    />
+  ) : null;
+
   const docsModal = showDocs ? (
     <DocsModal onClose={() => setShowDocs(false)} />
   ) : null;
@@ -812,6 +842,7 @@ export function App() {
         </main>
         {settingsModal}
         {shortcutsSheet}
+        {searchModal}
         {docsModal}
         {newSessionOverlay}
         <ToastStack toasts={toasts} />
@@ -925,6 +956,7 @@ export function App() {
       )}
       {settingsModal}
       {shortcutsSheet}
+      {searchModal}
       {docsModal}
       {newSessionOverlay}
       {/* First-run tour (THI-96). Suppressed while any overlay is up — the

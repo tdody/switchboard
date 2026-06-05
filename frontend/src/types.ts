@@ -72,6 +72,23 @@ export interface StateResponse {
   serverRunning: boolean;
 }
 
+// Pane history search (THI-100). One row in the SearchModal's result list.
+export interface SearchMatch {
+  paneId: string;
+  session: string;
+  windowName: string;
+  windowIndex: number;
+  /** 1-based line within the capture buffer. */
+  lineNumber: number;
+  /** Exactly 3 entries: [above, match line, below]. Ends pad with "". */
+  context: [string, string, string];
+}
+
+export interface SearchResponse {
+  query: string;
+  matches: SearchMatch[];
+}
+
 // Auto-rename modal (THI-67). Preview-only — applying happens via the
 // existing /api/rename per accepted row. `Usage.estCostUsd` is a Haiku 4.5
 // rate-card estimate; actual billing is what Anthropic charges. Note the
