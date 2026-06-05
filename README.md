@@ -13,14 +13,20 @@
 Live browser dashboard for tmux sessions. Every tmux window becomes a card; clicking a card opens a live xterm.js-style modal bridged over WebSocket. Parses Claude Code agent panes to surface branch, PR, CI status, spinner, recap, and pending input — so a wall of running agents is glanceable instead of a tab fight.
 
 ![Kanban dashboard](docs/screenshots/01-kanban.png)
+<sub>Kanban layout — NeedsStrip with Broadcast (THI-66), preset chip-bar + Save filter (THI-98), layout switcher (THI-59/60), pin badge on `api-server`, inline `y` `n` quick actions on the waiting agent (THI-97).</sub>
 
 ## Features
 
-- **Kanban view** of every tmux pane — sessions become columns, windows become cards, status colors at a glance
+- **Three layouts** — Kanban (sessions as columns), Grid (sessions as rows of responsive cards), List (dense tabular rows). One-click switcher in the subhead, plus a suggestion chip that nudges you toward the densest fit for the current view.
 - **Claude Code detection** — branch + PR chip, CI rollup, spinner with elapsed, recap of last assistant line, and a "waiting on you" badge when an agent prompts
 - **Live terminal modal** powered by xterm.js with WebSocket auto-reconnect, buffer paste + image paste
+- **Live activity timers** — `38s` / `2m` labels tick every second, not every poll
+- **⌘K command palette** with **broadcast mode** — send keys to one pane, or fan out to every pending agent in one shot
+- **Pinned windows + saved filter presets** — pin a card to keep it visible across filter changes; save the current filter as a named preset and swap between curated workspaces with one click
+- **Pane history search** — full-text grep across every pane's capture buffer with surrounding context, click to jump
+- **Session templates** — declare a workspace in `~/.switchboard/templates/<name>.yml` (windows, cwd, cmd, variable substitution) and bootstrap a whole session in one click
+- **Per-kind quick actions** on cards — inline `y` / `n` / `Ctrl-C` / `Continue` for agents, `Restart` for servers, `Pause`/`Resume` for logs
 - **Browser notifications + favicon dot** when any agent flips to waiting
-- **⌘K command palette** — send keys to the focused pane from anywhere on the dashboard
 - **Clickable file paths → IDE** and **PR chips → GitHub** inside terminal output
 - **✨ Auto-rename** — Anthropic Haiku suggests names for every window in a session, preview/edit/skip per row before applying
 - **Claude usage pill** — rolling-window token totals + plan-% scraping
@@ -32,12 +38,15 @@ Live browser dashboard for tmux sessions. Every tmux window becomes a card; clic
 
 <table>
   <tr>
-    <td><a href="docs/screenshots/02-terminal-modal.png"><img src="docs/screenshots/02-terminal-modal.png" alt="Open terminal modal" /></a><br/><em>Live terminal modal — xterm.js over WebSocket, with the agent's pending prompt overlaid</em></td>
-    <td><a href="docs/screenshots/03-command-palette.png"><img src="docs/screenshots/03-command-palette.png" alt="Command palette" /></a><br/><em>⌘K command palette — send keys to the focused pane</em></td>
+    <td><a href="docs/screenshots/02-list-view.png"><img src="docs/screenshots/02-list-view.png" alt="List layout" /></a><br/><em>List layout (THI-60) — one dense row per window; pending first, then pinned</em></td>
+    <td><a href="docs/screenshots/03-terminal-modal.png"><img src="docs/screenshots/03-terminal-modal.png" alt="Open terminal modal" /></a><br/><em>Live terminal modal — xterm.js over WebSocket, with the agent's pending prompt overlaid</em></td>
   </tr>
   <tr>
-    <td><a href="docs/screenshots/04-auto-rename.png"><img src="docs/screenshots/04-auto-rename.png" alt="Auto-rename modal" /></a><br/><em>✨ Auto-rename — Haiku suggestions, preview/edit per row</em></td>
-    <td><a href="docs/screenshots/05-settings.png"><img src="docs/screenshots/05-settings.png" alt="Settings modal" /></a><br/><em>Settings — appearance, polling, auto-rename + Claude usage knobs</em></td>
+    <td><a href="docs/screenshots/04-command-palette.png"><img src="docs/screenshots/04-command-palette.png" alt="Command palette" /></a><br/><em>⌘K command palette — send keys to the focused pane (or broadcast to many at once, THI-66)</em></td>
+    <td><a href="docs/screenshots/05-auto-rename.png"><img src="docs/screenshots/05-auto-rename.png" alt="Auto-rename modal" /></a><br/><em>✨ Auto-rename — Haiku suggestions, preview/edit per row</em></td>
+  </tr>
+  <tr>
+    <td colspan="2"><a href="docs/screenshots/06-settings.png"><img src="docs/screenshots/06-settings.png" alt="Settings modal" /></a><br/><em>Settings — appearance, polling, auto-rename + Claude usage knobs</em></td>
   </tr>
 </table>
 
@@ -144,11 +153,11 @@ backend/                        FastAPI + libtmux service (uv-managed)
   tests/                        pytest (~280 tests)
 frontend/                       React 18 + TypeScript + Vite SPA
   src/
-    components/                 WindowCard, Kanban, TerminalModal, DocsModal, AutoRenameModal, …
+    components/                 WindowCard, Kanban, GridView, ListView, TerminalModal, CommandPalette, TemplatesModal, SearchModal, AutoRenameModal, NeedsStrip, …
     components/docs/            in-app docs diagrams (callouts)
-    lib/                        settings, filter, status, xtermThemes, xtermStreamRewriter, …
+    lib/                        settings, filter, status, suggestLayout, usePins, usePresets, xtermThemes, xtermStreamRewriter, …
     api/                        client + polling
-  vitest                        (~370 tests)
+  vitest                        (~488 tests)
 scripts/
   dev.sh                        launches both servers in tmux panes
   seed-tmux.sh                  populates a multi-session tmux server for local UI work
