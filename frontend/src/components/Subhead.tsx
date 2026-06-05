@@ -1,5 +1,10 @@
 import type { KindFilter, StatusFilter } from "../lib/filter";
-import { COLUMN_SIZE_ORDER, updateSettings, useSettings } from "../lib/settings";
+import {
+  COLUMN_SIZE_ORDER,
+  updateSettings,
+  useSetting,
+  useSettings,
+} from "../lib/settings";
 import type { FilterPreset } from "../lib/usePresets";
 import type { HeaderCounts } from "./Header";
 import { Icon } from "./Icon";
@@ -197,23 +202,42 @@ export function Subhead({
       <StatusLegend />
       <ColumnSizeControl />
       <span className="hdr-spacer" />
-      <span className="layout-switcher">
-        <Tooltip content="Kanban">
-          <button className="is-active">
-            <Icon name="kanban" size={13} />
-          </button>
-        </Tooltip>
-        <Tooltip content="Grid (coming soon)">
-          <button disabled>
-            <Icon name="grid" size={13} />
-          </button>
-        </Tooltip>
-        <Tooltip content="List (coming soon)">
-          <button disabled>
-            <Icon name="list" size={13} />
-          </button>
-        </Tooltip>
-      </span>
+      <LayoutSwitcher />
     </div>
   );
 }
+
+function LayoutSwitcher() {
+  // THI-59 wires the grid button to the layout setting. Kanban is the
+  // default; grid swaps to <GridView/> in App.tsx. List remains disabled
+  // — that's THI-60.
+  const layout = useSetting("layout");
+  return (
+    <span className="layout-switcher">
+      <Tooltip content="Kanban">
+        <button
+          className={layout === "kanban" ? "is-active" : ""}
+          onClick={() => updateSettings({ layout: "kanban" })}
+          aria-label="Kanban layout"
+        >
+          <Icon name="kanban" size={13} />
+        </button>
+      </Tooltip>
+      <Tooltip content="Grid">
+        <button
+          className={layout === "grid" ? "is-active" : ""}
+          onClick={() => updateSettings({ layout: "grid" })}
+          aria-label="Grid layout"
+        >
+          <Icon name="grid" size={13} />
+        </button>
+      </Tooltip>
+      <Tooltip content="List (coming soon)">
+        <button disabled aria-label="List layout">
+          <Icon name="list" size={13} />
+        </button>
+      </Tooltip>
+    </span>
+  );
+}
+

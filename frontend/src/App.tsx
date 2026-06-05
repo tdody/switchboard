@@ -16,6 +16,7 @@ import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DocsModal } from "./components/DocsModal";
 import { EmptyState } from "./components/EmptyState";
 import { Header, type HeaderCounts } from "./components/Header";
+import { GridView } from "./components/GridView";
 import { Kanban } from "./components/Kanban";
 import { NeedsStrip } from "./components/NeedsStrip";
 import { NewSessionOverlay } from "./components/NewSessionOverlay";
@@ -925,6 +926,26 @@ export function App() {
         onDeletePreset={deletePreset}
       />
       <main className="main">
+        {settings.layout === "grid" ? (
+          <GridView
+            sessions={orderedSessions}
+            windows={visible}
+            focusedId={focusedId}
+            highlightedId={highlightedId}
+            onOpen={openCard}
+            onSend={handleSend}
+            onRename={handleRename}
+            onFocus={handleFocus}
+            onKill={handleKill}
+            onQuickAction={handleQuickAction}
+            onNewWindow={handleNewWindow}
+            onKillSession={handleKillSession}
+            onRenameSession={handleRenameSession}
+            onAutoRename={aiEnabled ? handleAutoRename : undefined}
+            pinnedPaneIds={pinnedIds}
+            onTogglePin={onTogglePinWindow}
+          />
+        ) : (
         <Kanban
           sessions={orderedSessions}
           windows={visible}
@@ -948,6 +969,7 @@ export function App() {
           onQuickCreate={handleQuickCreate}
           quickCreating={quickCreating}
         />
+        )}
       </main>
       {openWindow && (
         <TerminalModal
