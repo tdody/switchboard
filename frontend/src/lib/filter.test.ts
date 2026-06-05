@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { mkAgent, mkWindow } from "../test/factories";
-import { applyFilter, parseQuery, sortPendingFirst, stripKindToken } from "./filter";
+import {
+  applyFilter,
+  applyFilterWithPins,
+  parseQuery,
+  sortPendingFirst,
+  stripKindToken,
+} from "./filter";
 
 describe("parseQuery", () => {
   it("extracts kind/status/session tokens, lowercased", () => {
@@ -254,5 +260,58 @@ describe("sortPendingFirst", () => {
       "b", // %2 pinned (position 1, but only present pin)
       "a", // %1 unpinned, falls back to index
     ]);
+  });
+});
+
+describe("applyFilterWithPins", () => {
+  const windows = [
+    mkWindow({
+      paneId: "%1",
+      name: "build",
+      session: "main",
+      kind: "server",
+      status: "running",
+    }),
+    mkWindow({
+      paneId: "%2",
+      name: "agent-x",
+      session: "agents",
+      kind: "agent",
+      status: "waiting",
+    }),
+    mkWindow({
+      paneId: "%3",
+      name: "shell",
+      session: "main",
+      kind: "shell",
+      status: "idle",
+    }),
+  ];
+  const noQuery = parseQuery("");
+  const empty = new Set<string>();
+
+  it("with no pins, behaves identically to applyFilter", () => {
+    const filtered = applyFilter(windows, "waiting", "", noQuery);
+    const overlaid = applyFilterWithPins(windows, "waiting", "", noQuery, empty);
+    expect(overlaid).toEqual(filtered);
+  });
+
+  it("includes pinned windows even when they don't match the filter", () => {
+    const pinned = new Set(["%3"]); // the idle shell
+    const r = applyFilterWithPins(windows, "waiting", "", noQuery, pinned);
+    const names = r.map((w) => w.name).sort();
+    expect(names).toEqual(["agent-x", "shell"]);
+  });
+
+  it("does not duplicate windows that match the filter AND are pinned", () => {
+    const pinned = new Set(["%2"]); // the waiting agent (already matches)
+    const r = applyFilterWithPins(windows, "waiting", "", noQuery, pinned);
+    expect(r.map((w) => w.paneId)).toEqual(["%2"]);
+  });
+
+  it("pinned ids that don't exist in `windows` are ignored", () => {
+    const pinned = new Set(["%999"]);
+    const r = applyFilterWithPins(windows, "waiting", "", noQuery, pinned);
+    expect(r.map((w) => w.paneId)).toEqual(["%2"]);
   });
 });

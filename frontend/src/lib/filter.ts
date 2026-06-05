@@ -53,6 +53,27 @@ export function applyFilter(
   });
 }
 
+// Overlay rule for THI-98 pinned windows: a pinned pane stays visible even
+// when the active filter would normally hide it. Non-pinned panes follow the
+// usual `applyFilter` rules. Pinned panes already in the filtered result are
+// not duplicated; pinned ids that don't reference an existing window are
+// silently ignored so a torn-down session doesn't strand stale entries.
+export function applyFilterWithPins(
+  windows: Window[],
+  filter: StatusFilter,
+  kindFilter: KindFilter,
+  parsed: ParsedQuery,
+  pinnedIds: Set<string>,
+): Window[] {
+  const filtered = applyFilter(windows, filter, kindFilter, parsed);
+  if (pinnedIds.size === 0) return filtered;
+  const seen = new Set(filtered.map((w) => w.paneId));
+  const extras = windows.filter(
+    (w) => pinnedIds.has(w.paneId) && !seen.has(w.paneId),
+  );
+  return extras.length === 0 ? filtered : [...filtered, ...extras];
+}
+
 // Strip every `kind:value` token (case-insensitive) from a search-box string,
 // preserving the rest. Used when the chip-click handler needs to clear a
 // competing `kind:` token so the chip and the search box don't visually

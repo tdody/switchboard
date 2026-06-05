@@ -46,6 +46,13 @@ interface Props {
    *  feature is off; passing missing keys is fine — sortPendingFirst treats
    *  absent / empty arrays as the natural index order. */
   windowOrder?: Record<string, string[]>;
+  /** Set of pane ids the user has pinned (THI-98). Pinned tiles sort to the
+   *  top of their column (above any drag-order from THI-141) and render with
+   *  an active Pin glyph. Pass an empty set to disable the styling. */
+  pinnedPaneIds?: Set<string>;
+  /** Toggle pin state for a window. When provided, each card renders a Pin
+   *  button in its foot. */
+  onTogglePin?: (w: Window) => void;
   /** One-click new-window. `mode` "claude" autotypes `claude\n` to boot
    *  Claude Code; "shell" leaves a bare prompt. (THI-115). */
   onQuickCreate?: (session: string, mode: "claude" | "shell") => void;
@@ -78,6 +85,8 @@ export function Kanban({
   onReorderSession,
   onReorderWindow,
   windowOrder,
+  pinnedPaneIds,
+  onTogglePin,
   onQuickCreate,
   quickCreating,
 }: Props) {
@@ -85,11 +94,20 @@ export function Kanban({
   // so the first-run tour (THI-96) can anchor its opening steps. Computing
   // this once per render keeps it O(N) and clearer than threading a mutable
   // flag through the nested .map() callbacks below.
+  // THI-98 pinned ids outrank THI-141 drag-order: pre-pend the pinned
+  // pane-id list to the per-session reorder list passed to sortPendingFirst.
+  // The comparator's Map de-dupes, so a pane appearing in both arrays just
+  // takes its pinned-section index (which is always lower).
+  const sortOrderFor = (sessionId: string): string[] | undefined => {
+    const drag = windowOrder?.[sessionId];
+    if (!pinnedPaneIds || pinnedPaneIds.size === 0) return drag;
+    return [...pinnedPaneIds, ...(drag ?? [])];
+  };
   const firstPaneId = sessions
     .flatMap((s) =>
       sortPendingFirst(
         windows.filter((w) => w.session === s.id),
-        windowOrder?.[s.id],
+        sortOrderFor(s.id),
       ),
     )
     .at(0)?.paneId;
@@ -231,7 +249,7 @@ export function Kanban({
       {sessions.map((s) => {
         const ws = sortPendingFirst(
           windows.filter((w) => w.session === s.id),
-          windowOrder?.[s.id],
+          sortOrderFor(s.id),
         );
         const pending = ws.filter((w) => w.pendingInput).length;
         const client = (s.clients || [])[0];
@@ -407,6 +425,8 @@ export function Kanban({
                         onFocus={onFocus}
                         onKill={onKill}
                         onQuickAction={onQuickAction}
+                        isPinned={!!pinnedPaneIds?.has(w.paneId)}
+                        onTogglePin={onTogglePin}
                         dataTour={w.paneId === firstPaneId ? "first-card" : undefined}
                       />
                     </div>

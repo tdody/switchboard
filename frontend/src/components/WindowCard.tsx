@@ -27,6 +27,13 @@ interface Props {
   /** Optional anchor selector for the first-run tour (THI-96). Set by Kanban
    *  on the very first rendered card so the tour can find it. */
   dataTour?: string;
+  /** Pinned-state knobs (THI-98). When `onTogglePin` is set, the card foot
+   *  renders a Pin button; `isPinned` drives the active styling and the
+   *  card-level `card-pinned` class used by the filter-overlay sort. Both are
+   *  optional so the card still renders in tests / contexts where pinning
+   *  isn't wired up. */
+  isPinned?: boolean;
+  onTogglePin?: (w: Window) => void;
 }
 
 function WindowCardImpl({
@@ -40,6 +47,8 @@ function WindowCardImpl({
   onKill,
   onQuickAction,
   dataTour,
+  isPinned = false,
+  onTogglePin,
 }: Props) {
   const pending = !!w.pendingInput;
   const agent = w.agent;
@@ -58,6 +67,7 @@ function WindowCardImpl({
   const className =
     `card ${pending ? "card-pending" : ""} ${isFocused ? "card-focused" : ""}` +
     (isHighlighted ? " card-hl" : "") +
+    (isPinned ? " card-pinned" : "") +
     (ctxBand ? ` ${ctxBand}` : "");
   return (
     <div
@@ -87,6 +97,11 @@ function WindowCardImpl({
           {w.name}
         </span>
         <span className="card-idx">:{w.index}</span>
+        {isPinned && (
+          <span className="card-pin-badge" title="Pinned" aria-label="pinned">
+            <Icon name="pin" size={10} />
+          </span>
+        )}
         <StatusPill status={w.status} />
       </div>
 
@@ -180,6 +195,17 @@ function WindowCardImpl({
             <Icon name="send" size={12} />
           </button>
         </Tooltip>
+        {onTogglePin && (
+          <Tooltip content={isPinned ? "Unpin window" : "Pin window"}>
+            <button
+              className={`act act-icon act-pin${isPinned ? " is-pinned" : ""}`}
+              onClick={() => onTogglePin(w)}
+              aria-pressed={isPinned}
+            >
+              <Icon name="pin" size={12} />
+            </button>
+          </Tooltip>
+        )}
         {quickActions.map((a) => (
           <Tooltip key={a.id} content={a.title}>
             <button
@@ -233,6 +259,8 @@ export const WindowCard = memo(WindowCardImpl, (prev, next) => {
   if (prev.onKill !== next.onKill) return false;
   if (prev.onQuickAction !== next.onQuickAction) return false;
   if (prev.dataTour !== next.dataTour) return false;
+  if (prev.isPinned !== next.isPinned) return false;
+  if (prev.onTogglePin !== next.onTogglePin) return false;
   // The Window object is replaced wholesale on each poll. Shallow-compare the
   // fields the card actually renders. (No deep-compare to keep this cheap.)
   const a = prev.w;

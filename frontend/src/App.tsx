@@ -32,13 +32,15 @@ import { ToastStack } from "./components/ToastStack";
 import { Tour } from "./components/Tour";
 import type { ToastData } from "./components/Toast";
 import {
-  applyFilter,
+  applyFilterWithPins,
   KIND_FILTERS,
   parseQuery,
   stripKindToken,
   type KindFilter,
   type StatusFilter,
 } from "./lib/filter";
+import { usePins } from "./lib/usePins";
+import { usePresets, type FilterPreset } from "./lib/usePresets";
 import { columnsForNav, navigateCard, type NavDirection } from "./lib/cardNav";
 import {
   applySessionOrder,
@@ -239,9 +241,29 @@ export function App() {
   );
 
   const parsed = useMemo(() => parseQuery(query), [query]);
+  // THI-98: persistent pin set + filter overlay. Pinned panes stay visible
+  // when the active filter would otherwise hide them, and sort to the top
+  // of their column inside Kanban.
+  const { pinnedIds, togglePin } = usePins();
+  const onTogglePinWindow = useCallback(
+    (w: Window) => togglePin(w.paneId),
+    [togglePin],
+  );
+  // THI-98 saved filter presets: persistent named bundles of
+  // (status, kind, query) so the user can swap between curated views with
+  // one click.
+  const { presets, savePreset, deletePreset } = usePresets();
+  const applyPreset = useCallback(
+    (p: FilterPreset) => {
+      setFilterParam(p.filter);
+      setKindParam(p.kind);
+      setQuery(p.query);
+    },
+    [setFilterParam, setKindParam, setQuery],
+  );
   const visible = useMemo(
-    () => applyFilter(windows, filter, kindFilter, parsed),
-    [windows, filter, kindFilter, parsed],
+    () => applyFilterWithPins(windows, filter, kindFilter, parsed, pinnedIds),
+    [windows, filter, kindFilter, parsed, pinnedIds],
   );
 
   // Chip-click handler (THI-130). Toggle semantics: click the active chip to
@@ -897,6 +919,10 @@ export function App() {
         counts={counts}
         kindFilter={kindFilter}
         onChipClick={onChipClick}
+        presets={presets}
+        onApplyPreset={applyPreset}
+        onSavePreset={savePreset}
+        onDeletePreset={deletePreset}
       />
       <main className="main">
         <Kanban
@@ -917,6 +943,8 @@ export function App() {
           onReorderSession={handleReorderSession}
           onReorderWindow={handleReorderWindow}
           windowOrder={windowOrder}
+          pinnedPaneIds={pinnedIds}
+          onTogglePin={onTogglePinWindow}
           onQuickCreate={handleQuickCreate}
           quickCreating={quickCreating}
         />

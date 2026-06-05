@@ -226,3 +226,71 @@ describe("WindowCard quick actions (THI-97)", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 });
+
+describe("WindowCard pin (THI-98)", () => {
+  it("renders a pin button when onTogglePin is provided", () => {
+    const onTogglePin = vi.fn();
+    const { container } = render(
+      <WindowCard
+        w={makeWindow()}
+        isFocused={false}
+        isHighlighted={false}
+        onOpen={noop}
+        onSendKeys={noop}
+        onRename={noop}
+        onFocus={noop}
+        onKill={noop}
+        isPinned={false}
+        onTogglePin={onTogglePin}
+      />,
+    );
+    expect(container.querySelector("button.act-pin")).not.toBeNull();
+  });
+
+  it("clicking the pin button calls onTogglePin and not onOpen", () => {
+    const onTogglePin = vi.fn();
+    const onOpen = vi.fn();
+    const { container } = render(
+      <WindowCard
+        w={makeWindow()}
+        isFocused={false}
+        isHighlighted={false}
+        onOpen={onOpen}
+        onSendKeys={noop}
+        onRename={noop}
+        onFocus={noop}
+        onKill={noop}
+        isPinned={false}
+        onTogglePin={onTogglePin}
+      />,
+    );
+    const btn = container.querySelector<HTMLButtonElement>("button.act-pin")!;
+    fireEvent.click(btn);
+    expect(onTogglePin).toHaveBeenCalledTimes(1);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("when pinned, adds the is-pinned class to the pin button and the card", () => {
+    const { container } = render(
+      <WindowCard
+        w={makeWindow()}
+        isFocused={false}
+        isHighlighted={false}
+        onOpen={noop}
+        onSendKeys={noop}
+        onRename={noop}
+        onFocus={noop}
+        onKill={noop}
+        isPinned={true}
+        onTogglePin={noop}
+      />,
+    );
+    expect(container.querySelector(".card.card-pinned")).not.toBeNull();
+    expect(container.querySelector("button.act-pin.is-pinned")).not.toBeNull();
+  });
+
+  it("omits the pin button entirely when onTogglePin is undefined", () => {
+    const { container } = renderCard(makeWindow());
+    expect(container.querySelector("button.act-pin")).toBeNull();
+  });
+});

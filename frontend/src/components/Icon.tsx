@@ -38,6 +38,7 @@ export type IconName =
   | "server"
   | "logs"
   | "shell"
+  | "pin"
   | "docs";
 
 interface IconProps {
@@ -317,6 +318,16 @@ export function Icon({ name, size = 14, style, className }: IconProps) {
       return (
         <svg {...props}>
           <path d="m3 4 3 4-3 4M8 12h5" />
+        </svg>
+      );
+    case "pin":
+      // A thumbtack glyph (THI-98). Cap as a small rectangle at the top, a
+      // stem dropping to a needle point. Simple stroked path that scales well
+      // at the 12px size used on the card foot.
+      return (
+        <svg {...props}>
+          <path d="M6 2.5h4v3.5L11 9H5l1-3V2.5Z" />
+          <path d="M8 9v4.5" />
         </svg>
       );
     case "docs":

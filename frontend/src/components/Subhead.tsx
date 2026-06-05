@@ -1,5 +1,6 @@
 import type { KindFilter, StatusFilter } from "../lib/filter";
 import { COLUMN_SIZE_ORDER, updateSettings, useSettings } from "../lib/settings";
+import type { FilterPreset } from "../lib/usePresets";
 import type { HeaderCounts } from "./Header";
 import { Icon } from "./Icon";
 import { StatusLegend } from "./StatusLegend";
@@ -13,6 +14,13 @@ interface Props {
   counts: HeaderCounts;
   kindFilter: KindFilter;
   onChipClick: (next: KindFilter) => void;
+  /** THI-98 saved-filter presets. Provided together as a block — when any of
+   *  the three callbacks is omitted, the chip-bar and the Save button are
+   *  hidden entirely so tests / older entry points keep rendering as before. */
+  presets?: FilterPreset[];
+  onApplyPreset?: (p: FilterPreset) => void;
+  onSavePreset?: (p: FilterPreset) => void;
+  onDeletePreset?: (name: string) => void;
 }
 
 function ColumnSizeControl() {
@@ -58,7 +66,25 @@ export function Subhead({
   counts,
   kindFilter,
   onChipClick,
+  presets,
+  onApplyPreset,
+  onSavePreset,
+  onDeletePreset,
 }: Props) {
+  // Presets bar (THI-98) is rendered only when all three callbacks were wired —
+  // partial setup would invite half-broken states. The hook in App always
+  // supplies the full triplet, so this is just a tests/fallback guard.
+  const presetsEnabled = !!(onApplyPreset && onSavePreset && onDeletePreset);
+  const handleSavePreset = () => {
+    if (!onSavePreset) return;
+    const name = window.prompt(
+      "Name this filter preset (e.g. 'Stuck agents'):",
+    );
+    if (name === null) return; // user cancelled
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    onSavePreset({ name: trimmed, filter, kind: kindFilter, query });
+  };
   const Tab = ({
     id,
     label,
@@ -127,6 +153,47 @@ export function Subhead({
           <span>Shell</span>
         </button>
       </span>
+      {presetsEnabled && (
+        <span className="preset-bar" style={{ display: "inline-flex", gap: 2 }}>
+          {presets?.map((p) => (
+            <span
+              key={p.name}
+              className="preset-chip"
+              title={`Apply preset: ${p.name}`}
+            >
+              <button
+                type="button"
+                className="preset-chip-apply"
+                onClick={() => onApplyPreset!(p)}
+              >
+                {p.name}
+              </button>
+              <button
+                type="button"
+                className="preset-chip-x"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeletePreset!(p.name);
+                }}
+                aria-label={`Delete preset ${p.name}`}
+                title={`Delete preset "${p.name}"`}
+              >
+                <Icon name="x" size={10} />
+              </button>
+            </span>
+          ))}
+          <Tooltip content="Save the current filter as a preset">
+            <button
+              type="button"
+              className="preset-save"
+              onClick={handleSavePreset}
+            >
+              <Icon name="plus" size={11} />
+              <span>Save filter</span>
+            </button>
+          </Tooltip>
+        </span>
+      )}
       <StatusLegend />
       <ColumnSizeControl />
       <span className="hdr-spacer" />
