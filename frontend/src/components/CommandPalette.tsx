@@ -8,6 +8,12 @@ import { Icon, type IconName } from "./Icon";
 interface Props {
   target: Window;
   onClose: () => void;
+  /** THI-66 broadcast mode. When provided AND length > 1, the palette
+   *  enters broadcast mode: amber pill in the header, target chips at the
+   *  top of the body, "target: N panes" in the footer, and submit
+   *  iterates `sendKeys` for every target. Length ≤ 1 falls back to the
+   *  single-target UI driven by `target`. */
+  broadcastTargets?: Window[];
 }
 
 interface Item {
@@ -59,7 +65,7 @@ const AGENT_PROMPTS: Item[] = [
   },
 ];
 
-export function CommandPalette({ target, onClose }: Props) {
+export function CommandPalette({ target, onClose, broadcastTargets }: Props) {
   const scrimProps = useScrimClose(onClose);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -68,6 +74,11 @@ export function CommandPalette({ target, onClose }: Props) {
     const stored = readRecents(target.session);
     return stored.length > 0 ? stored.map(recentToItem) : FALLBACK_RECENT_COMMANDS;
   });
+  // Local copy of broadcast targets — lets the user prune the list with the
+  // ✕ chip before sending. Starts from props; never re-syncs (the parent
+  // closes the palette to "reset" it).
+  const [targets, setTargets] = useState<Window[]>(broadcastTargets ?? []);
+  const isBroadcast = targets.length > 1;
 
   const items = useMemo<Item[]>(() => {
     const all = [...recents, ...AGENT_PROMPTS];
@@ -104,6 +115,21 @@ export function CommandPalette({ target, onClose }: Props) {
     // Treat the throw the same as ok=false: skip the recents write and close
     // the palette so the user isn't left staring at a frozen UI with no
     // feedback. Matches the existing UX where ok=false also just closes.
+    if (isBroadcast) {
+      // Broadcast: fire to every target. We don't write to recents in this
+      // mode — targets typically span multiple sessions and the recents
+      // store is per-session. Errors per target are swallowed so a single
+      // failed pane doesn't abort the rest.
+      for (const t of targets) {
+        try {
+          await sendKeys(t.session, t.index, body);
+        } catch {
+          /* skip this target; carry on */
+        }
+      }
+      onClose();
+      return;
+    }
     let ok = false;
     try {
       ok = await sendKeys(target.session, target.index, body);
@@ -194,7 +220,11 @@ export function CommandPalette({ target, onClose }: Props) {
           <textarea
             ref={inputRef}
             rows={1}
-            placeholder={`Send to ${target.session}:${target.index} ${target.name}…`}
+            placeholder={
+              isBroadcast
+                ? `Broadcast to ${targets.length} panes…`
+                : `Send to ${target.session}:${target.index} ${target.name}…`
+            }
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -202,8 +232,39 @@ export function CommandPalette({ target, onClose }: Props) {
               autoGrow(e.target);
             }}
           />
+          {isBroadcast && (
+            <span
+              className="palette-broadcast-pill"
+              title="Broadcast mode: input fires to every target pane"
+            >
+              <span className="pulse" aria-hidden="true" />
+              <span>broadcast</span>
+            </span>
+          )}
           <span className="kbd">esc</span>
         </div>
+        {isBroadcast && (
+          <div className="palette-targets" role="list" aria-label="Broadcast targets">
+            {targets.map((t) => (
+              <span key={t.paneId} className="palette-target-chip" role="listitem">
+                <span className="sess">{t.session}/</span>
+                <span className="name">{t.name}</span>
+                <span className="idx">:{t.index}</span>
+                <button
+                  type="button"
+                  className="palette-target-rm"
+                  aria-label={`Remove ${t.session}:${t.name} from broadcast`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTargets((prev) => prev.filter((x) => x.paneId !== t.paneId));
+                  }}
+                >
+                  <Icon name="x" size={10} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="palette-body">
           {recentSlice.length > 0 && (
             <>
@@ -230,7 +291,9 @@ export function CommandPalette({ target, onClose }: Props) {
           <span className="hint">↑↓ navigate · ⏎ send · esc cancel</span>
           <span className="term-spacer" style={{ flex: 1 }} />
           <span className="hint">
-            target: {target.session}:{target.index}
+            {isBroadcast
+              ? `target: ${targets.length} panes`
+              : `target: ${target.session}:${target.index}`}
           </span>
         </div>
       </div>

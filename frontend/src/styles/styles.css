@@ -1902,6 +1902,71 @@ input, textarea, select { font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 4px;
 }
 
+/* THI-66 broadcast mode. An amber pill in the header signals the multi-pane
+ * destination; the chip-row below the input lists every target with an
+ * X to prune mid-compose. */
+.palette-broadcast-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--tone-amber) 18%, transparent);
+  color: var(--tone-amber);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.palette-broadcast-pill .pulse {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--tone-amber);
+  box-shadow: 0 0 0 0 color-mix(in oklch, var(--tone-amber) 60%, transparent);
+  animation: pendingPulse 2s ease-in-out infinite;
+}
+[data-reduced-motion="true"] .palette-broadcast-pill .pulse { animation: none; }
+.palette-targets {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+.palette-target-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 22px; padding: 0 4px 0 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--panel);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+.palette-target-chip .sess { color: var(--text-dim); }
+.palette-target-chip .name { color: var(--text); }
+.palette-target-chip .idx { color: var(--text-dim); }
+.palette-target-rm {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px;
+  background: transparent; border: 0; padding: 0;
+  border-radius: 50%;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.palette-target-rm:hover { color: var(--tone-red); background: var(--hairline); }
+
+.needs-broadcast {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 0 10px;
+  height: 24px;
+  border-radius: 999px;
+  color: var(--tone-amber);
+  font-size: 11px;
+  margin-right: 4px;
+}
+.needs-broadcast:hover {
+  background: color-mix(in oklch, var(--tone-amber) 14%, transparent);
+}
+
 /* ─── Auto-rename modal (THI-67) ──────────────────────────────
  * Multi-row preview-then-apply UX. Distinct from `.rename-modal`
  * (single-window inline rename) so the stacked-row layout doesn't
