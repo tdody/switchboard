@@ -218,17 +218,31 @@ def test_ws_recv_loop_offloads_tmux_calls_to_thread(monkeypatch, ws_client: Test
     monkeypatch.setattr(tmux, "resize_window", record("resize_window"))
     monkeypatch.setattr(tmux, "restore_window_size", lambda *a, **k: True)
 
+    import time
+
+    expected = {"send_keys", "send_signal", "get_window_size", "resize_window"}
+
     with ws_client.websocket_connect("/ws/pane?session=dev&index=2", headers=_HOST) as ws:
         ws.send_text("abc")  # keystroke
         ws.send_text('{"signal":"C-c"}')  # signal
         ws.send_text('{"type":"resize","cols":120,"rows":40}')  # resize
+
+        # The resize handler does TWO sequential `asyncio.to_thread` awaits
+        # (get_window_size, then resize_window). On slow CI runners the WS
+        # close at the end of this `with` block can race the second await,
+        # leaving resize_window uncalled. Poll until all four target calls
+        # are observed (or time out) so the assertion below sees a complete
+        # set on every run.
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not expected.issubset(tmux_call_threads.keys()):
+            time.sleep(0.01)
 
     assert handler_thread_box, "handler never ran"
     loop_thread = handler_thread_box[0]
 
     # Every recv-loop tmux call must have run on a thread other than the
     # event-loop thread — i.e. asyncio.to_thread offloaded it.
-    for name in ("send_keys", "send_signal", "get_window_size", "resize_window"):
+    for name in expected:
         assert name in tmux_call_threads, f"{name} was never called: {tmux_call_threads}"
         assert tmux_call_threads[name] is not loop_thread, (
             f"{name} ran inline on the event-loop thread ({loop_thread.name}), "
