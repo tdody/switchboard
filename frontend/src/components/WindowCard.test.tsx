@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import type { Window } from "../types";
 import { WindowCard } from "./WindowCard";
@@ -133,5 +133,96 @@ describe("WindowCard memo", () => {
     // (React skipped reconciliation entirely for this card).
     const secondNode = container.querySelector(".preview .ln");
     expect(secondNode).toBe(firstNode);
+  });
+});
+
+describe("WindowCard quick actions (THI-97)", () => {
+  function renderWithQuickAction(w: Window, onQuickAction: () => void) {
+    return render(
+      <WindowCard
+        w={w}
+        isFocused={false}
+        isHighlighted={false}
+        onOpen={noop}
+        onSendKeys={noop}
+        onRename={noop}
+        onFocus={noop}
+        onKill={noop}
+        onQuickAction={onQuickAction}
+      />,
+    );
+  }
+
+  it("pending agent: renders y / n / interrupt buttons; y click fires the y payload", () => {
+    const onQuickAction = vi.fn();
+    const w = makeWindow({
+      kind: "agent",
+      status: "waiting",
+      pendingInput: true,
+    });
+    const { container } = renderWithQuickAction(w, onQuickAction);
+
+    const buttons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button.act-quick"),
+    );
+    expect(buttons.map((b) => b.textContent)).toEqual(["y", "n", "⎋"]);
+
+    fireEvent.click(buttons[0]);
+    expect(onQuickAction).toHaveBeenCalledTimes(1);
+    const [calledWin, calledAction] = onQuickAction.mock.calls[0];
+    expect(calledWin).toBe(w);
+    expect(calledAction.id).toBe("agent.yes");
+    expect(calledAction.payload).toEqual({ paste: "y", keys: ["Enter"] });
+  });
+
+  it("non-pending agent: renders only the interrupt button", () => {
+    const w = makeWindow({
+      kind: "agent",
+      status: "running",
+      pendingInput: false,
+    });
+    const { container } = renderWithQuickAction(w, vi.fn());
+    const buttons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button.act-quick"),
+    );
+    expect(buttons.map((b) => b.textContent)).toEqual(["⎋"]);
+  });
+
+  it("shell: renders a clear-screen button", () => {
+    const w = makeWindow({ kind: "shell" });
+    const { container } = renderWithQuickAction(w, vi.fn());
+    const buttons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button.act-quick"),
+    );
+    expect(buttons.map((b) => b.textContent)).toEqual(["⌫"]);
+  });
+
+  it("editor: no quick action buttons", () => {
+    const w = makeWindow({ kind: "editor" });
+    const { container } = renderWithQuickAction(w, vi.fn());
+    expect(container.querySelectorAll("button.act-quick")).toHaveLength(0);
+  });
+
+  it("does not propagate the quick-action click up to the card's onOpen", () => {
+    const onQuickAction = vi.fn();
+    const onOpen = vi.fn();
+    const w = makeWindow({ kind: "shell" });
+    const { container } = render(
+      <WindowCard
+        w={w}
+        isFocused={false}
+        isHighlighted={false}
+        onOpen={onOpen}
+        onSendKeys={noop}
+        onRename={noop}
+        onFocus={noop}
+        onKill={noop}
+        onQuickAction={onQuickAction}
+      />,
+    );
+    const btn = container.querySelector<HTMLButtonElement>("button.act-quick");
+    fireEvent.click(btn!);
+    expect(onQuickAction).toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
   });
 });
