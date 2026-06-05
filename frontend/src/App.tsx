@@ -925,6 +925,7 @@ export function App() {
         onApplyPreset={applyPreset}
         onSavePreset={savePreset}
         onDeletePreset={deletePreset}
+        visibleCount={visible.length}
       />
       <main className="main">
         {settings.layout === "list" ? (

@@ -1,10 +1,12 @@
 import type { KindFilter, StatusFilter } from "../lib/filter";
 import {
   COLUMN_SIZE_ORDER,
+  type Layout,
   updateSettings,
   useSetting,
   useSettings,
 } from "../lib/settings";
+import { suggestLayout } from "../lib/suggestLayout";
 import type { FilterPreset } from "../lib/usePresets";
 import type { HeaderCounts } from "./Header";
 import { Icon } from "./Icon";
@@ -26,6 +28,10 @@ interface Props {
   onApplyPreset?: (p: FilterPreset) => void;
   onSavePreset?: (p: FilterPreset) => void;
   onDeletePreset?: (name: string) => void;
+  /** Number of currently-visible windows (post-filter). Drives the THI-61
+   *  layout suggestion chip. Optional so tests/older callers don't need to
+   *  thread it in. */
+  visibleCount?: number;
 }
 
 function ColumnSizeControl() {
@@ -75,6 +81,7 @@ export function Subhead({
   onApplyPreset,
   onSavePreset,
   onDeletePreset,
+  visibleCount,
 }: Props) {
   // Presets bar (THI-98) is rendered only when all three callbacks were wired —
   // partial setup would invite half-broken states. The hook in App always
@@ -202,8 +209,37 @@ export function Subhead({
       <StatusLegend />
       <ColumnSizeControl />
       <span className="hdr-spacer" />
+      <LayoutHint filter={filter} visibleCount={visibleCount} />
       <LayoutSwitcher />
     </div>
+  );
+}
+
+function LayoutHint({
+  filter,
+  visibleCount,
+}: {
+  filter: StatusFilter;
+  visibleCount: number | undefined;
+}) {
+  // THI-61: nudge the user toward a denser/loosened layout based on the
+  // current view's shape. No suggestion → render nothing. Click applies
+  // the suggested layout.
+  const layout = useSetting("layout");
+  if (visibleCount == null) return null;
+  const suggested: Layout | null = suggestLayout(layout, filter, visibleCount);
+  if (!suggested) return null;
+  const label = suggested === "list" ? "Try list view" : "Try grid view";
+  return (
+    <button
+      type="button"
+      className="layout-hint"
+      onClick={() => updateSettings({ layout: suggested })}
+      title={`Switch to ${suggested} layout`}
+    >
+      <Icon name={suggested === "list" ? "list" : "grid"} size={11} />
+      <span>{label}</span>
+    </button>
   );
 }
 
