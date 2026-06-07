@@ -116,17 +116,16 @@ export function CommandPalette({ target, onClose, broadcastTargets }: Props) {
     // the palette so the user isn't left staring at a frozen UI with no
     // feedback. Matches the existing UX where ok=false also just closes.
     if (isBroadcast) {
-      // Broadcast: fire to every target. We don't write to recents in this
-      // mode — targets typically span multiple sessions and the recents
-      // store is per-session. Errors per target are swallowed so a single
-      // failed pane doesn't abort the rest.
-      for (const t of targets) {
-        try {
-          await sendKeys(t.session, t.index, body);
-        } catch {
-          /* skip this target; carry on */
-        }
-      }
+      // Broadcast: fire to every target in parallel (THI-218). A 10-pane
+      // broadcast at ~30 ms RTT each was ~300 ms sequential; parallelizing
+      // drops walltime to ~30 ms. We don't write to recents in this mode —
+      // targets typically span multiple sessions and the recents store is
+      // per-session. Per-target errors are swallowed by `allSettled` so a
+      // single failed pane doesn't abort the rest (surfacing those failures
+      // to the user is THI-208).
+      await Promise.allSettled(
+        targets.map((t) => sendKeys(t.session, t.index, body)),
+      );
       onClose();
       return;
     }
