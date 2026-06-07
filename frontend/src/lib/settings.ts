@@ -43,9 +43,17 @@ export interface Settings {
   /** Threshold for "Clean up idle panes…" in days. 0 hides the action.
    *  Default 7. Stored as a number; clamped at the UI layer (0–365). */
   idleCleanupDays: number;
+  /** THI-244: cwd applied when the user creates a NEW session from the
+   *  New-session overlay. Empty string ⇒ no explicit cwd (the backend lets
+   *  tmux fall back to its own default). `~` is expanded server-side
+   *  against the SERVER's $HOME. Per-window cwd has its own resolution
+   *  (the session's first window) and ignores this. */
+  defaultDirectory: string;
   /** THI-243: discovery vs sessions grouping. Default "sessions" preserves
-   *  legacy behavior for existing users; new MVP affects ListView only —
-   *  Kanban + Grid land in follow-up PRs. */
+   *  legacy behavior for existing users; honored today by ListView and
+   *  the Split rail (when it ships); Kanban + Grid follow in v0.4 (THI-247,
+   *  THI-248). The GroupingSwitcher hides itself when the active layout
+   *  doesn't yet honor the toggle. */
   groupingMode: GroupingMode;
 }
 
@@ -125,6 +133,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13,
   selectedIde: "",
   idleCleanupDays: 7,
+  defaultDirectory: "",
   groupingMode: "sessions",
 };
 

@@ -35,6 +35,65 @@ class RenameBody(BaseModel):
     name: TmuxName
 
 
+# THI-244: optional cwd carried with new-window / new-session. The client
+# sends what it wants (default dir for a new session, blank for new window so
+# the backend infers from the launching session). `_resolve_cwd` does the
+# validation; the request body model just makes it optional / shape-safe.
+class CwdBody(BaseModel):
+    cwd: str | None = Field(default=None, max_length=4096)
+
+
+def _resolve_cwd(cwd: str | None) -> str | None:
+    """THI-244: validate a user-supplied cwd. Returns the resolved absolute
+    path when it's a real directory, None otherwise.
+
+    - `~`-expansion runs against the SERVER's $HOME (intentional — the client
+      can't know it).
+    - Empty / whitespace / non-existent paths return None silently; the caller
+      passes None to tmux which then uses tmux's own default (the parent
+      session's cwd or the server process's cwd).
+    """
+    if not cwd:
+        return None
+    expanded = os.path.expanduser(cwd.strip())
+    if not expanded:
+        return None
+    if not os.path.isabs(expanded):
+        # Relative paths would land in the server process's cwd (the dir the
+        # user launched switchboard from). That's almost never what the user
+        # meant — reject silently.
+        return None
+    if not os.path.isdir(expanded):
+        return None
+    return expanded
+
+
+def _first_window_cwd(session: str) -> str | None:
+    """THI-244: cwd of the FIRST window of `session`, or None when the session
+    is empty / not found. Used as the fallback when the client opens a new
+    window without an explicit cwd — matches the user's expectation that
+    "+ in this session" lands next to its peers."""
+    srv = tmux.get_server()
+    if srv is None:
+        return None
+    try:
+        sess = srv.sessions.get(session_name=session)
+    except Exception:  # noqa: BLE001 — libtmux may raise on a vanished session
+        return None
+    if sess is None:
+        return None
+    try:
+        windows = list(sess.windows)
+    except Exception:  # noqa: BLE001
+        return None
+    if not windows:
+        return None
+    pane = windows[0].active_pane
+    if pane is None:
+        return None
+    return pane.pane_current_path or None
+
+
 @router.post("/focus")
 def post_focus(session: str, index: int) -> dict[str, bool]:
     focused = tmux.focus(session, index)
@@ -88,19 +147,31 @@ def post_rename_session(session: str, body: RenameBody) -> dict[str, object]:
 
 
 @router.post("/window")
-def post_window(session: str, name: TmuxName) -> dict[str, object]:
-    index = tmux.new_window(session, name)
+def post_window(session: str, name: TmuxName, body: CwdBody | None = None) -> dict[str, object]:
+    # THI-244: resolve the cwd in this order:
+    #   1. explicit body.cwd, if it validates as an existing absolute dir;
+    #   2. otherwise the launching session's first window cwd (matches the
+    #      user's expectation that "+" in this session lands next to peers);
+    #   3. otherwise None — let tmux pick.
+    requested = body.cwd if body else None
+    resolved = _resolve_cwd(requested) if requested else _first_window_cwd(session)
+    index = tmux.new_window(session, name, cwd=resolved)
     if index is None:
         raise HTTPException(status_code=404, detail="session not found")
     return {"ok": True, "index": index, "id": f"{session}:{index}"}
 
 
 @router.post("/session")
-def post_session(name: TmuxName) -> dict[str, object]:
+def post_session(name: TmuxName, body: CwdBody | None = None) -> dict[str, object]:
+    # THI-244: the client sends its configured Default directory (or an
+    # in-modal override). Invalid paths fall back to None silently — tmux
+    # then uses the server process's cwd, same as before this PR.
+    requested = body.cwd if body else None
+    resolved = _resolve_cwd(requested) if requested else None
     # tmux's own duplicate-name guard does the existence check; we only need
     # to translate the boolean back into 409 so the UI can surface the
     # name-in-use case distinctly from a transport error.
-    if not tmux.new_session(name):
+    if not tmux.new_session(name, cwd=resolved):
         raise HTTPException(status_code=409, detail="session name in use or invalid")
     return {"ok": True, "name": name}
 

@@ -189,24 +189,49 @@ export async function renameSession(session: string, name: string): Promise<bool
  *  rejects the name as a duplicate (HTTP 409), or `"error"` otherwise. The
  *  in-use case is split so NewSessionOverlay can show a name-specific hint
  *  instead of a generic failure (THI-144). */
-export async function createSession(name: string): Promise<"ok" | "in-use" | "error"> {
+export async function createSession(
+  name: string,
+  cwd?: string,
+): Promise<"ok" | "in-use" | "error"> {
+  // THI-244: send the user's configured default directory as the cwd. Empty
+  // string ⇒ no body, so older entry points / older backends keep working.
+  const body = cwd ? JSON.stringify({ cwd }) : undefined;
   const r = await fetch(
     `${BASE}/session?name=${encodeURIComponent(name)}`,
-    { method: "POST", headers: { ...csrfHeaders() } },
+    {
+      method: "POST",
+      headers: {
+        ...csrfHeaders(),
+        ...(body ? { "content-type": "application/json" } : {}),
+      },
+      body,
+    },
   );
   if (r.ok) return "ok";
   if (r.status === 409) return "in-use";
   return "error";
 }
 
-/** new-window in `session`; resolves the new window's id, or null on failure. */
+/** new-window in `session`; resolves the new window's id, or null on failure.
+ *  THI-244: optional `cwd` ⇒ server validates as an existing absolute dir.
+ *  When omitted, the server falls back to the launching session's first
+ *  window cwd — matches the user's expectation that "+" lands next to peers. */
 export async function createWindow(
   session: string,
   name: string,
+  cwd?: string,
 ): Promise<{ index: number; id: string } | null> {
+  const body = cwd ? JSON.stringify({ cwd }) : undefined;
   const r = await fetch(
     `${BASE}/window?session=${encodeURIComponent(session)}&name=${encodeURIComponent(name)}`,
-    { method: "POST", headers: { ...csrfHeaders() } },
+    {
+      method: "POST",
+      headers: {
+        ...csrfHeaders(),
+        ...(body ? { "content-type": "application/json" } : {}),
+      },
+      body,
+    },
   );
   if (!r.ok) return null;
   const data = (await r.json()) as { index: number; id: string };

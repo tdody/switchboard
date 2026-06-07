@@ -410,6 +410,40 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose, 
             </div>
           </div>
 
+          {/* THI-244: cwd applied when creating a NEW session. Per-window cwd
+           *  is inferred from the launching session and ignores this. */}
+          <div className="settings-group" id="defaults">
+            <h4>Defaults</h4>
+            <div className="settings-row">
+              <span>
+                <div className="name">
+                  <label htmlFor="default-directory">
+                    Default directory for new sessions
+                  </label>
+                </div>
+                <div className="desc">
+                  Used as the cwd when creating a session via "+ session". Blank
+                  leaves it to tmux; <code>~</code> is expanded against the
+                  server's <code>$HOME</code>. Invalid paths are silently
+                  dropped server-side.
+                </div>
+              </span>
+              <input
+                id="default-directory"
+                type="text"
+                placeholder="leave blank, or ~/dev or /Users/me/dev"
+                value={settings.defaultDirectory}
+                onChange={(e) =>
+                  updateSettings({ defaultDirectory: e.target.value })
+                }
+                style={{ width: 240 }}
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <span />
+            </div>
+          </div>
+
           <div className="settings-group" id="maintenance">
             <h4>Maintenance</h4>
             <div className="settings-row">

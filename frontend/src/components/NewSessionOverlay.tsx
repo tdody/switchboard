@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createSession } from "../api/client";
+import { useSetting } from "../lib/settings";
 import { useScrimClose } from "../lib/useScrimClose";
 import { Icon } from "./Icon";
 
@@ -19,7 +20,11 @@ interface Props {
  */
 export function NewSessionOverlay({ existingNames, onClose, onApplied }: Props) {
   const scrimProps = useScrimClose(onClose);
+  // THI-244: prefill with the configured Default directory; the user can
+  // override per-modal without mutating the saved setting.
+  const defaultDirectory = useSetting("defaultDirectory");
   const [name, setName] = useState("");
+  const [cwd, setCwd] = useState(defaultDirectory);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -39,7 +44,7 @@ export function NewSessionOverlay({ existingNames, onClose, onApplied }: Props) 
     }
     setBusy(true);
     setError(null);
-    const result = await createSession(trimmed);
+    const result = await createSession(trimmed, cwd.trim() || undefined);
     setBusy(false);
     if (result === "ok") {
       onApplied();
@@ -80,6 +85,20 @@ export function NewSessionOverlay({ existingNames, onClose, onApplied }: Props) 
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. main, feat, scratch"
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </div>
+          {/* THI-244: one-shot cwd override. Prefilled with the configured
+           *  Default directory; blank means "let the server pick". */}
+          <div className="rename-row">
+            <span className="lbl">cwd</span>
+            <input
+              value={cwd}
+              onChange={(e) => setCwd(e.target.value)}
+              placeholder={
+                defaultDirectory || "leave blank, or ~/dev or absolute path"
+              }
               spellCheck={false}
               autoComplete="off"
             />

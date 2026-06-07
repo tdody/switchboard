@@ -132,6 +132,33 @@ describe("createSession", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
     expect(await createSession("dev")).toBe("error");
   });
+
+  // THI-244: callers can pass a cwd; client should body-encode it as JSON so
+  // the backend's CwdBody validator picks it up.
+  it("sends the cwd as a JSON body when provided", async () => {
+    document.cookie = "sb_csrf=tok-abc";
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createSession("my-feat", "/Users/me/dev/foo");
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.method).toBe("POST");
+    expect(init.headers["content-type"]).toBe("application/json");
+    expect(init.body).toBe(JSON.stringify({ cwd: "/Users/me/dev/foo" }));
+  });
+
+  it("omits the body and content-type header when no cwd is passed", async () => {
+    document.cookie = "sb_csrf=tok-abc";
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createSession("my-feat");
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init.body).toBeUndefined();
+    expect(init.headers["content-type"]).toBeUndefined();
+  });
 });
 
 describe("fetchIdeConfig + openInIde", () => {
