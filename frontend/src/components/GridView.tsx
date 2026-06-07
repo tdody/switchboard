@@ -1,5 +1,8 @@
+import { useMemo } from "react";
+
 import type { Session, Window } from "../types";
 import { sortPendingFirst } from "../lib/filter";
+import { groupBySession } from "../lib/groupBySession";
 import { DropdownMenu } from "./DropdownMenu";
 import { Icon } from "./Icon";
 import { WindowCard } from "./WindowCard";
@@ -28,6 +31,12 @@ interface Props {
    *  session's grid and render with the active pin badge. */
   pinnedPaneIds?: Set<string>;
   onTogglePin?: (w: Window) => void;
+  /** Pre-grouped windows-by-session map (THI-219). When provided, GridView
+   *  reads each row's windows from the map instead of running
+   *  `windows.filter(w => w.session === s.id)` per session per render.
+   *  Optional so tests/older callers that pass only `windows` still work
+   *  via a local fallback. */
+  windowsBySession?: ReadonlyMap<string, Window[]>;
 }
 
 /**
@@ -62,7 +71,15 @@ export function GridView({
   onAutoRename,
   pinnedPaneIds,
   onTogglePin,
+  windowsBySession,
 }: Props) {
+  // THI-219: derive the per-session bucket map from `windows` when the parent
+  // didn't pre-compute one. App.tsx always passes it; tests / older callers
+  // fall through to a local memo so behaviour is identical.
+  const bySession = useMemo(
+    () => windowsBySession ?? groupBySession(windows),
+    [windowsBySession, windows],
+  );
   // Re-use Kanban's sort: pending always first, then pinned (THI-98), then
   // natural tmux index. Pass the pinned set as the ordered list so the
   // existing comparator handles the "pinned to top" rule.
@@ -76,7 +93,7 @@ export function GridView({
     <div className="grid-view">
       {sessions.map((s) => {
         const ws = sortPendingFirst(
-          windows.filter((w) => w.session === s.id),
+          bySession.get(s.id) ?? [],
           sortOrderFor(s.id),
         );
         const pending = ws.filter((w) => w.pendingInput).length;

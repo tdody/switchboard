@@ -66,6 +66,7 @@ import {
   type NotifyState,
 } from "./lib/pendingNotify";
 import { applyAccent, useSettings } from "./lib/settings";
+import { groupBySession } from "./lib/groupBySession";
 import { pickPollInterval } from "./lib/pollTier";
 import { useInputActive } from "./lib/useInputActive";
 import { useNeedsStripDismiss } from "./lib/useNeedsStripDismiss";
@@ -300,6 +301,10 @@ export function App() {
     () => applyFilterWithPins(windows, filter, kindFilter, parsed, pinnedIds),
     [windows, filter, kindFilter, parsed, pinnedIds],
   );
+  // THI-219: pre-group `visible` by session id once per poll so Kanban + Grid
+  // can read their per-column slices in O(1) instead of running an
+  // S × O(N) filter pass inside each `sessions.map(...)` body.
+  const visibleBySession = useMemo(() => groupBySession(visible), [visible]);
 
   // Chip-click handler (THI-130). Toggle semantics: click the active chip to
   // clear it; click the inactive chip to switch. Clears any conflicting
@@ -1012,6 +1017,7 @@ export function App() {
           <GridView
             sessions={orderedSessions}
             windows={visible}
+            windowsBySession={visibleBySession}
             focusedId={focusedId}
             highlightedId={highlightedId}
             onOpen={openCard}
@@ -1031,6 +1037,7 @@ export function App() {
         <Kanban
           sessions={orderedSessions}
           windows={visible}
+          windowsBySession={visibleBySession}
           focusedId={focusedId}
           highlightedId={highlightedId}
           onOpen={openCard}

@@ -1,7 +1,8 @@
-import { useRef, useState, type DragEvent } from "react";
+import { useMemo, useRef, useState, type DragEvent } from "react";
 
 import type { Session, Window } from "../types";
 import { sortPendingFirst } from "../lib/filter";
+import { groupBySession } from "../lib/groupBySession";
 import { AgoSpan } from "./AgoSpan";
 import { DropdownMenu } from "./DropdownMenu";
 import { Icon } from "./Icon";
@@ -59,6 +60,12 @@ interface Props {
   /** Session ids currently mid-create; the +claude / +shell buttons are
    *  disabled for these to prevent double-spawn on a rapid double-click. */
   quickCreating?: Set<string>;
+  /** Pre-grouped windows-by-session map (THI-219). When provided, Kanban
+   *  reads each column's windows from the map instead of running
+   *  `windows.filter(w => w.session === s.id)` per session per render.
+   *  Optional so tests/older callers that pass only `windows` still work
+   *  via a local fallback. */
+  windowsBySession?: ReadonlyMap<string, Window[]>;
 }
 
 // Custom mime types for the two drag payloads — keep them distinct so a
@@ -89,11 +96,15 @@ export function Kanban({
   onTogglePin,
   onQuickCreate,
   quickCreating,
+  windowsBySession,
 }: Props) {
-  // The first card across all visible sessions gets `data-tour="first-card"`
-  // so the first-run tour (THI-96) can anchor its opening steps. Computing
-  // this once per render keeps it O(N) and clearer than threading a mutable
-  // flag through the nested .map() callbacks below.
+  // THI-219: derive the per-session bucket map from `windows` when the parent
+  // didn't pre-compute one. App.tsx always passes it; tests / older callers
+  // fall through to a local memo so behaviour is identical.
+  const bySession = useMemo(
+    () => windowsBySession ?? groupBySession(windows),
+    [windowsBySession, windows],
+  );
   // THI-98 pinned ids outrank THI-141 drag-order: pre-pend the pinned
   // pane-id list to the per-session reorder list passed to sortPendingFirst.
   // The comparator's Map de-dupes, so a pane appearing in both arrays just
@@ -103,14 +114,18 @@ export function Kanban({
     if (!pinnedPaneIds || pinnedPaneIds.size === 0) return drag;
     return [...pinnedPaneIds, ...(drag ?? [])];
   };
-  const firstPaneId = sessions
-    .flatMap((s) =>
-      sortPendingFirst(
-        windows.filter((w) => w.session === s.id),
-        sortOrderFor(s.id),
-      ),
-    )
-    .at(0)?.paneId;
+  // The first card across all visible sessions gets `data-tour="first-card"`
+  // so the first-run tour (THI-96) can anchor its opening steps. The earlier
+  // implementation sorted EVERY session just to look at index 0 across the
+  // flat result; in render order the first card always lives in the first
+  // session, so only that bucket needs sorting (THI-219).
+  const firstSession = sessions[0];
+  const firstPaneId = firstSession
+    ? sortPendingFirst(
+        bySession.get(firstSession.id) ?? [],
+        sortOrderFor(firstSession.id),
+      ).at(0)?.paneId
+    : undefined;
 
   // Local drag-state — kept here (not in App.tsx) because nothing outside
   // Kanban cares about the in-flight hover side or the source id; the parent
@@ -248,7 +263,7 @@ export function Kanban({
     <div className="kanban">
       {sessions.map((s) => {
         const ws = sortPendingFirst(
-          windows.filter((w) => w.session === s.id),
+          bySession.get(s.id) ?? [],
           sortOrderFor(s.id),
         );
         const pending = ws.filter((w) => w.pendingInput).length;
