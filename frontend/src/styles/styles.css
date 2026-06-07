@@ -2271,16 +2271,18 @@ input, textarea, select { font: inherit; color: inherit; }
   font-family: var(--font-mono);
   font-size: 12px; color: var(--text);
 }
-.settings-row input[type="text"] {
+.settings-row input[type="text"],
+.settings-row input[type="number"] {
   background: var(--bg);
+  color: var(--text);
   border: 1px solid var(--hairline);
   border-radius: 6px;
   padding: 5px 8px;
   outline: 0;
   font-family: var(--font-mono);
   font-size: 12px;
-  min-width: 240px;
 }
+.settings-row input[type="text"] { min-width: 240px; }
 .settings-row input[type="range"] {
   accent-color: var(--accent);
   min-width: 160px;

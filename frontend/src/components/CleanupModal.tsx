@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { killWindow } from "../api/client";
 import {
@@ -32,8 +32,6 @@ export function CleanupModal({
   onLowerThreshold,
   onAfterCleanup,
 }: Props) {
-  const scrimProps = useScrimClose(onClose);
-
   // Capture pollNow ONCE at mount so the candidate list doesn't churn while
   // the user is reading it. A background /api/state poll arriving later
   // won't re-filter the rows.
@@ -54,6 +52,14 @@ export function CleanupModal({
   );
 
   const [step, setStep] = useState<Step>("review");
+
+  // Scrim click must match the Esc + × button contract:
+  // Step 1 closes the modal; Step 2 returns to Step 1.
+  const handleScrimClose = useCallback(() => {
+    if (step === "confirm") setStep("review");
+    else onClose();
+  }, [step, onClose]);
+  const scrimProps = useScrimClose(handleScrimClose);
   const [snapshot, setSnapshot] = useState<Window[]>([]);
   const [snapshotAllWindows, setSnapshotAllWindows] = useState<Window[]>([]);
 
