@@ -106,28 +106,145 @@ def test_delete_session_ok(client: TestClient, monkeypatch) -> None:
 
 
 def test_post_window_ok_returns_new_id(client: TestClient, monkeypatch) -> None:
-    monkeypatch.setattr("switchboard.services.tmux.new_window", lambda s, n: 4)
+    monkeypatch.setattr(
+        "switchboard.services.tmux.new_window", lambda s, n, cwd=None: 4
+    )
     r = client.post("/api/window?session=dev&name=tests", headers=_csrf(client))
     assert r.status_code == 200
     assert r.json() == {"ok": True, "index": 4, "id": "dev:4"}
 
 
 def test_post_session_ok(client: TestClient, monkeypatch) -> None:
-    seen: list[str] = []
+    seen: list[tuple[str, str | None]] = []
     monkeypatch.setattr(
         "switchboard.services.tmux.new_session",
-        lambda name: seen.append(name) or True,
+        lambda name, cwd=None: seen.append((name, cwd)) or True,
     )
     r = client.post("/api/session?name=feat", headers=_csrf(client))
     assert r.status_code == 200
     assert r.json() == {"ok": True, "name": "feat"}
-    assert seen == ["feat"]
+    assert seen == [("feat", None)]
 
 
 def test_post_session_409_on_duplicate(client: TestClient, monkeypatch) -> None:
-    monkeypatch.setattr("switchboard.services.tmux.new_session", lambda name: False)
+    monkeypatch.setattr(
+        "switchboard.services.tmux.new_session", lambda name, cwd=None: False
+    )
     r = client.post("/api/session?name=dev", headers=_csrf(client))
     assert r.status_code == 409
+
+
+# THI-244: clients can supply a cwd for new-session / new-window. Backend
+# validates it as an existing absolute directory; invalid paths fall back to
+# None so the user never has to debug a bad setting through 4xx noise.
+def test_post_session_threads_resolved_cwd(
+    client: TestClient, monkeypatch, tmp_path
+) -> None:
+    seen: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        "switchboard.services.tmux.new_session",
+        lambda name, cwd=None: seen.append((name, cwd)) or True,
+    )
+    real_dir = str(tmp_path)
+    r = client.post(
+        "/api/session?name=feat",
+        headers={**_csrf(client), "content-type": "application/json"},
+        json={"cwd": real_dir},
+    )
+    assert r.status_code == 200
+    assert seen == [("feat", real_dir)]
+
+
+def test_post_session_drops_invalid_cwd(
+    client: TestClient, monkeypatch
+) -> None:
+    seen: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        "switchboard.services.tmux.new_session",
+        lambda name, cwd=None: seen.append((name, cwd)) or True,
+    )
+    r = client.post(
+        "/api/session?name=feat",
+        headers={**_csrf(client), "content-type": "application/json"},
+        json={"cwd": "/this/path/does/not/exist/123"},
+    )
+    assert r.status_code == 200
+    # Backend resolved → None silently; tmux uses its own default.
+    assert seen == [("feat", None)]
+
+
+def test_post_session_drops_relative_cwd(
+    client: TestClient, monkeypatch
+) -> None:
+    seen: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        "switchboard.services.tmux.new_session",
+        lambda name, cwd=None: seen.append((name, cwd)) or True,
+    )
+    r = client.post(
+        "/api/session?name=feat",
+        headers={**_csrf(client), "content-type": "application/json"},
+        json={"cwd": "relative/dir"},
+    )
+    assert r.status_code == 200
+    # Relative paths would land in switchboard's launch directory — reject.
+    assert seen == [("feat", None)]
+
+
+def test_post_session_expands_tilde(
+    client: TestClient, monkeypatch, tmp_path
+) -> None:
+    seen: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        "switchboard.services.tmux.new_session",
+        lambda name, cwd=None: seen.append((name, cwd)) or True,
+    )
+    # Pretend HOME is tmp_path so `~` expands to a real directory.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    r = client.post(
+        "/api/session?name=feat",
+        headers={**_csrf(client), "content-type": "application/json"},
+        json={"cwd": "~"},
+    )
+    assert r.status_code == 200
+    assert seen == [("feat", str(tmp_path))]
+
+
+def test_post_window_threads_resolved_cwd(
+    client: TestClient, monkeypatch, tmp_path
+) -> None:
+    seen: list[tuple[str, str, str | None]] = []
+    monkeypatch.setattr(
+        "switchboard.services.tmux.new_window",
+        lambda s, n, cwd=None: seen.append((s, n, cwd)) or 7,
+    )
+    r = client.post(
+        "/api/window?session=dev&name=tests",
+        headers={**_csrf(client), "content-type": "application/json"},
+        json={"cwd": str(tmp_path)},
+    )
+    assert r.status_code == 200
+    assert seen == [("dev", "tests", str(tmp_path))]
+
+
+def test_post_window_falls_back_to_first_window_cwd_when_body_empty(
+    client: TestClient, monkeypatch
+) -> None:
+    """No body → backend looks up the launching session's first window cwd and
+    passes that to new_window. Mirrors the user's expectation that "+" in a
+    session lands next to its peers."""
+    monkeypatch.setattr(
+        "switchboard.routers.actions._first_window_cwd",
+        lambda session: "/Users/me/dev/foo",
+    )
+    seen: list[tuple[str, str, str | None]] = []
+    monkeypatch.setattr(
+        "switchboard.services.tmux.new_window",
+        lambda s, n, cwd=None: seen.append((s, n, cwd)) or 1,
+    )
+    r = client.post("/api/window?session=dev&name=x", headers=_csrf(client))
+    assert r.status_code == 200
+    assert seen == [("dev", "x", "/Users/me/dev/foo")]
 
 
 def test_post_detach_ok(client: TestClient, monkeypatch) -> None:

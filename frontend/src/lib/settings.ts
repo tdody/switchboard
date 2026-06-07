@@ -39,6 +39,12 @@ export interface Settings {
   /** Threshold for "Clean up idle panes…" in days. 0 hides the action.
    *  Default 7. Stored as a number; clamped at the UI layer (0–365). */
   idleCleanupDays: number;
+  /** THI-244: cwd applied when the user creates a NEW session from the
+   *  New-session overlay. Empty string ⇒ no explicit cwd (the backend lets
+   *  tmux fall back to its own default). `~` is expanded server-side
+   *  against the SERVER's $HOME. Per-window cwd has its own resolution
+   *  (the session's first window) and ignores this. */
+  defaultDirectory: string;
 }
 
 // OKLCH lightness/chroma/hue for each accent preset.
@@ -117,6 +123,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13,
   selectedIde: "",
   idleCleanupDays: 7,
+  defaultDirectory: "",
 };
 
 export const POLL_MIN_S = 1;

@@ -24,3 +24,16 @@ describe("settings.idleCleanupDays", () => {
     expect(parsed.idleCleanupDays).toBe(14);
   });
 });
+
+describe("settings.defaultDirectory (THI-244)", () => {
+  it("is empty string in DEFAULT_SETTINGS", () => {
+    expect(DEFAULT_SETTINGS.defaultDirectory).toBe("");
+  });
+
+  it("round-trips through localStorage via updateSettings", () => {
+    updateSettings({ defaultDirectory: "~/dev" });
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const parsed = JSON.parse(raw!) as { defaultDirectory: string };
+    expect(parsed.defaultDirectory).toBe("~/dev");
+  });
+});
