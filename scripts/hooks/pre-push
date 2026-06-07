@@ -2,23 +2,54 @@
 # Pre-push hook: runs the same checks as CI before allowing `git push`.
 # Skip with `git push --no-verify` for emergencies.
 #
-# Enable for this clone: `git config core.hooksPath scripts/hooks`
+# Install for this clone (idempotent):
+#   git config core.hooksPath scripts/hooks
+#   # — or, symlink-based, which survives an IDE clobbering core.hooksPath:
+#   ln -sf ../../scripts/hooks/pre-push .git/hooks/pre-push
 #
 # Fast path: only the side(s) (backend/ frontend/) with changes in the push
 # range are checked. Changes to scripts/ or .github/ — or an undeterminable
 # range — fall back to running everything.
 set -uo pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
 
 GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
 RED='\033[0;31m'
 DIM='\033[2m'
 RST='\033[0m'
 
 failed=0
 log_dir="$(mktemp -d)"
-trap 'rm -rf "$log_dir"' EXIT
+# Preserve logs on failure so the user can `cat $log_dir/<slug>.log` for the
+# full output; cleaned on success.
+keep_logs=0
+trap '[[ $keep_logs -eq 0 ]] && rm -rf "$log_dir" || echo "(full logs kept in $log_dir)"' EXIT
+
+# --- Diagnostics: announce which hook actually ran -------------------------
+# Helps when something resets `core.hooksPath`; if you see this banner you
+# know the version-controlled script ran. If you DON'T see it, the hook
+# isn't installed in this clone.
+hook_path="$0"
+[[ -L "$hook_path" ]] && hook_path="$(readlink "$hook_path") (via symlink $0)"
+printf "${DIM}pre-push: %s${RST}\n" "$hook_path"
+
+# --- Prerequisites: fail fast with a clear message -------------------------
+missing=()
+if [[ -d backend ]]; then
+  command -v uv >/dev/null 2>&1 || missing+=("uv (backend lint/test runner)")
+fi
+if [[ -d frontend ]]; then
+  command -v npx >/dev/null 2>&1 || missing+=("npx (frontend lint/test runner)")
+fi
+if (( ${#missing[@]} > 0 )); then
+  printf "${RED}pre-push: missing prerequisites:${RST}\n"
+  printf '  - %s\n' "${missing[@]}"
+  printf "Install them, or push with ${DIM}--no-verify${RST} to bypass.\n"
+  exit 1
+fi
 
 # run_step <dir> <name> <cmd...> — runs <cmd> in <dir>, records pass/fail.
 # The subshell scopes only the `cd`; `failed` is set in the parent shell.
@@ -33,27 +64,63 @@ run_step() {
     printf "${GREEN}✓${RST}\n"
   else
     printf "${RED}✗${RST}\n"
-    echo "${DIM}--- ${name} output ---${RST}"
+    echo "${DIM}--- ${name} (last 40 lines; full at $log) ---${RST}"
     tail -40 "$log"
     echo "${DIM}--- end ---${RST}"
+    keep_logs=1
     failed=1
   fi
 }
 
-# Decide which sides to check. Default: everything (safe). Narrow only when
-# the push range is determinable and touches just one side.
+# --- Determine push range --------------------------------------------------
+# Prefer the actual push range git hands us on stdin (one line per ref):
+#   <local_ref> <local_sha> <remote_ref> <remote_sha>
+# - A remote_sha of all zeros means a brand-new branch — compare against the
+#   merge-base with origin/main (or whatever default branch resolves) so we
+#   still get a meaningful diff instead of running everything.
+# - Multiple refs in one push aggregate into the same change set.
+# Fall back to `@{push}` (current behavior) if stdin is empty (script was
+# invoked manually, not through `git push`).
+ZERO_SHA='0000000000000000000000000000000000000000'
+changed=""
+stdin_seen=0
+
+if [[ ! -t 0 ]]; then
+  while read -r local_ref local_sha remote_ref remote_sha; do
+    stdin_seen=1
+    # `git push --delete` sends a zero local_sha; nothing to check.
+    [[ "$local_sha" == "$ZERO_SHA" ]] && continue
+    if [[ "$remote_sha" == "$ZERO_SHA" ]]; then
+      # New branch — diff against the default-branch merge-base.
+      default_remote="$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main)"
+      if base="$(git merge-base "$default_remote" "$local_sha" 2>/dev/null)"; then
+        changed+=$'\n'"$(git diff --name-only "$base" "$local_sha" 2>/dev/null || true)"
+      else
+        changed=""  # Couldn't resolve a base — force run-everything.
+        break
+      fi
+    else
+      changed+=$'\n'"$(git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null || true)"
+    fi
+  done
+fi
+
+if [[ $stdin_seen -eq 0 ]]; then
+  # Manual invocation: fall back to the upstream-tracking heuristic.
+  if base="$(git rev-parse --verify --quiet '@{push}' 2>/dev/null)"; then
+    changed="$(git diff --name-only "$base" HEAD 2>/dev/null || true)"
+  fi
+fi
+
 run_backend=1
 run_frontend=1
-if base=$(git rev-parse --verify --quiet '@{push}' 2>/dev/null); then
-  changed="$(git diff --name-only "$base" HEAD 2>/dev/null || true)"
-  if [[ -n "$changed" ]]; then
-    grep -qE '^backend/' <<<"$changed" && run_backend=1 || run_backend=0
-    grep -qE '^frontend/' <<<"$changed" && run_frontend=1 || run_frontend=0
-    # A change to the hook / CI config itself → re-check everything.
-    if grep -qE '^(scripts/|\.github/)' <<<"$changed"; then
-      run_backend=1
-      run_frontend=1
-    fi
+if [[ -n "$changed" ]]; then
+  grep -qE '^backend/' <<<"$changed" && run_backend=1 || run_backend=0
+  grep -qE '^frontend/' <<<"$changed" && run_frontend=1 || run_frontend=0
+  # A change to the hook / CI config itself → re-check everything.
+  if grep -qE '^(scripts/|\.github/)' <<<"$changed"; then
+    run_backend=1
+    run_frontend=1
   fi
 fi
 
@@ -84,6 +151,10 @@ if [[ $failed -ne 0 ]]; then
   exit 1
 fi
 
+# Remind: a clean pre-push doesn't prove CI will pass. CI-only conditions
+# (timing-sensitive tests under a slow runner, env-specific config, parallel
+# job interactions) can still surface there. If a flake hits CI but not
+# local, fix the flake — don't just retry.
 echo
-printf "${GREEN}pre-push: all checks passed.${RST}\n"
+printf "${GREEN}pre-push: all checks passed.${RST} ${DIM}(CI may still surface timing-sensitive flakes; don't just retry.)${RST}\n"
 exit 0
