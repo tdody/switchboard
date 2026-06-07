@@ -341,3 +341,27 @@ describe("CleanupModal — execute + Esc", () => {
     expect(screen.queryByRole("button", { name: /confirm close/i })).toBeNull();
   });
 });
+
+describe("CleanupModal — empty state", () => {
+  it("renders empty-state copy when no candidates", () => {
+    renderModal([], new Set(), 7);
+    expect(screen.getByText(/no panes idle for more than 7 days/i)).toBeTruthy();
+    // No callback → no link.
+    expect(screen.queryByRole("button", { name: /lower threshold/i })).toBeNull();
+  });
+
+  it("invokes onLowerThreshold when clicking the link and no candidates exist", () => {
+    const onLowerThreshold = vi.fn();
+    render(
+      <CleanupModal
+        windows={[]}
+        pinnedIds={new Set()}
+        thresholdDays={7}
+        onClose={() => {}}
+        onLowerThreshold={onLowerThreshold}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /lower threshold/i }));
+    expect(onLowerThreshold).toHaveBeenCalledTimes(1);
+  });
+});

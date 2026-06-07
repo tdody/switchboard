@@ -29,7 +29,7 @@ export function CleanupModal({
   pinnedIds,
   thresholdDays,
   onClose,
-  onLowerThreshold: _onLowerThreshold,
+  onLowerThreshold,
   onAfterCleanup,
 }: Props) {
   const scrimProps = useScrimClose(onClose);
@@ -78,6 +78,10 @@ export function CleanupModal({
   }
 
   function goToConfirm() {
+    // Defense-in-depth: the UI hides the trigger when no candidates exist,
+    // but a future caller / programmatic invocation must not advance to a
+    // "Close 0 panes?" confirm screen.
+    if (candidates.length === 0) return;
     const sel = candidates.filter((w) => checked.has(w.paneId));
     setSnapshot(sel);
     setSnapshotAllWindows(windows);
@@ -124,6 +128,7 @@ export function CleanupModal({
             pinnedIds={pinnedIds}
             thresholdDays={thresholdDays}
             onToggle={toggle}
+            onLowerThreshold={onLowerThreshold}
           />
         )}
 
@@ -136,13 +141,15 @@ export function CleanupModal({
             <>
               <span className="term-spacer" style={{ flex: 1 }} />
               <button className="btn" onClick={onClose}>Cancel</button>
-              <button
-                className="btn btn-primary"
-                disabled={selectedCount === 0}
-                onClick={goToConfirm}
-              >
-                Review {selectedCount} selected →
-              </button>
+              {candidates.length > 0 && (
+                <button
+                  className="btn btn-primary"
+                  disabled={selectedCount === 0}
+                  onClick={goToConfirm}
+                >
+                  Review {selectedCount} selected →
+                </button>
+              )}
             </>
           ) : (
             <>
@@ -165,13 +172,31 @@ function ReviewStep({
   pinnedIds,
   thresholdDays,
   onToggle,
+  onLowerThreshold,
 }: {
   candidates: Window[];
   checked: Set<string>;
   pinnedIds: Set<string>;
   thresholdDays: number;
   onToggle: (paneId: string) => void;
+  onLowerThreshold?: () => void;
 }) {
+  if (candidates.length === 0) {
+    return (
+      <div className="settings-body">
+        <div className="settings-group cleanup-empty">
+          <p className="desc">
+            No panes idle for more than {thresholdDays} days.
+          </p>
+          {onLowerThreshold && (
+            <button className="btn btn-ghost" onClick={onLowerThreshold}>
+              ↓ Lower threshold
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="settings-body">
       <div className="settings-group">
