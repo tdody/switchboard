@@ -13,7 +13,9 @@ import { useSyncExternalStore } from "react";
 export type Theme = "dark" | "light" | "contrast" | "phosphor";
 export type Accent = "aurora" | "amber" | "sky" | "magenta" | "lilac";
 export type Density = "compact" | "comfy" | "preview";
-export type Layout = "kanban" | "grid" | "list";
+/** THI-246: "split" is the 4th display type — persistent rail + detail
+ *  workspace. It's a peer of Kanban/Grid/List, not a replacement. */
+export type Layout = "kanban" | "grid" | "list" | "split";
 export type ColumnSize = "narrow" | "normal" | "wide";
 /** Ordered narrow → normal → wide so +/- controls can step linearly (THI-128). */
 export const COLUMN_SIZE_ORDER: readonly ColumnSize[] = ["narrow", "normal", "wide"];
@@ -39,6 +41,12 @@ export interface Settings {
   /** Threshold for "Clean up idle panes…" in days. 0 hides the action.
    *  Default 7. Stored as a number; clamped at the UI layer (0–365). */
   idleCleanupDays: number;
+  /** THI-246: which pane the Split view's detail pane shows. Empty string
+   *  ⇒ no selection yet. Persisted so a reload restores the last selection. */
+  selectedPaneId: string;
+  /** THI-246: width of the Split view's rail in pixels. Clamped 200–460 at
+   *  the UI layer. The divider's drag-handle updates this. */
+  splitRailWidth: number;
 }
 
 // OKLCH lightness/chroma/hue for each accent preset.
@@ -117,6 +125,8 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13,
   selectedIde: "",
   idleCleanupDays: 7,
+  selectedPaneId: "",
+  splitRailWidth: 280,
 };
 
 export const POLL_MIN_S = 1;

@@ -226,7 +226,7 @@ describe("Subhead layout switcher (THI-59)", () => {
     const buttons = container.querySelectorAll<HTMLButtonElement>(
       ".layout-switcher button",
     );
-    expect(buttons).toHaveLength(3); // kanban, grid, list
+    expect(buttons).toHaveLength(4); // kanban, grid, list, split (THI-246)
     const [kanban, grid, list] = buttons;
     expect(kanban.disabled).toBe(false);
     expect(grid.disabled).toBe(false);

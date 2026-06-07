@@ -20,6 +20,7 @@ export type IconName =
   | "grid"
   | "kanban"
   | "list"
+  | "split"
   | "play"
   | "pause"
   | "filter"
@@ -191,6 +192,16 @@ export function Icon({ name, size = 14, style, className }: IconProps) {
       return (
         <svg {...props}>
           <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+        </svg>
+      );
+    case "split":
+      // THI-246: rail-on-left, large detail panel on right. The vertical
+      // divider hints at the resizable column split. Stroke style matches
+      // the other layout glyphs.
+      return (
+        <svg {...props}>
+          <rect x="2" y="2.5" width="4" height="11" rx="0.6" />
+          <rect x="7.5" y="2.5" width="6.5" height="11" rx="0.6" />
         </svg>
       );
     case "play":

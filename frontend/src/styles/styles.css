@@ -2985,3 +2985,178 @@ input, textarea, select { font: inherit; color: inherit; }
   text-align: center;
   padding: 24px 0;
 }
+
+/* ─── THI-246 Split view (PR 1 — foundation) ───────────────────────────── */
+/* Two-pane workspace: rail on the left, divider, detail pane on the right.
+ * Only the bits that PR 1 actually renders are styled. PR 2 adds the
+ * resize/collapse/drag affordances; PR 3 styles the inline xterm chrome
+ * inside .sb-detail. */
+.sb-split {
+  height: 100%;
+  display: grid;
+  min-height: 0;
+}
+
+/* ── rail ──────────────────────────────────────────────────────────────── */
+.sb-rail {
+  background: var(--bg-elev);
+  border-right: 1px solid var(--hairline);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.sb-rail-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--hairline);
+  flex: none;
+}
+.sb-rail-hd .ttl {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.sb-rail-hd .grow { flex: 1; }
+.sb-rail-body {
+  overflow-y: auto;
+  padding: 6px 0 16px;
+  flex: 1;
+  min-height: 0;
+}
+.sb-rail-empty {
+  padding: 20px 14px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+.sb-group { display: flex; flex-direction: column; }
+
+.sb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  min-height: 30px;
+  cursor: pointer;
+  position: relative;
+  user-select: none;
+  color: var(--text-mute);
+  background: transparent;
+  border: 0;
+  text-align: left;
+  width: 100%;
+}
+.sb-row:hover { background: var(--panel); }
+.sb-row .ic {
+  width: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  flex: none;
+}
+.sb-row .lbl {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.sb-row.sb-row-head .lbl {
+  font-weight: 600;
+  color: var(--text);
+}
+.sb-row.pane {
+  padding-left: 22px;
+  color: var(--text);
+  cursor: pointer;
+}
+.sb-row.pane .ic.agent { color: var(--accent); }
+.sb-row.sel {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.sb-row .count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  flex: none;
+}
+
+/* ── divider ───────────────────────────────────────────────────────────── */
+.sb-divider {
+  position: relative;
+  z-index: 5;
+}
+.sb-divider::after {
+  content: "";
+  position: absolute;
+  inset: 0 3px;
+  background: var(--hairline);
+}
+
+/* ── detail pane ───────────────────────────────────────────────────────── */
+.sb-detail {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #050608;
+  overflow: hidden;
+}
+.sb-pane-hd {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--bg-elev);
+  flex: none;
+}
+.sb-pane-hd .pid {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text);
+  font-size: 12.5px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.sb-pane-hd .pid .ic {
+  color: var(--accent);
+  display: inline-flex;
+}
+.sb-pane-hd .meta {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-mute);
+  white-space: nowrap;
+}
+.sb-pane-hd .grow { flex: 1; }
+
+/* PR 1 placeholders — replaced by inline xterm in PR 3. */
+.sb-detail-empty,
+.sb-detail-stub {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 24px;
+  color: var(--text-mute);
+  font-size: 13px;
+  background: #050608;
+}
+.sb-detail-empty-sub,
+.sb-detail-stub-sub {
+  margin-top: 8px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+}

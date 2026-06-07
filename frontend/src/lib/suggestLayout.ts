@@ -28,5 +28,7 @@ export function suggestLayout(
     if (visibleCount <= 4) return "grid";
     return null;
   }
+  // THI-246: "split" is an opt-in power-user view; we never suggest switching
+  // INTO it (or out of it) automatically. Same reasoning as grid.
   return null;
 }

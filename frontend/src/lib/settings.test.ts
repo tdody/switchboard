@@ -11,6 +11,22 @@ afterEach(() => {
   updateSettings(DEFAULT_SETTINGS);
 });
 
+describe("settings.selectedPaneId + splitRailWidth (THI-246)", () => {
+  it("defaults the selected pane to empty string and the rail to 280px", () => {
+    expect(DEFAULT_SETTINGS.selectedPaneId).toBe("");
+    expect(DEFAULT_SETTINGS.splitRailWidth).toBe(280);
+  });
+
+  it("round-trips both through localStorage", () => {
+    updateSettings({ selectedPaneId: "%42", splitRailWidth: 320 });
+    const parsed = JSON.parse(
+      localStorage.getItem(STORAGE_KEY)!,
+    ) as { selectedPaneId: string; splitRailWidth: number };
+    expect(parsed.selectedPaneId).toBe("%42");
+    expect(parsed.splitRailWidth).toBe(320);
+  });
+});
+
 describe("settings.idleCleanupDays", () => {
   it("is present in DEFAULT_SETTINGS with value 7", () => {
     expect(DEFAULT_SETTINGS.idleCleanupDays).toBe(7);
