@@ -85,3 +85,44 @@ describe("navigateCard", () => {
     expect(navigateCard(c, "%x", "right")?.paneId).toBe("%y");
   });
 });
+
+// THI-209: arrow-key nav must walk the same order Kanban renders. Without
+// pinnedPaneIds / windowOrder threaded through, pressing ↓ on a pinned card
+// jumped to the natural-index neighbour rather than the visually-next tile.
+describe("columnsForNav with pin + drag overlays (THI-209)", () => {
+  it("places pinned panes at the top of their column", () => {
+    const { sessions, windows } = fixture();
+    // %a2 is the last by natural index; pinning it should put it first.
+    const cols = columnsForNav(sessions, windows, {
+      pinnedPaneIds: new Set(["%a2"]),
+    });
+    expect(cols[0]!.windows.map((w) => w.paneId)).toEqual(["%a2", "%a0", "%a1"]);
+  });
+
+  it("preserves drag-reorder when no pins are set", () => {
+    const { sessions, windows } = fixture();
+    const cols = columnsForNav(sessions, windows, {
+      windowOrder: { A: ["%a2", "%a0", "%a1"] },
+    });
+    expect(cols[0]!.windows.map((w) => w.paneId)).toEqual(["%a2", "%a0", "%a1"]);
+  });
+
+  it("nav walks the pinned-first order", () => {
+    const { sessions, windows } = fixture();
+    const cols = columnsForNav(sessions, windows, {
+      pinnedPaneIds: new Set(["%a2"]),
+    });
+    // Before THI-209 ↓ from the pinned card would jump to its natural-index
+    // neighbour (%a1) rather than the visually-next tile (%a0).
+    expect(navigateCard(cols, "%a2", "down")?.paneId).toBe("%a0");
+  });
+
+  it("nav walks the drag-reorder order", () => {
+    const { sessions, windows } = fixture();
+    const cols = columnsForNav(sessions, windows, {
+      windowOrder: { A: ["%a2", "%a0", "%a1"] },
+    });
+    expect(navigateCard(cols, "%a2", "down")?.paneId).toBe("%a0");
+    expect(navigateCard(cols, "%a0", "down")?.paneId).toBe("%a1");
+  });
+});

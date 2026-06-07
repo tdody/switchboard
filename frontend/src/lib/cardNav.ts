@@ -4,16 +4,39 @@ import { sortPendingFirst } from "./filter";
 /**
  * Build the per-column ordered list of visible windows.
  *
- * Mirrors the sort applied inside the Kanban so navigation matches what the
- * user sees on screen.
+ * Mirrors the sort applied inside the Kanban so arrow-key navigation matches
+ * what the user sees on screen. THI-209: when `pinnedPaneIds` or `windowOrder`
+ * are provided, the same `[...pinned, ...drag]` shape Kanban renders is used
+ * here — without it, nav would skip / revisit cards whenever the user pinned
+ * a pane or drag-reordered tiles.
+ *
+ * `windowOrder` is the per-session pin-order map used by THI-141 drag-reorder
+ * (`Record<sessionId, paneId[]>`). `pinnedPaneIds` outrank drag-order — the
+ * comparator's Map de-dupes, so a pane in both arrays takes its pinned-section
+ * index (always lower).
  */
 export function columnsForNav(
   sessions: Session[],
   windows: Window[],
+  options: {
+    pinnedPaneIds?: ReadonlySet<string>;
+    windowOrder?: Readonly<Record<string, readonly string[]>>;
+  } = {},
 ): { sessionId: string; windows: Window[] }[] {
+  const { pinnedPaneIds, windowOrder } = options;
+  const sortOrderFor = (sessionId: string): string[] | undefined => {
+    const drag = windowOrder?.[sessionId];
+    if (!pinnedPaneIds || pinnedPaneIds.size === 0) {
+      return drag ? [...drag] : undefined;
+    }
+    return [...pinnedPaneIds, ...(drag ?? [])];
+  };
   return sessions.map((s) => ({
     sessionId: s.id,
-    windows: sortPendingFirst(windows.filter((w) => w.session === s.id)),
+    windows: sortPendingFirst(
+      windows.filter((w) => w.session === s.id),
+      sortOrderFor(s.id),
+    ),
   }));
 }
 
