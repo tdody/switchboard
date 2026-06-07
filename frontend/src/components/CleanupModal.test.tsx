@@ -166,4 +166,85 @@ describe("CleanupModal — Step 2 (Confirm)", () => {
     expect(boxes[0]!.checked).toBe(false); // unchecked state preserved
     expect(boxes[1]!.checked).toBe(true);
   });
+
+  it("shows the last-window hint when the selection covers all windows of a session", () => {
+    renderModal([
+      // alpha has one window; selecting it triggers the hint.
+      mkWindow({ paneId: "%a", session: "alpha", lastActivity: NOW - 30 * DAY_MS }),
+      // beta has two; selecting one wouldn't trigger the hint.
+      mkWindow({ paneId: "%b", session: "beta", index: 1, id: "beta:1", lastActivity: NOW - 25 * DAY_MS }),
+      mkWindow({ paneId: "%c", session: "beta", index: 2, id: "beta:2", lastActivity: NOW - 20 * DAY_MS }),
+    ]);
+    // Uncheck the two `beta` rows, keep `alpha` checked.
+    const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    fireEvent.click(boxes[1]!);
+    fireEvent.click(boxes[2]!);
+    fireEvent.click(screen.getByRole("button", { name: /review 1 selected/i }));
+    const warn = screen.getByText(/closes the session/i);
+    // The hint must name the affected session — alpha being elsewhere
+    // in the DOM (the list row) is not enough.
+    expect(warn.textContent).toMatch(/alpha/i);
+  });
+
+  it("hides the last-window hint when no selected row is alone in its session", () => {
+    renderModal([
+      mkWindow({ paneId: "%a", session: "a", index: 1, id: "a:1", lastActivity: NOW - 30 * DAY_MS }),
+      mkWindow({ paneId: "%b", session: "a", index: 2, id: "a:2", lastActivity: NOW - 20 * DAY_MS }),
+    ]);
+    fireEvent.click(screen.getAllByRole("checkbox")[1]!); // uncheck one
+    fireEvent.click(screen.getByRole("button", { name: /review 1 selected/i }));
+    expect(screen.queryByText(/closes the session/i)).toBeNull();
+  });
+
+  it("Step-2 summary does not change when `windows` prop updates mid-review", () => {
+    const w0 = mkWindow({ paneId: "%a", session: "alpha", lastActivity: NOW - 30 * DAY_MS });
+    const { rerender } = renderModal([w0]);
+    fireEvent.click(screen.getByRole("button", { name: /review 1 selected/i }));
+    expect(screen.getByText("alpha")).toBeTruthy();
+
+    // Simulate a background /api/state poll wiping the candidate list.
+    rerender(
+      <CleanupModal
+        windows={[]}
+        pinnedIds={new Set()}
+        thresholdDays={7}
+        onClose={() => {}}
+        onAfterCleanup={() => {}}
+      />,
+    );
+    // The Step-2 snapshot is still the alpha row.
+    expect(screen.getByText("alpha")).toBeTruthy();
+  });
+
+  it("last-window hint stays visible after a background poll adds a new window to the session", () => {
+    const alpha = mkWindow({ paneId: "%a", session: "alpha", lastActivity: NOW - 30 * DAY_MS });
+    const { rerender } = renderModal([alpha]);
+    fireEvent.click(screen.getByRole("button", { name: /review 1 selected/i }));
+    // Pre-condition: hint is visible because alpha has 1 total window, 1 selected.
+    expect(screen.getByText(/closes the session/i)).toBeTruthy();
+
+    // Simulate a /api/state poll that adds a second window to session "alpha".
+    // If snapshotAllWindows were live-bound, lastWindowSessions would now
+    // compute selected(1) < total(2) and suppress the hint.
+    const alpha2 = mkWindow({
+      paneId: "%a2",
+      session: "alpha",
+      index: 2,
+      id: "alpha:2",
+      lastActivity: NOW - 5 * DAY_MS,  // fresh; wouldn't be a candidate anyway
+    });
+    rerender(
+      <CleanupModal
+        windows={[alpha, alpha2]}
+        pinnedIds={new Set()}
+        thresholdDays={7}
+        onClose={() => {}}
+        onAfterCleanup={() => {}}
+      />,
+    );
+
+    // The hint MUST still be visible because snapshotAllWindows was frozen
+    // when the user clicked "Review 1 selected →" above.
+    expect(screen.getByText(/closes the session/i)).toBeTruthy();
+  });
 });
