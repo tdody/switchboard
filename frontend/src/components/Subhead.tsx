@@ -299,6 +299,18 @@ function LayoutSwitcher() {
           <Icon name="list" size={13} />
         </button>
       </Tooltip>
+      {/* THI-246: Split view — persistent rail + detail. PR 1 ships the
+       *  switcher + skeleton; rail features (PR 2) and inline xterm (PR 3)
+       *  follow. */}
+      <Tooltip content="Split">
+        <button
+          className={layout === "split" ? "is-active" : ""}
+          onClick={() => updateSettings({ layout: "split" })}
+          aria-label="Split layout"
+        >
+          <Icon name="split" size={13} />
+        </button>
+      </Tooltip>
     </span>
   );
 }

@@ -20,6 +20,7 @@ import { Header, type HeaderCounts } from "./components/Header";
 import { GridView } from "./components/GridView";
 import { Kanban } from "./components/Kanban";
 import { ListView } from "./components/ListView";
+import { SplitView } from "./components/split/SplitView";
 import { NeedsStrip } from "./components/NeedsStrip";
 import { NewSessionOverlay } from "./components/NewSessionOverlay";
 import { NewWindowOverlay } from "./components/NewWindowOverlay";
@@ -1002,7 +1003,13 @@ export function App() {
         visibleCount={visible.length}
       />
       <main className="main">
-        {settings.layout === "list" ? (
+        {settings.layout === "split" ? (
+          <SplitView
+            windows={visible}
+            sessions={orderedSessions}
+            onFocus={handleFocus}
+          />
+        ) : settings.layout === "list" ? (
           <ListView
             windows={visible}
             focusedId={focusedId}
