@@ -579,12 +579,12 @@ input, textarea, select { font: inherit; color: inherit; }
   text-align: center;
 }
 
-/* THI-243: repo-grouped list view (discovery mode). The .list-repo-group
- *  wraps a header row + its windows so the gap rule above doesn't bleed
- *  between repos. */
-.list-repo-group { display: flex; flex-direction: column; gap: 2px; }
-.list-repo-group + .list-repo-group { margin-top: 12px; }
-.list-repo-head {
+/* Grouped list view: shared structure used by both sessions-mode (group by
+ *  tmux session) and repos-mode (group by git repo, THI-243). The wrapper
+ *  keeps the per-row gap from bleeding between groups. */
+.list-group { display: flex; flex-direction: column; gap: 2px; }
+.list-group + .list-group { margin-top: 12px; }
+.list-group-head {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -595,8 +595,8 @@ input, textarea, select { font: inherit; color: inherit; }
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
-.list-repo-label { color: var(--text); }
-.list-repo-count {
+.list-group-label { color: var(--text); }
+.list-group-count {
   margin-left: 4px;
   padding: 0 5px;
   border-radius: 8px;

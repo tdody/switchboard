@@ -145,7 +145,7 @@ describe("ListView (THI-60)", () => {
       ],
       { groupingMode: "repos" },
     );
-    const heads = container.querySelectorAll(".list-repo-head");
+    const heads = container.querySelectorAll(".list-group-head");
     expect(heads).toHaveLength(2);
     expect(heads[0]!.textContent).toContain("alpha");
     expect(heads[1]!.textContent).toContain("beta");
@@ -170,23 +170,27 @@ describe("ListView (THI-60)", () => {
       { groupingMode: "repos" },
     );
     const heads = Array.from(
-      container.querySelectorAll<HTMLDivElement>(".list-repo-head .list-repo-label"),
+      container.querySelectorAll<HTMLDivElement>(".list-group-head .list-group-label"),
     ).map((el) => el.textContent);
     expect(heads).toEqual(["alpha", "Other"]);
   });
 
-  it("renders flat (no headers) when groupingMode=sessions", () => {
+  it("renders one session header per tmux session when groupingMode=sessions", () => {
     const { container } = renderList(
       [
-        mkWindow({
-          paneId: "%a",
-          session: "alpha",
-          repoKey: "/r/alpha",
-          repoLabel: "alpha",
-        }),
+        mkWindow({ paneId: "%a1", session: "alpha", name: "a1" }),
+        mkWindow({ paneId: "%a2", session: "alpha", name: "a2", index: 1 }),
+        mkWindow({ paneId: "%b1", session: "beta", name: "b1" }),
       ],
       { groupingMode: "sessions" },
     );
-    expect(container.querySelector(".list-repo-head")).toBeNull();
+    const heads = Array.from(
+      container.querySelectorAll<HTMLDivElement>(".list-group-head .list-group-label"),
+    ).map((el) => el.textContent);
+    expect(heads).toEqual(["alpha", "beta"]);
+    const counts = Array.from(
+      container.querySelectorAll<HTMLDivElement>(".list-group-head .list-group-count"),
+    ).map((el) => el.textContent);
+    expect(counts).toEqual(["2", "1"]);
   });
 });
