@@ -225,6 +225,7 @@ function SubheadInner({
       <ColumnSizeControl />
       <span className="hdr-spacer" />
       <LayoutHint filter={filter} visibleCount={visibleCount} />
+      <GroupingSwitcher />
       <LayoutSwitcher />
     </div>
   );
@@ -302,3 +303,35 @@ function LayoutSwitcher() {
   );
 }
 
+
+function GroupingSwitcher() {
+  // THI-243: choose how the dashboard groups panes — by tmux session
+  // (historical) or by discovered repo. MVP affects ListView only; Kanban +
+  // Grid land in follow-up PRs (the toggle is global, but those views still
+  // render in session mode until they're wired through).
+  const mode = useSetting("groupingMode");
+  return (
+    <span className="grouping-switcher" role="group" aria-label="Grouping mode">
+      <Tooltip content="Group by tmux session">
+        <button
+          className={mode === "sessions" ? "is-active" : ""}
+          onClick={() => updateSettings({ groupingMode: "sessions" })}
+          aria-pressed={mode === "sessions"}
+          aria-label="Group by session"
+        >
+          Sessions
+        </button>
+      </Tooltip>
+      <Tooltip content="Group by discovered git repo">
+        <button
+          className={mode === "repos" ? "is-active" : ""}
+          onClick={() => updateSettings({ groupingMode: "repos" })}
+          aria-pressed={mode === "repos"}
+          aria-label="Group by repo"
+        >
+          Repos
+        </button>
+      </Tooltip>
+    </span>
+  );
+}

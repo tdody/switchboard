@@ -3,7 +3,9 @@ import { memo } from "react";
 import type { Window } from "../types";
 import { sortPendingFirst } from "../lib/filter";
 import { formatMem } from "../lib/format";
+import { groupByRepo } from "../lib/groupByRepo";
 import { quickActionsFor, type QuickAction } from "../lib/quickActions";
+import type { GroupingMode } from "../lib/settings";
 import { cpuLevel, kindIcon, memLevel, STATUS_META } from "../lib/status";
 import { AgoSpan } from "./AgoSpan";
 import { Chip } from "./Chip";
@@ -23,6 +25,10 @@ interface Props {
   onQuickAction?: (w: Window, action: QuickAction) => void;
   pinnedPaneIds?: Set<string>;
   onTogglePin?: (w: Window) => void;
+  /** THI-243: when "repos", rows are interleaved with repo header rows
+   *  derived from each pane's `repoKey`. Default "sessions" preserves the
+   *  flat-list legacy behavior. */
+  groupingMode?: GroupingMode;
 }
 
 /**
@@ -46,6 +52,7 @@ export function ListView({
   onQuickAction,
   pinnedPaneIds,
   onTogglePin,
+  groupingMode,
 }: Props) {
   const sorted = sortPendingFirst(
     windows,
@@ -60,24 +67,51 @@ export function ListView({
     );
   }
 
+  const rowFor = (w: Window) => (
+    <ListRow
+      key={w.paneId}
+      w={w}
+      isFocused={focusedId === w.paneId}
+      isHighlighted={highlightedId === w.paneId}
+      isPinned={!!pinnedPaneIds?.has(w.paneId)}
+      onOpen={onOpen}
+      onSend={onSend}
+      onRename={onRename}
+      onFocus={onFocus}
+      onKill={onKill}
+      onQuickAction={onQuickAction}
+      onTogglePin={onTogglePin}
+    />
+  );
+
+  // THI-243: discovery mode inserts a repo header row before each group.
+  // Sessions-mode rendering is unchanged. groupByRepo preserves the
+  // sortPendingFirst ordering within each bucket.
+  if (groupingMode === "repos") {
+    const groups = groupByRepo(sorted);
+    return (
+      <div className="list-view" role="table" aria-label="windows">
+        {groups.map((g) => (
+          <div key={g.key} className="list-repo-group">
+            <div
+              className="list-repo-head"
+              role="rowheader"
+              title={g.key === "__other__" ? "Sessions without a git repo" : g.key}
+            >
+              <Icon name="git-branch" size={11} />
+              <span className="list-repo-label">{g.label}</span>
+              <span className="list-repo-count">{g.windows.length}</span>
+            </div>
+            {g.windows.map(rowFor)}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="list-view" role="table" aria-label="windows">
-      {sorted.map((w) => (
-        <ListRow
-          key={w.paneId}
-          w={w}
-          isFocused={focusedId === w.paneId}
-          isHighlighted={highlightedId === w.paneId}
-          isPinned={!!pinnedPaneIds?.has(w.paneId)}
-          onOpen={onOpen}
-          onSend={onSend}
-          onRename={onRename}
-          onFocus={onFocus}
-          onKill={onKill}
-          onQuickAction={onQuickAction}
-          onTogglePin={onTogglePin}
-        />
-      ))}
+      {sorted.map(rowFor)}
     </div>
   );
 }

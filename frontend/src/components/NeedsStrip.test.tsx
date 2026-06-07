@@ -26,6 +26,8 @@ function mkWindow(over: Partial<Window> = {}): Window {
     prUrl: null,
     ci: null,
     repoUrl: null,
+    repoKey: null,
+    repoLabel: null,
     agent: null,
     preview: [],
     ...over,

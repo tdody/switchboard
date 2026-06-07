@@ -17,6 +17,10 @@ export type Layout = "kanban" | "grid" | "list";
 export type ColumnSize = "narrow" | "normal" | "wide";
 /** Ordered narrow → normal → wide so +/- controls can step linearly (THI-128). */
 export const COLUMN_SIZE_ORDER: readonly ColumnSize[] = ["narrow", "normal", "wide"];
+/** THI-243: grouping axis for the dashboard. "sessions" is the historical
+ *  behavior (group by tmux session); "repos" is the discovery view that
+ *  buckets sessions under their git repo. Independent of `Layout`. */
+export type GroupingMode = "sessions" | "repos";
 
 export interface Settings {
   theme: Theme;
@@ -39,6 +43,10 @@ export interface Settings {
   /** Threshold for "Clean up idle panes…" in days. 0 hides the action.
    *  Default 7. Stored as a number; clamped at the UI layer (0–365). */
   idleCleanupDays: number;
+  /** THI-243: discovery vs sessions grouping. Default "sessions" preserves
+   *  legacy behavior for existing users; new MVP affects ListView only —
+   *  Kanban + Grid land in follow-up PRs. */
+  groupingMode: GroupingMode;
 }
 
 // OKLCH lightness/chroma/hue for each accent preset.
@@ -117,6 +125,7 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13,
   selectedIde: "",
   idleCleanupDays: 7,
+  groupingMode: "sessions",
 };
 
 export const POLL_MIN_S = 1;
