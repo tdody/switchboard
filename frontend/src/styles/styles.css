@@ -3201,6 +3201,17 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--accent);
   flex: none;
 }
+/* "+ New tab" affordance — same row metrics as a pane row but reads as an
+ * action: dim text + accent on hover, plus icon instead of a kind glyph. */
+.sb-row.sb-newtab {
+  color: var(--text-dim);
+}
+.sb-row.sb-newtab:hover {
+  color: var(--accent);
+}
+.sb-row.sb-newtab:hover .ic {
+  color: var(--accent);
+}
 /* Small `session:` chip on rail rows in repos mode — lets the user see which
  * tmux session a pane belongs to when the rail is keyed off repo, since the
  * extra hierarchy level the spec originally proposed was collapsed. */

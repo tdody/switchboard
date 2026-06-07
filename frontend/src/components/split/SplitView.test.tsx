@@ -371,3 +371,93 @@ describe("SplitView (THI-246 PR 2 — collapse)", () => {
     expect(stored.selectedPaneId).toBe("%a");
   });
 });
+
+describe('SplitView (THI-246 PR 2 — "+ New tab")', () => {
+  it("renders one new-tab row per session in sessions mode and calls onNewWindow with that session", () => {
+    const onNewWindow = vi.fn();
+    const alpha = mkSession({ id: "alpha", name: "alpha" });
+    const beta = mkSession({ id: "beta", name: "beta" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({ paneId: "%a", session: "alpha" }),
+          mkWindow({ paneId: "%b", session: "beta" }),
+        ]}
+        sessions={[alpha, beta]}
+        onFocus={noop}
+        onNewWindow={onNewWindow}
+      />,
+    );
+    const newTabs = container.querySelectorAll(".sb-newtab");
+    expect(newTabs).toHaveLength(2);
+    fireEvent.click(newTabs[0]! as HTMLButtonElement);
+    expect(onNewWindow).toHaveBeenCalledTimes(1);
+    expect(onNewWindow.mock.calls[0]![0]).toBe(alpha);
+    fireEvent.click(newTabs[1]! as HTMLButtonElement);
+    expect(onNewWindow.mock.calls[1]![0]).toBe(beta);
+  });
+
+  it("hides new-tab rows entirely when onNewWindow is not provided", () => {
+    const { container } = render(
+      <SplitView
+        windows={[mkWindow({ paneId: "%a", session: "alpha" })]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(container.querySelector(".sb-newtab")).toBeNull();
+  });
+
+  it("repos mode: one new-tab per real bucket; targets the first window's session", () => {
+    updateSettings({ groupingMode: "repos" });
+    const onNewWindow = vi.fn();
+    const alpha = mkSession({ id: "alpha", name: "alpha" });
+    const beta = mkSession({ id: "beta", name: "beta" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            repoKey: "/r/foo",
+            repoLabel: "foo",
+          }),
+          mkWindow({
+            paneId: "%b",
+            session: "beta",
+            repoKey: "/r/foo",
+            repoLabel: "foo",
+          }),
+        ]}
+        sessions={[alpha, beta]}
+        onFocus={noop}
+        onNewWindow={onNewWindow}
+      />,
+    );
+    const newTabs = container.querySelectorAll(".sb-newtab");
+    expect(newTabs).toHaveLength(1);
+    fireEvent.click(newTabs[0]! as HTMLButtonElement);
+    // First window in the foo bucket is %a → session alpha.
+    expect(onNewWindow).toHaveBeenCalledWith(alpha);
+  });
+
+  it("repos mode: Other bucket has no new-tab row (no repo cwd to inherit)", () => {
+    updateSettings({ groupingMode: "repos" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            repoKey: null,
+            repoLabel: null,
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+        onNewWindow={vi.fn()}
+      />,
+    );
+    expect(container.querySelector(".sb-newtab")).toBeNull();
+  });
+});

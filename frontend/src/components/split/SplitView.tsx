@@ -34,6 +34,10 @@ interface Props {
   /** Forwarded so the "Open in tmux" header button still focuses the
    *  selected pane in the user's real terminal (THI-88). */
   onFocus: (w: Window) => void;
+  /** Optional: open the "new window" overlay targeting `session`. Wired by
+   *  App.tsx → setNewWindowSession. When omitted (legacy callers, tests),
+   *  the "+ New tab" rows are hidden. */
+  onNewWindow?: (session: Session) => void;
 }
 
 /** THI-246 PR 2 — Split view rail features (in progress).
@@ -54,7 +58,7 @@ interface Props {
  *  swap restores the last viewed pane. Rail width persists in
  *  `settings.splitRailWidth` (used by the divider in PR 2).
  */
-export function SplitView({ windows, sessions, onFocus }: Props) {
+export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
   const groupingMode = useSetting("groupingMode");
   const selectedPaneId = useSetting("selectedPaneId");
   const persistedRailWidth = useSetting("splitRailWidth");
@@ -209,6 +213,8 @@ export function SplitView({ windows, sessions, onFocus }: Props) {
                 key={g.key}
                 group={g}
                 selectedPaneId={selectedPaneId}
+                onNewWindow={onNewWindow ? (s) => onNewWindow(s) : undefined}
+                sessionsById={sessions}
               />
             ))
           ) : (
@@ -218,6 +224,7 @@ export function SplitView({ windows, sessions, onFocus }: Props) {
                 session={session}
                 windows={ws}
                 selectedPaneId={selectedPaneId}
+                onNewWindow={onNewWindow ? () => onNewWindow(session) : undefined}
               />
             ))
           )}
@@ -257,9 +264,17 @@ interface SessionGroupProps {
   session: Session;
   windows: Window[];
   selectedPaneId: string;
+  /** When provided, render a "+ New tab" affordance below the group's panes
+   *  that opens the new-window flow targeting this session. */
+  onNewWindow?: () => void;
 }
 
-function SessionGroup({ session, windows, selectedPaneId }: SessionGroupProps) {
+function SessionGroup({
+  session,
+  windows,
+  selectedPaneId,
+  onNewWindow,
+}: SessionGroupProps) {
   return (
     <div className="sb-group">
       <div className="sb-row sb-row-head" aria-label={`Session ${session.name}`}>
@@ -271,6 +286,7 @@ function SessionGroup({ session, windows, selectedPaneId }: SessionGroupProps) {
       {windows.map((w) => (
         <PaneRow key={w.paneId} w={w} selected={w.paneId === selectedPaneId} />
       ))}
+      {onNewWindow && <NewTabRow onClick={onNewWindow} />}
     </div>
   );
 }
@@ -278,10 +294,33 @@ function SessionGroup({ session, windows, selectedPaneId }: SessionGroupProps) {
 interface RepoGroupViewProps {
   group: RepoGroup;
   selectedPaneId: string;
+  /** Bound version of the App-level new-window handler — receives the
+   *  session that owns the new tab. */
+  onNewWindow?: (session: Session) => void;
+  /** Available sessions, so the repo group can resolve a session for its
+   *  "+ New tab" row (uses the first window's session as the target since
+   *  the repo group itself isn't tied to one). */
+  sessionsById: Session[];
 }
 
-function RepoGroupView({ group, selectedPaneId }: RepoGroupViewProps) {
+function RepoGroupView({
+  group,
+  selectedPaneId,
+  onNewWindow,
+  sessionsById,
+}: RepoGroupViewProps) {
   const isOther = group.key === OTHER_REPO_KEY;
+  // The "+ New tab" in repos mode lands in the session of the first window
+  // in this bucket. THI-244-style cwd-aware spawning (so the new tab opens
+  // in the repo's path) is wired up at the NewWindowOverlay layer — out of
+  // scope for the rail itself.
+  const firstSessionId = group.windows[0]?.session;
+  const targetSession =
+    firstSessionId !== undefined
+      ? sessionsById.find((s) => s.id === firstSessionId)
+      : undefined;
+  const handleNewWindow =
+    onNewWindow && targetSession ? () => onNewWindow(targetSession) : undefined;
   return (
     <div className="sb-group">
       <div
@@ -303,7 +342,27 @@ function RepoGroupView({ group, selectedPaneId }: RepoGroupViewProps) {
           showSessionChip
         />
       ))}
+      {!isOther && handleNewWindow && <NewTabRow onClick={handleNewWindow} />}
     </div>
+  );
+}
+
+/** Trailing row inside a group that opens the new-window flow. Visually
+ *  matches a pane row but uses the `plus` icon and reads as an action rather
+ *  than a destination. */
+function NewTabRow({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="sb-row pane sb-newtab"
+      onClick={onClick}
+      aria-label="New tab"
+    >
+      <span className="ic">
+        <Icon name="plus" size={12} />
+      </span>
+      <span className="lbl">New tab</span>
+    </button>
   );
 }
 
