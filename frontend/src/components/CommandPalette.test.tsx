@@ -197,7 +197,7 @@ describe("CommandPalette broadcast mode (THI-66)", () => {
     const input = screen.getByPlaceholderText(/Broadcast to 3 panes/);
     fireEvent.change(input, { target: { value: "uptime" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    // Three serialized awaits inside the iterator, one per target.
+    // Drain microtasks so the Promise.allSettled batch resolves.
     await Promise.resolve();
     await Promise.resolve();
     await Promise.resolve();
@@ -205,6 +205,46 @@ describe("CommandPalette broadcast mode (THI-66)", () => {
     expect(sendKeysMock).toHaveBeenCalledTimes(3);
     const sessions = sendKeysMock.mock.calls.map((c) => c[0]).sort();
     expect(sessions).toEqual(["dev", "main", "ops"]);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("fires every sendKeys in parallel before any resolves (THI-218)", async () => {
+    // Hold every sendKeys promise open with a manual deferred. If the loop
+    // were still sequential, only the first call would have happened by the
+    // time we inspect the mock; with Promise.allSettled all three fire
+    // synchronously after the microtask flip.
+    const deferreds: Array<{
+      resolve: (v: boolean) => void;
+      promise: Promise<boolean>;
+    }> = [];
+    sendKeysMock.mockImplementation(() => {
+      let resolve!: (v: boolean) => void;
+      const promise = new Promise<boolean>((r) => {
+        resolve = r;
+      });
+      deferreds.push({ resolve, promise });
+      return promise;
+    });
+    const onClose = vi.fn();
+    render(
+      <CommandPalette
+        target={A}
+        broadcastTargets={[A, B, C]}
+        onClose={onClose}
+      />,
+    );
+    const input = screen.getByPlaceholderText(/Broadcast to 3 panes/);
+    fireEvent.change(input, { target: { value: "uptime" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // One microtask flip is enough to fire every sendKeys call when they're
+    // launched in parallel — none of them have resolved yet.
+    await Promise.resolve();
+    expect(sendKeysMock).toHaveBeenCalledTimes(3);
+    expect(onClose).not.toHaveBeenCalled();
+    // Now resolve all in-flight calls and confirm the palette closes.
+    deferreds.forEach((d) => d.resolve(true));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(onClose).toHaveBeenCalled();
   });
 
