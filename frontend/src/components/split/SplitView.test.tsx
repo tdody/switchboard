@@ -373,7 +373,7 @@ describe("SplitView (THI-246 PR 2 — collapse)", () => {
 });
 
 describe('SplitView (THI-246 PR 2 — "+ New tab")', () => {
-  it("renders one new-tab row per session in sessions mode and calls onNewWindow with that session", () => {
+  it("renders one new-tab row per session in sessions mode and calls onNewWindow with that session's id", () => {
     const onNewWindow = vi.fn();
     const alpha = mkSession({ id: "alpha", name: "alpha" });
     const beta = mkSession({ id: "beta", name: "beta" });
@@ -392,9 +392,9 @@ describe('SplitView (THI-246 PR 2 — "+ New tab")', () => {
     expect(newTabs).toHaveLength(2);
     fireEvent.click(newTabs[0]! as HTMLButtonElement);
     expect(onNewWindow).toHaveBeenCalledTimes(1);
-    expect(onNewWindow.mock.calls[0]![0]).toBe(alpha);
+    expect(onNewWindow.mock.calls[0]![0]).toBe("alpha");
     fireEvent.click(newTabs[1]! as HTMLButtonElement);
-    expect(onNewWindow.mock.calls[1]![0]).toBe(beta);
+    expect(onNewWindow.mock.calls[1]![0]).toBe("beta");
   });
 
   it("hides new-tab rows entirely when onNewWindow is not provided", () => {
@@ -438,7 +438,7 @@ describe('SplitView (THI-246 PR 2 — "+ New tab")', () => {
     expect(newTabs).toHaveLength(1);
     fireEvent.click(newTabs[0]! as HTMLButtonElement);
     // First window in the foo bucket is %a → session alpha.
-    expect(onNewWindow).toHaveBeenCalledWith(alpha);
+    expect(onNewWindow).toHaveBeenCalledWith("alpha");
   });
 
   it("repos mode: Other bucket has no new-tab row (no repo cwd to inherit)", () => {

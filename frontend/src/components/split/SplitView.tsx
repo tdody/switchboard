@@ -83,10 +83,10 @@ interface Props {
   /** Forwarded so the "Open in tmux" header button still focuses the
    *  selected pane in the user's real terminal (THI-88). */
   onFocus: (w: Window) => void;
-  /** Optional: open the "new window" overlay targeting `session`. Wired by
-   *  App.tsx → setNewWindowSession. When omitted (legacy callers, tests),
-   *  the "+ New tab" rows are hidden. */
-  onNewWindow?: (session: Session) => void;
+  /** Optional: open the "new window" overlay targeting the given session ID.
+   *  Wired by App.tsx → setNewWindowSession. When omitted (legacy callers,
+   *  tests), the "+ New tab" rows are hidden. */
+  onNewWindow?: (sessionId: string) => void;
 }
 
 /** THI-246 PR 2 — Split view rail features (in progress).
@@ -341,8 +341,7 @@ export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
                 key={g.key}
                 group={g}
                 selectedPaneId={selectedPaneId}
-                onNewWindow={onNewWindow ? (s) => onNewWindow(s) : undefined}
-                sessionsById={sessions}
+                onNewWindow={onNewWindow}
                 dragProps={dragProps(g.key, g.key !== OTHER_REPO_KEY)}
               />
             ))
@@ -353,7 +352,7 @@ export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
                 session={session}
                 windows={ws}
                 selectedPaneId={selectedPaneId}
-                onNewWindow={onNewWindow ? () => onNewWindow(session) : undefined}
+                onNewWindow={onNewWindow ? () => onNewWindow(session.id) : undefined}
                 dragProps={dragProps(session.id, true)}
               />
             ))
@@ -432,12 +431,8 @@ interface RepoGroupViewProps {
   group: RepoGroup;
   selectedPaneId: string;
   /** Bound version of the App-level new-window handler — receives the
-   *  session that owns the new tab. */
-  onNewWindow?: (session: Session) => void;
-  /** Available sessions, so the repo group can resolve a session for its
-   *  "+ New tab" row (uses the first window's session as the target since
-   *  the repo group itself isn't tied to one). */
-  sessionsById: Session[];
+   *  session ID that owns the new tab. */
+  onNewWindow?: (sessionId: string) => void;
   /** Drag-to-reorder wiring (null for the "Other" bucket and while
    *  collapsed). */
   dragProps: GroupDragProps | null;
@@ -447,7 +442,6 @@ function RepoGroupView({
   group,
   selectedPaneId,
   onNewWindow,
-  sessionsById,
   dragProps,
 }: RepoGroupViewProps) {
   const isOther = group.key === OTHER_REPO_KEY;
@@ -456,12 +450,8 @@ function RepoGroupView({
   // in the repo's path) is wired up at the NewWindowOverlay layer — out of
   // scope for the rail itself.
   const firstSessionId = group.windows[0]?.session;
-  const targetSession =
-    firstSessionId !== undefined
-      ? sessionsById.find((s) => s.id === firstSessionId)
-      : undefined;
   const handleNewWindow =
-    onNewWindow && targetSession ? () => onNewWindow(targetSession) : undefined;
+    onNewWindow && firstSessionId ? () => onNewWindow(firstSessionId) : undefined;
   return (
     <div className="sb-group">
       <HeadRow
