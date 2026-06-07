@@ -110,3 +110,96 @@ describe("SplitView (THI-246 PR 1)", () => {
     expect(onFocus).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("SplitView (THI-246 PR 2 — repos mode)", () => {
+  it("groups rail rows by repo when groupingMode=repos", () => {
+    updateSettings({ groupingMode: "repos" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            name: "shell",
+            repoKey: "/r/alpha",
+            repoLabel: "alpha",
+          }),
+          mkWindow({
+            paneId: "%b",
+            session: "alpha",
+            name: "claude",
+            repoKey: "/r/beta",
+            repoLabel: "beta",
+          }),
+          mkWindow({
+            paneId: "%c",
+            session: "beta",
+            name: "logs",
+            repoKey: "/r/beta",
+            repoLabel: "beta",
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" }), mkSession({ id: "beta" })]}
+        onFocus={noop}
+      />,
+    );
+    // Two repo headers: alpha (1 pane), beta (2 panes). Session 'alpha' spans
+    // both repos because pane %b lives in /r/beta even though its tmux
+    // session is 'alpha' — that's the per-window bucketing rule from THI-243.
+    const heads = Array.from(
+      container.querySelectorAll<HTMLDivElement>(".sb-row.sb-row-head .lbl"),
+    ).map((el) => el.textContent);
+    expect(heads).toEqual(["alpha", "beta"]);
+    const counts = Array.from(
+      container.querySelectorAll<HTMLDivElement>(".sb-row.sb-row-head .count"),
+    ).map((el) => el.textContent);
+    expect(counts).toEqual(["1", "2"]);
+  });
+
+  it("shows the session chip on each pane row in repos mode (not in sessions mode)", () => {
+    updateSettings({ groupingMode: "repos" });
+    const { container, rerender } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            name: "shell",
+            repoKey: "/r/alpha",
+            repoLabel: "alpha",
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(container.querySelector(".sb-row-session")).not.toBeNull();
+    expect(container.querySelector(".sb-row-session")!.textContent).toBe("alpha");
+
+    updateSettings({ groupingMode: "sessions" });
+    rerender(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            name: "shell",
+            repoKey: "/r/alpha",
+            repoLabel: "alpha",
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(container.querySelector(".sb-row-session")).toBeNull();
+  });
+
+  it("renders the empty-state hint when repos mode has no panes", () => {
+    updateSettings({ groupingMode: "repos" });
+    const { container } = render(
+      <SplitView windows={[]} sessions={[]} onFocus={noop} />,
+    );
+    expect(container.querySelector(".sb-rail-empty")).not.toBeNull();
+  });
+});

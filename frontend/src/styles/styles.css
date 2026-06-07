@@ -3141,6 +3141,22 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--accent);
   flex: none;
 }
+/* Small `session:` chip on rail rows in repos mode — lets the user see which
+ * tmux session a pane belongs to when the rail is keyed off repo, since the
+ * extra hierarchy level the spec originally proposed was collapsed. */
+.sb-row .sb-row-session {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--panel);
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  flex: none;
+  max-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ── divider ───────────────────────────────────────────────────────────── */
 .sb-divider {
