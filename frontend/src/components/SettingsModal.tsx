@@ -28,9 +28,10 @@ interface Props {
   sessionCount: number;
   windowCount: number;
   onClose: () => void;
+  onOpenCleanup?: () => void;
 }
 
-export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }: Props) {
+export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose, onOpenCleanup }: Props) {
   const scrimProps = useScrimClose(onClose);
   const settings = useSettings();
   // Anthropic key status (THI-67). Fetched on mount; null while in flight.
@@ -407,6 +408,53 @@ export function SettingsModal({ serverAddr, sessionCount, windowCount, onClose }
               )}
               <span />
             </div>
+          </div>
+
+          <div className="settings-group" id="maintenance">
+            <h4>Maintenance</h4>
+            <div className="settings-row">
+              <span>
+                <div className="name">
+                  <label htmlFor="idle-cleanup-days">
+                    Idle-pane cleanup threshold (days)
+                  </label>
+                </div>
+                <div className="desc">
+                  0 hides the cleanup action entirely.
+                </div>
+              </span>
+              <input
+                id="idle-cleanup-days"
+                type="number"
+                min={0}
+                max={365}
+                value={settings.idleCleanupDays}
+                onChange={(e) => {
+                  const v = Math.max(0, Math.min(365, Number(e.target.value) || 0));
+                  updateSettings({ idleCleanupDays: v });
+                }}
+                style={{ width: 80 }}
+              />
+              <span />
+            </div>
+            {settings.idleCleanupDays > 0 && (
+              <div className="settings-row">
+                <span>
+                  <div className="name">Clean up idle panes</div>
+                  <div className="desc">
+                    Close every window idle past the threshold above. Asks for
+                    confirmation; mid-turn and pinned windows are pre-skipped.
+                  </div>
+                </span>
+                <span className="val" />
+                <button
+                  className="btn"
+                  onClick={() => onOpenCleanup?.()}
+                >
+                  Clean up idle panes…
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

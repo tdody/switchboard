@@ -36,6 +36,9 @@ export interface Settings {
    *  the server's default (env-var or first probed). The Settings dropdown
    *  writes this; TerminalModal reads it and forwards as `ide=` to /api/open. */
   selectedIde: string;
+  /** Threshold for "Clean up idle panes…" in days. 0 hides the action.
+   *  Default 7. Stored as a number; clamped at the UI layer (0–365). */
+  idleCleanupDays: number;
 }
 
 // OKLCH lightness/chroma/hue for each accent preset.
@@ -113,6 +116,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyBrowser: false,
   terminalFontSize: 13,
   selectedIde: "",
+  idleCleanupDays: 7,
 };
 
 export const POLL_MIN_S = 1;

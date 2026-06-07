@@ -2271,16 +2271,18 @@ input, textarea, select { font: inherit; color: inherit; }
   font-family: var(--font-mono);
   font-size: 12px; color: var(--text);
 }
-.settings-row input[type="text"] {
+.settings-row input[type="text"],
+.settings-row input[type="number"] {
   background: var(--bg);
+  color: var(--text);
   border: 1px solid var(--hairline);
   border-radius: 6px;
   padding: 5px 8px;
   outline: 0;
   font-family: var(--font-mono);
   font-size: 12px;
-  min-width: 240px;
 }
+.settings-row input[type="text"] { min-width: 240px; }
 .settings-row input[type="range"] {
   accent-color: var(--accent);
   min-width: 160px;
@@ -2912,3 +2914,63 @@ input, textarea, select { font: inherit; color: inherit; }
 /* Tighten the .kbd inside a tooltip — it inherits the larger base height
  * otherwise and breaks the inline rhythm against the small body text. */
 .tooltip-kbd { height: 16px; font-size: 10px; }
+
+/* THI-245 — Idle-pane cleanup modal */
+.cleanup-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.cleanup-row {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.cleanup-row:last-child {
+  border-bottom: none;
+}
+
+.cleanup-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.cleanup-row input[type="checkbox"] {
+  margin: 0;
+}
+
+.cleanup-session {
+  font-weight: 600;
+  color: var(--text-mute);
+}
+
+.cleanup-sep {
+  color: var(--text-dim);
+}
+
+.cleanup-name {
+  flex: 1;
+  color: var(--text);
+}
+
+.cleanup-reason {
+  margin-left: 8px;
+  color: var(--text-dim);
+  font-size: 0.85em;
+}
+
+.cleanup-warn {
+  margin-top: 10px;
+  color: var(--tone-amber);
+  font-size: 0.9em;
+}
+
+.cleanup-empty {
+  text-align: center;
+  padding: 24px 0;
+}

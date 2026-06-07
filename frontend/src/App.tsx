@@ -11,6 +11,7 @@ import {
 import { usePolling } from "./api/usePolling";
 import { useQuickCreate } from "./lib/useQuickCreate";
 import { AutoRenameModal } from "./components/AutoRenameModal";
+import { CleanupModal } from "./components/CleanupModal";
 import { CommandPalette } from "./components/CommandPalette";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { DocsModal } from "./components/DocsModal";
@@ -151,6 +152,7 @@ export function App() {
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const [showSettings, setShowSettings] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   // THI-100: pane history search modal (`⌘⇧F` / `Ctrl+Shift+F`).
   const [showSearch, setShowSearch] = useState(false);
@@ -717,6 +719,7 @@ export function App() {
         openId ||
         paletteTargetId ||
         renameTargetId ||
+        cleanupOpen ||
         showSettings ||
         showShortcuts ||
         showSearch ||
@@ -845,6 +848,36 @@ export function App() {
       sessionCount={sessions.length}
       windowCount={windows.length}
       onClose={() => setShowSettings(false)}
+      onOpenCleanup={() => setCleanupOpen(true)}
+    />
+  ) : null;
+
+  const cleanupModal = cleanupOpen ? (
+    <CleanupModal
+      windows={windows}
+      pinnedIds={pinnedIds}
+      thresholdDays={settings.idleCleanupDays}
+      onClose={() => setCleanupOpen(false)}
+      onLowerThreshold={() => {
+        setCleanupOpen(false);
+        setShowSettings(true);
+        // After Settings re-mounts, focus the threshold input.
+        requestAnimationFrame(() => {
+          document.getElementById("idle-cleanup-days")?.focus();
+        });
+      }}
+      onAfterCleanup={({ ok, failed }) => {
+        const msg =
+          failed === 0
+            ? `Closed ${ok} pane${ok === 1 ? "" : "s"}.`
+            : `Closed ${ok} pane${ok === 1 ? "" : "s"} (${failed} failed).`;
+        pushToast({
+          id: Math.random().toString(36).slice(2),
+          kind: "message",
+          message: msg,
+        });
+        refreshRef.current();
+      }}
     />
   ) : null;
 
@@ -908,6 +941,7 @@ export function App() {
           <EmptyState onRetry={refresh} />
         </main>
         {settingsModal}
+        {cleanupModal}
         {shortcutsSheet}
         {searchModal}
         {templatesModal}
@@ -1068,6 +1102,7 @@ export function App() {
         />
       )}
       {settingsModal}
+      {cleanupModal}
       {shortcutsSheet}
       {searchModal}
       {templatesModal}
@@ -1090,6 +1125,7 @@ export function App() {
           !newWindowSession &&
           !showNewSession &&
           !renameSessionTarget &&
+          !cleanupOpen &&
           !showSettings &&
           !showShortcuts &&
           !showDocs &&
