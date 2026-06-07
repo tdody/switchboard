@@ -273,6 +273,20 @@ describe("SplitView (THI-246 PR 2 — divider resize)", () => {
     ).toBe(200);
   });
 
+  it("disables pointer drag while collapsed (no settings change)", () => {
+    updateSettings({ splitRailCollapsed: true });
+    const { container } = setup();
+    const div = container.querySelector<HTMLDivElement>(".sb-divider")!;
+    div.setPointerCapture = vi.fn();
+    div.releasePointerCapture = vi.fn();
+    fireEvent.pointerDown(div, { button: 0, clientX: 100, pointerId: 1 });
+    fireEvent.pointerUp(div, { clientX: 999, pointerId: 1 });
+    // pointerDown bailed early (collapsed) so width is unchanged.
+    expect(
+      JSON.parse(localStorage.getItem("switchboard:settings")!).splitRailWidth,
+    ).toBe(280);
+  });
+
   it("arrow keys nudge the width; Shift makes the step larger", () => {
     const { container } = setup();
     const div = container.querySelector<HTMLDivElement>(".sb-divider")!;
@@ -296,5 +310,64 @@ describe("SplitView (THI-246 PR 2 — divider resize)", () => {
     expect(
       JSON.parse(localStorage.getItem("switchboard:settings")!).splitRailWidth,
     ).toBe(460);
+  });
+});
+
+describe("SplitView (THI-246 PR 2 — collapse)", () => {
+  it("toggle button flips the splitRailCollapsed setting", () => {
+    const { container } = render(
+      <SplitView
+        windows={[mkWindow({ paneId: "%a", session: "alpha" })]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    const toggle = container.querySelector<HTMLButtonElement>(
+      ".sb-rail-collapse",
+    )!;
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(toggle);
+    expect(
+      JSON.parse(localStorage.getItem("switchboard:settings")!).splitRailCollapsed,
+    ).toBe(true);
+  });
+
+  it("renders a 44px column with dot rows only while collapsed", () => {
+    updateSettings({ splitRailCollapsed: true });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({ paneId: "%a", session: "alpha", name: "shell", status: "idle" }),
+          mkWindow({ paneId: "%b", session: "alpha", name: "claude", status: "waiting" }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(
+      container.querySelector<HTMLDivElement>(".sb-split")!.style.gridTemplateColumns,
+    ).toContain("44px");
+    expect(container.querySelector(".sb-rail.is-collapsed")).not.toBeNull();
+    // No pane rows or group heads while collapsed — just dots.
+    expect(container.querySelectorAll(".sb-row")).toHaveLength(0);
+    const dots = container.querySelectorAll(".sb-dot");
+    expect(dots).toHaveLength(2);
+    expect(dots[0]!.className).toContain("tone-gray"); // idle
+    expect(dots[1]!.className).toContain("tone-amber"); // waiting
+  });
+
+  it("clicking a dot expands the rail and selects that pane", () => {
+    updateSettings({ splitRailCollapsed: true });
+    const { container } = render(
+      <SplitView
+        windows={[mkWindow({ paneId: "%a", session: "alpha", name: "shell" })]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    fireEvent.click(container.querySelector<HTMLButtonElement>(".sb-dot")!);
+    const stored = JSON.parse(localStorage.getItem("switchboard:settings")!);
+    expect(stored.splitRailCollapsed).toBe(false);
+    expect(stored.selectedPaneId).toBe("%a");
   });
 });

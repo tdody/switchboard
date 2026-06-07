@@ -7,6 +7,7 @@ import {
   groupByRepo,
 } from "../../lib/groupByRepo";
 import { updateSettings, useSetting } from "../../lib/settings";
+import { STATUS_META } from "../../lib/status";
 import type { Session, Window } from "../../types";
 import { Icon } from "../Icon";
 import { StatusPill } from "../StatusPill";
@@ -14,6 +15,8 @@ import { StatusPill } from "../StatusPill";
 /** Rail width bounds — clamps the divider drag and any settings hydration. */
 export const SPLIT_RAIL_MIN = 200;
 export const SPLIT_RAIL_MAX = 460;
+/** Width of the collapsed dot-strip rail, in pixels. */
+export const SPLIT_RAIL_COLLAPSED = 44;
 /** Keyboard nudges for the separator: arrows step by 10px, Shift+arrows
  *  by 50px so power-users can resize quickly without a mouse. */
 const KEYBOARD_STEP = 10;
@@ -55,20 +58,23 @@ export function SplitView({ windows, sessions, onFocus }: Props) {
   const groupingMode = useSetting("groupingMode");
   const selectedPaneId = useSetting("selectedPaneId");
   const persistedRailWidth = useSetting("splitRailWidth");
+  const collapsed = useSetting("splitRailCollapsed");
 
   // Divider drag — `dragWidth` overrides the persisted width during a drag so
   // the column reflows in real time without thrashing the settings store on
   // every pointer move. Final width persists once on pointer-up.
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const dragStart = useRef<{ x: number; w: number } | null>(null);
-  const railWidth = clampRail(dragWidth ?? persistedRailWidth);
+  const expandedWidth = clampRail(dragWidth ?? persistedRailWidth);
+  const effectiveWidth = collapsed ? SPLIT_RAIL_COLLAPSED : expandedWidth;
 
   const onDividerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (collapsed) return; // no drag while collapsed — toggle to expand first
     if (e.button !== 0) return; // primary button only
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
-    dragStart.current = { x: e.clientX, w: railWidth };
-    setDragWidth(railWidth);
+    dragStart.current = { x: e.clientX, w: expandedWidth };
+    setDragWidth(expandedWidth);
   };
   const onDividerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragStart.current) return;
@@ -83,6 +89,7 @@ export function SplitView({ windows, sessions, onFocus }: Props) {
     if (final !== persistedRailWidth) updateSettings({ splitRailWidth: final });
   };
   const onDividerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (collapsed) return;
     // ARIA separator pattern: arrow keys nudge; Shift increases the step.
     let delta = 0;
     if (e.key === "ArrowLeft") delta = e.shiftKey ? -KEYBOARD_STEP_LARGE : -KEYBOARD_STEP;
@@ -101,6 +108,30 @@ export function SplitView({ windows, sessions, onFocus }: Props) {
     e.preventDefault();
     const next = clampRail(persistedRailWidth + delta);
     if (next !== persistedRailWidth) updateSettings({ splitRailWidth: next });
+  };
+
+  // Flat ordered window list for the collapsed dot-strip — same source the
+  // expanded tree uses, just stripped of group headers so the order matches
+  // what the user saw before collapsing.
+  const flatWindows = useMemo<Window[]>(() => {
+    if (!collapsed) return [];
+    if (groupingMode === "repos") {
+      return groupByRepo(sortPendingFirst(windows)).flatMap((g) => g.windows);
+    }
+    const bySession = new Map<string, Window[]>();
+    for (const w of windows) {
+      const bucket = bySession.get(w.session);
+      if (bucket) bucket.push(w);
+      else bySession.set(w.session, [w]);
+    }
+    return sessions.flatMap((s) => sortPendingFirst(bySession.get(s.id) ?? []));
+  }, [collapsed, groupingMode, windows, sessions]);
+
+  const onToggleCollapsed = () => {
+    updateSettings({ splitRailCollapsed: !collapsed });
+  };
+  const onDotSelect = (w: Window) => {
+    updateSettings({ splitRailCollapsed: false, selectedPaneId: w.paneId });
   };
 
   // Sessions-mode rows: keep each session bucket in tmux index order with
@@ -135,15 +166,42 @@ export function SplitView({ windows, sessions, onFocus }: Props) {
   return (
     <div
       className="sb-split"
-      style={{ gridTemplateColumns: `${railWidth}px 7px 1fr` }}
+      style={{ gridTemplateColumns: `${effectiveWidth}px 7px 1fr` }}
     >
-      <aside className="sb-rail" role="navigation" aria-label="Panes">
+      <aside
+        className={`sb-rail${collapsed ? " is-collapsed" : ""}`}
+        role="navigation"
+        aria-label="Panes"
+      >
         <header className="sb-rail-hd">
-          <span className="ttl">Projects</span>
+          {!collapsed && <span className="ttl">Projects</span>}
           <span className="grow" />
+          <button
+            type="button"
+            className="sb-rail-collapse"
+            onClick={onToggleCollapsed}
+            aria-label={collapsed ? "Expand rail" : "Collapse rail"}
+            aria-pressed={collapsed}
+            title={collapsed ? "Expand rail" : "Collapse rail"}
+          >
+            <Icon name={collapsed ? "plus" : "minus"} size={11} />
+          </button>
         </header>
         <div className="sb-rail-body">
-          {isEmpty ? (
+          {collapsed ? (
+            flatWindows.length === 0 ? (
+              <div className="sb-rail-empty" aria-hidden="true" />
+            ) : (
+              flatWindows.map((w) => (
+                <DotRow
+                  key={w.paneId}
+                  w={w}
+                  selected={w.paneId === selectedPaneId}
+                  onSelect={onDotSelect}
+                />
+              ))
+            )
+          ) : isEmpty ? (
             <div className="sb-rail-empty">No matching windows.</div>
           ) : groupingMode === "repos" ? (
             repoGroups.map((g) => (
@@ -170,7 +228,7 @@ export function SplitView({ windows, sessions, onFocus }: Props) {
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize rail"
-        aria-valuenow={railWidth}
+        aria-valuenow={expandedWidth}
         aria-valuemin={SPLIT_RAIL_MIN}
         aria-valuemax={SPLIT_RAIL_MAX}
         tabIndex={0}
@@ -277,6 +335,30 @@ function PaneRow({
       )}
       {w.pendingInput && <span className="count">!</span>}
     </button>
+  );
+}
+
+/** Single row in the collapsed dot-strip — just a status-toned dot. Clicking
+ *  expands the rail and selects the pane. */
+function DotRow({
+  w,
+  selected,
+  onSelect,
+}: {
+  w: Window;
+  selected: boolean;
+  onSelect: (w: Window) => void;
+}) {
+  const tone = STATUS_META[w.status]?.tone ?? "gray";
+  return (
+    <button
+      type="button"
+      className={`sb-dot tone-${tone}${selected ? " sel" : ""}`}
+      onClick={() => onSelect(w)}
+      aria-label={`${w.session}:${w.name} (${STATUS_META[w.status]?.label ?? w.status})`}
+      title={`${w.session}:${w.name}`}
+      data-pane-id={w.paneId}
+    />
   );
 }
 

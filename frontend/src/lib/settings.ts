@@ -63,6 +63,11 @@ export interface Settings {
   /** THI-246: width of the Split view's rail in pixels. Clamped 200–460 at
    *  the UI layer. The divider's drag-handle updates this. */
   splitRailWidth: number;
+  /** THI-246: when true, the Split view's rail collapses to a 44px dot
+   *  strip — one centered status dot per visible window. Clicking a dot
+   *  re-expands and selects that pane. Persisted so the layout stays
+   *  collapsed across reloads. */
+  splitRailCollapsed: boolean;
 }
 
 // OKLCH lightness/chroma/hue for each accent preset.
@@ -145,6 +150,7 @@ export const DEFAULT_SETTINGS: Settings = {
   groupingMode: "sessions",
   selectedPaneId: "",
   splitRailWidth: 280,
+  splitRailCollapsed: false,
 };
 
 export const POLL_MIN_S = 1;
