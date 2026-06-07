@@ -68,6 +68,19 @@ export interface Settings {
    *  re-expands and selects that pane. Persisted so the layout stays
    *  collapsed across reloads. */
   splitRailCollapsed: boolean;
+  /** THI-246: user-chosen ordering of session groups in the rail
+   *  (sessions mode). Entries are session IDs in render order. Sessions
+   *  that aren't in this list render after the persisted ones (live-new
+   *  appended). Sessions that disappeared aren't pruned from the list
+   *  itself — they're filtered at render time but stay so a relaunch
+   *  restores the order. */
+  splitRailSessionOrder: string[];
+  /** THI-246: user-chosen ordering of repo groups in the rail (repos
+   *  mode). Entries are `repo_key` strings (full git toplevel paths).
+   *  "Other" is never in this list — it's always pinned last by
+   *  groupByRepo regardless. Same live-new-appended semantics as
+   *  splitRailSessionOrder. */
+  splitRailRepoOrder: string[];
 }
 
 // OKLCH lightness/chroma/hue for each accent preset.
@@ -151,6 +164,8 @@ export const DEFAULT_SETTINGS: Settings = {
   selectedPaneId: "",
   splitRailWidth: 280,
   splitRailCollapsed: false,
+  splitRailSessionOrder: [],
+  splitRailRepoOrder: [],
 };
 
 export const POLL_MIN_S = 1;

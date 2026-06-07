@@ -461,3 +461,165 @@ describe('SplitView (THI-246 PR 2 — "+ New tab")', () => {
     expect(container.querySelector(".sb-newtab")).toBeNull();
   });
 });
+
+describe("SplitView (THI-246 PR 2 — drag-to-reorder)", () => {
+  function makeSessions() {
+    return [
+      mkSession({ id: "alpha", name: "alpha" }),
+      mkSession({ id: "beta", name: "beta" }),
+      mkSession({ id: "gamma", name: "gamma" }),
+    ];
+  }
+  function makeWindows() {
+    return [
+      mkWindow({ paneId: "%a", session: "alpha", name: "a" }),
+      mkWindow({ paneId: "%b", session: "beta", name: "b" }),
+      mkWindow({ paneId: "%g", session: "gamma", name: "g" }),
+    ];
+  }
+
+  it("applies the persisted splitRailSessionOrder; live-new sessions append last", () => {
+    updateSettings({ splitRailSessionOrder: ["gamma", "alpha"] });
+    const { container } = render(
+      <SplitView
+        windows={makeWindows()}
+        sessions={makeSessions()}
+        onFocus={noop}
+      />,
+    );
+    const heads = Array.from(
+      container.querySelectorAll<HTMLDivElement>(".sb-row.sb-row-head .lbl"),
+    ).map((el) => el.textContent);
+    // Persisted order first (gamma, alpha), then live-new (beta).
+    expect(heads).toEqual(["gamma", "alpha", "beta"]);
+  });
+
+  it("applies splitRailRepoOrder in repos mode; Other stays last regardless", () => {
+    updateSettings({
+      groupingMode: "repos",
+      splitRailRepoOrder: ["/r/beta", "/r/alpha"],
+    });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            repoKey: "/r/alpha",
+            repoLabel: "alpha",
+          }),
+          mkWindow({
+            paneId: "%b",
+            session: "beta",
+            repoKey: "/r/beta",
+            repoLabel: "beta",
+          }),
+          mkWindow({
+            paneId: "%o",
+            session: "loose",
+            repoKey: null,
+            repoLabel: null,
+          }),
+        ]}
+        sessions={makeSessions()}
+        onFocus={noop}
+      />,
+    );
+    const heads = Array.from(
+      container.querySelectorAll<HTMLDivElement>(".sb-row.sb-row-head .lbl"),
+    ).map((el) => el.textContent);
+    expect(heads).toEqual(["beta", "alpha", "Other"]);
+  });
+
+  it("dragStart marks the head row dragging; dragOver paints a drop indicator on the target", () => {
+    const { container } = render(
+      <SplitView
+        windows={makeWindows()}
+        sessions={makeSessions()}
+        onFocus={noop}
+      />,
+    );
+    const heads = container.querySelectorAll<HTMLDivElement>(".sb-row.sb-row-head");
+
+    fireEvent.dragStart(heads[0]!, {
+      dataTransfer: { setData: vi.fn(), effectAllowed: "" },
+    });
+    expect(heads[0]!.className).toContain("is-dragging");
+
+    fireEvent.dragOver(heads[1]!, {
+      clientY: 10,
+      dataTransfer: { dropEffect: "" },
+    });
+    // Either indicator class is fine — the exact position depends on the
+    // browser-driven layout. We only assert that SOMETHING was painted.
+    const target = container.querySelectorAll<HTMLDivElement>(".sb-row.sb-row-head")[1]!;
+    expect(target.className).toMatch(/drop-(before|after)/);
+  });
+
+  it("drop persists a new splitRailSessionOrder placing the dragged group at the target", () => {
+    const { container } = render(
+      <SplitView
+        windows={makeWindows()}
+        sessions={makeSessions()}
+        onFocus={noop}
+      />,
+    );
+    const heads = container.querySelectorAll<HTMLDivElement>(".sb-row.sb-row-head");
+    fireEvent.dragStart(heads[0]!, {
+      dataTransfer: { setData: vi.fn(), effectAllowed: "" },
+    });
+    fireEvent.dragOver(heads[2]!, {
+      clientY: 100,
+      dataTransfer: { dropEffect: "" },
+    });
+    fireEvent.drop(heads[2]!, { dataTransfer: { dropEffect: "" } });
+    const stored = JSON.parse(localStorage.getItem("switchboard:settings")!)
+      .splitRailSessionOrder as string[];
+    // alpha moved off the front; beta is still first; alpha sits before or
+    // after gamma depending on the layout's measured midpoint. Either is fine
+    // for the contract test — what matters is that the persist happened and
+    // beta hasn't moved.
+    expect(stored.length).toBe(3);
+    expect(stored[0]).toBe("beta");
+    expect(stored.slice(1).sort()).toEqual(["alpha", "gamma"]);
+  });
+
+  it("Other bucket's head row is not draggable", () => {
+    updateSettings({ groupingMode: "repos" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            repoKey: "/r/alpha",
+            repoLabel: "alpha",
+          }),
+          mkWindow({
+            paneId: "%o",
+            session: "loose",
+            repoKey: null,
+            repoLabel: null,
+          }),
+        ]}
+        sessions={makeSessions()}
+        onFocus={noop}
+      />,
+    );
+    const heads = container.querySelectorAll<HTMLDivElement>(".sb-row.sb-row-head");
+    expect(heads[0]!.getAttribute("draggable")).toBe("true"); // alpha
+    expect(heads[1]!.getAttribute("draggable")).toBeNull(); // Other
+  });
+
+  it("disables drag while the rail is collapsed", () => {
+    updateSettings({ splitRailCollapsed: true });
+    const { container } = render(
+      <SplitView
+        windows={makeWindows()}
+        sessions={makeSessions()}
+        onFocus={noop}
+      />,
+    );
+    expect(container.querySelector(".sb-row.sb-row-head")).toBeNull();
+  });
+});

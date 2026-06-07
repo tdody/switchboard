@@ -28,6 +28,55 @@ function clampRail(w: number): number {
   return w;
 }
 
+/** Stable-sort `items` by their position in `order`. Items not mentioned in
+ *  `order` keep their input order and are appended after the ordered ones —
+ *  matches the periscope "prefs are hints, never membership" semantics. */
+function applyOrder<T>(items: T[], order: string[], keyOf: (item: T) => string): T[] {
+  if (order.length === 0) return items;
+  const rank = new Map(order.map((k, i) => [k, i] as const));
+  return [...items].sort((a, b) => {
+    const ai = rank.get(keyOf(a));
+    const bi = rank.get(keyOf(b));
+    if (ai === undefined && bi === undefined) return 0;
+    if (ai === undefined) return 1;
+    if (bi === undefined) return -1;
+    return ai - bi;
+  });
+}
+
+/** Reorder `arr` by moving `dragId` to before/after `targetId`. No-op when
+ *  the drag would land in its current slot. */
+function reorderArray(
+  arr: readonly string[],
+  dragId: string,
+  targetId: string,
+  position: "before" | "after",
+): string[] {
+  if (dragId === targetId) return [...arr];
+  const fromIdx = arr.indexOf(dragId);
+  if (fromIdx === -1) return [...arr];
+  const without = [...arr.slice(0, fromIdx), ...arr.slice(fromIdx + 1)];
+  const targetIdx = without.indexOf(targetId);
+  if (targetIdx === -1) return [...arr];
+  const insertAt = position === "before" ? targetIdx : targetIdx + 1;
+  return [...without.slice(0, insertAt), dragId, ...without.slice(insertAt)];
+}
+
+type DropPos = "before" | "after";
+interface GroupDragProps {
+  draggable: true;
+  /** Visual: the dragged group fades while in flight. */
+  isDragging: boolean;
+  /** Drop indicator position relative to this group, if any. */
+  dropIndicator: DropPos | null;
+  onDragStart: (e: React.DragEvent<HTMLElement>) => void;
+  onDragEnter: (e: React.DragEvent<HTMLElement>) => void;
+  onDragOver: (e: React.DragEvent<HTMLElement>) => void;
+  onDragLeave: (e: React.DragEvent<HTMLElement>) => void;
+  onDrop: (e: React.DragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
+}
+
 interface Props {
   windows: Window[];
   sessions: Session[];
@@ -63,6 +112,8 @@ export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
   const selectedPaneId = useSetting("selectedPaneId");
   const persistedRailWidth = useSetting("splitRailWidth");
   const collapsed = useSetting("splitRailCollapsed");
+  const sessionOrderPref = useSetting("splitRailSessionOrder");
+  const repoOrderPref = useSetting("splitRailRepoOrder");
 
   // Divider drag — `dragWidth` overrides the persisted width during a drag so
   // the column reflows in real time without thrashing the settings store on
@@ -140,6 +191,8 @@ export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
 
   // Sessions-mode rows: keep each session bucket in tmux index order with
   // pending panes floated to the top, matching Kanban's per-column rule.
+  // Group order honors the persisted drag-reorder preference; sessions not
+  // mentioned in the pref keep their live order and append after.
   const sessionRows = useMemo<Array<{ session: Session; windows: Window[] }>>(() => {
     if (groupingMode !== "sessions") return [];
     const bySession = new Map<string, Window[]>();
@@ -148,17 +201,23 @@ export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
       if (bucket) bucket.push(w);
       else bySession.set(w.session, [w]);
     }
-    return sessions
+    const rows = sessions
       .map((s) => ({ session: s, windows: sortPendingFirst(bySession.get(s.id) ?? []) }))
       .filter((row) => row.windows.length > 0);
-  }, [groupingMode, sessions, windows]);
+    return applyOrder(rows, sessionOrderPref, (r) => r.session.id);
+  }, [groupingMode, sessions, windows, sessionOrderPref]);
 
   // Repos-mode groups: sort once globally (pending-first), then bucket by
-  // repo. Each bucket preserves the sort order.
+  // repo. Each bucket preserves the sort order. "Other" is pulled out before
+  // reorder and re-appended last so it never participates in user reorder.
   const repoGroups = useMemo<RepoGroup[]>(() => {
     if (groupingMode !== "repos") return [];
-    return groupByRepo(sortPendingFirst(windows));
-  }, [groupingMode, windows]);
+    const raw = groupByRepo(sortPendingFirst(windows));
+    const realGroups = raw.filter((g) => g.key !== OTHER_REPO_KEY);
+    const otherGroup = raw.find((g) => g.key === OTHER_REPO_KEY);
+    const ordered = applyOrder(realGroups, repoOrderPref, (g) => g.key);
+    return otherGroup ? [...ordered, otherGroup] : ordered;
+  }, [groupingMode, windows, repoOrderPref]);
 
   const selected = selectedPaneId
     ? windows.find((w) => w.paneId === selectedPaneId) ?? null
@@ -166,6 +225,75 @@ export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
 
   const isEmpty =
     groupingMode === "repos" ? repoGroups.length === 0 : sessionRows.length === 0;
+
+  // Drag-to-reorder state. Two pieces:
+  //   - `dragGroupId`: which group's head row is being dragged (null when idle).
+  //   - `dragOver`: which group we're hovering over and on which half.
+  // Identity travels on the React state instead of dataTransfer so we never
+  // depend on a DOM sibling walk to find the drag source.
+  const [dragGroupId, setDragGroupId] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<{ id: string; pos: DropPos } | null>(null);
+  const clearDrag = () => {
+    setDragGroupId(null);
+    setDragOver(null);
+  };
+  const reorderableIds: string[] =
+    groupingMode === "sessions"
+      ? sessionRows.map((r) => r.session.id)
+      : repoGroups.filter((g) => g.key !== OTHER_REPO_KEY).map((g) => g.key);
+  const handleGroupDrop = (targetId: string) => {
+    if (!dragGroupId || dragGroupId === targetId || !dragOver) {
+      clearDrag();
+      return;
+    }
+    const next = reorderArray(reorderableIds, dragGroupId, targetId, dragOver.pos);
+    if (groupingMode === "sessions") {
+      updateSettings({ splitRailSessionOrder: next });
+    } else {
+      updateSettings({ splitRailRepoOrder: next });
+    }
+    clearDrag();
+  };
+  /** Drag wiring for one group's head row. Returns the props the group
+   *  component spreads onto its `.sb-row-head` element. */
+  const dragProps = (groupId: string, reorderable: boolean): GroupDragProps | null => {
+    if (!reorderable || collapsed) return null;
+    return {
+      draggable: true,
+      isDragging: dragGroupId === groupId,
+      dropIndicator: dragOver?.id === groupId ? dragOver.pos : null,
+      onDragStart: (e) => {
+        // dataTransfer payload is unused (identity lives in React state) but
+        // setting it keeps Firefox from rejecting the drag.
+        e.dataTransfer.setData("text/plain", groupId);
+        e.dataTransfer.effectAllowed = "move";
+        setDragGroupId(groupId);
+      },
+      onDragEnter: (e) => {
+        e.preventDefault();
+      },
+      onDragOver: (e) => {
+        if (!dragGroupId || dragGroupId === groupId) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        const rect = e.currentTarget.getBoundingClientRect();
+        const pos: DropPos = e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+        setDragOver((prev) =>
+          prev && prev.id === groupId && prev.pos === pos ? prev : { id: groupId, pos },
+        );
+      },
+      onDragLeave: (e) => {
+        // Only clear if leaving the head row entirely (not a child element).
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setDragOver((prev) => (prev && prev.id === groupId ? null : prev));
+      },
+      onDrop: (e) => {
+        e.preventDefault();
+        handleGroupDrop(groupId);
+      },
+      onDragEnd: clearDrag,
+    };
+  };
 
   return (
     <div
@@ -215,6 +343,7 @@ export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
                 selectedPaneId={selectedPaneId}
                 onNewWindow={onNewWindow ? (s) => onNewWindow(s) : undefined}
                 sessionsById={sessions}
+                dragProps={dragProps(g.key, g.key !== OTHER_REPO_KEY)}
               />
             ))
           ) : (
@@ -225,6 +354,7 @@ export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
                 windows={ws}
                 selectedPaneId={selectedPaneId}
                 onNewWindow={onNewWindow ? () => onNewWindow(session) : undefined}
+                dragProps={dragProps(session.id, true)}
               />
             ))
           )}
@@ -267,6 +397,9 @@ interface SessionGroupProps {
   /** When provided, render a "+ New tab" affordance below the group's panes
    *  that opens the new-window flow targeting this session. */
   onNewWindow?: () => void;
+  /** Drag-to-reorder wiring (null when reorder is disabled — e.g. while the
+   *  rail is collapsed). */
+  dragProps: GroupDragProps | null;
 }
 
 function SessionGroup({
@@ -274,15 +407,19 @@ function SessionGroup({
   windows,
   selectedPaneId,
   onNewWindow,
+  dragProps,
 }: SessionGroupProps) {
   return (
     <div className="sb-group">
-      <div className="sb-row sb-row-head" aria-label={`Session ${session.name}`}>
+      <HeadRow
+        dragProps={dragProps}
+        aria-label={`Session ${session.name}`}
+      >
         <span className="ic">
           <Icon name="kanban" size={11} />
         </span>
         <span className="lbl">{session.name}</span>
-      </div>
+      </HeadRow>
       {windows.map((w) => (
         <PaneRow key={w.paneId} w={w} selected={w.paneId === selectedPaneId} />
       ))}
@@ -301,6 +438,9 @@ interface RepoGroupViewProps {
    *  "+ New tab" row (uses the first window's session as the target since
    *  the repo group itself isn't tied to one). */
   sessionsById: Session[];
+  /** Drag-to-reorder wiring (null for the "Other" bucket and while
+   *  collapsed). */
+  dragProps: GroupDragProps | null;
 }
 
 function RepoGroupView({
@@ -308,6 +448,7 @@ function RepoGroupView({
   selectedPaneId,
   onNewWindow,
   sessionsById,
+  dragProps,
 }: RepoGroupViewProps) {
   const isOther = group.key === OTHER_REPO_KEY;
   // The "+ New tab" in repos mode lands in the session of the first window
@@ -323,8 +464,8 @@ function RepoGroupView({
     onNewWindow && targetSession ? () => onNewWindow(targetSession) : undefined;
   return (
     <div className="sb-group">
-      <div
-        className="sb-row sb-row-head"
+      <HeadRow
+        dragProps={dragProps}
         title={isOther ? "Windows whose cwd isn't a git repo" : group.key}
         aria-label={`Repo ${group.label}`}
       >
@@ -333,7 +474,7 @@ function RepoGroupView({
         </span>
         <span className="lbl">{group.label}</span>
         <span className="count">{group.windows.length}</span>
-      </div>
+      </HeadRow>
       {group.windows.map((w) => (
         <PaneRow
           key={w.paneId}
@@ -343,6 +484,50 @@ function RepoGroupView({
         />
       ))}
       {!isOther && handleNewWindow && <NewTabRow onClick={handleNewWindow} />}
+    </div>
+  );
+}
+
+/** Group head row with drag handlers and drop-indicator styling. Spreads
+ *  `dragProps` (when present) onto the row's DOM node; otherwise renders a
+ *  plain head row. */
+function HeadRow({
+  dragProps,
+  title,
+  children,
+  ...rest
+}: {
+  dragProps: GroupDragProps | null;
+  title?: string;
+  children: React.ReactNode;
+  "aria-label"?: string;
+}) {
+  const className =
+    "sb-row sb-row-head" +
+    (dragProps?.isDragging ? " is-dragging" : "") +
+    (dragProps?.dropIndicator === "before" ? " drop-before" : "") +
+    (dragProps?.dropIndicator === "after" ? " drop-after" : "");
+  if (!dragProps) {
+    return (
+      <div className={className} title={title} {...rest}>
+        {children}
+      </div>
+    );
+  }
+  return (
+    <div
+      className={className}
+      title={title}
+      draggable={dragProps.draggable}
+      onDragStart={dragProps.onDragStart}
+      onDragEnter={dragProps.onDragEnter}
+      onDragOver={dragProps.onDragOver}
+      onDragLeave={dragProps.onDragLeave}
+      onDrop={dragProps.onDrop}
+      onDragEnd={dragProps.onDragEnd}
+      {...rest}
+    >
+      {children}
     </div>
   );
 }

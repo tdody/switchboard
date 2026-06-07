@@ -3185,6 +3185,36 @@ input, textarea, select { font: inherit; color: inherit; }
   font-weight: 600;
   color: var(--text);
 }
+/* Drag-to-reorder visuals. The dragged row dims so the user can see where
+ * it'll land; drop-before / drop-after paint a 2px accent line above or
+ * below the hovered group to mark the insertion point. The pseudo-elements
+ * use absolute positioning so they don't shift sibling layout while the
+ * user is dragging. */
+.sb-row.sb-row-head[draggable="true"] {
+  cursor: grab;
+}
+.sb-row.sb-row-head[draggable="true"]:active {
+  cursor: grabbing;
+}
+.sb-row.sb-row-head.is-dragging {
+  opacity: 0.4;
+}
+.sb-row.sb-row-head.drop-before,
+.sb-row.sb-row-head.drop-after {
+  position: relative;
+}
+.sb-row.sb-row-head.drop-before::before,
+.sb-row.sb-row-head.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.sb-row.sb-row-head.drop-before::before { top: -1px; }
+.sb-row.sb-row-head.drop-after::after { bottom: -1px; }
 .sb-row.pane {
   padding-left: 22px;
   color: var(--text);
