@@ -113,6 +113,16 @@ class Window(_CamelModel):
     # the cwd isn't inside a github repo. Drives the in-pane `PR #N` linkifier
     # so a non-current PR mention in an agent footer is still clickable.
     repo_url: str | None = None
+    # THI-243: git toplevel path (`git rev-parse --show-toplevel`) for the
+    # pane's cwd, or None when the cwd isn't inside a git repo. The frontend
+    # groups panes by `repoKey` in discovery mode. Independent of `repo_url`:
+    # `repo_key` is the local filesystem identity; `repo_url` is the github
+    # remote URL.
+    repo_key: str | None = None
+    # THI-243: human-readable label for the repo, derived from the toplevel's
+    # basename. Two repos with the same basename render the same label; the
+    # frontend disambiguates via tooltip with the full `repo_key`.
+    repo_label: str | None = None
     agent: Agent | None = None
     preview: list[str] = []
 

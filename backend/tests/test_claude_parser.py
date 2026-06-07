@@ -944,3 +944,97 @@ def test_parse_pane_distinguishes_different_captures(monkeypatch) -> None:
     assert agent1 is not None and agent1.spinner is not None
     assert agent2 is not None
     assert agent2.spinner is None
+
+
+# THI-243: _git_repo_root maps a cwd to its git toplevel. The grouping-mode
+# toggle uses this to bucket panes in the discovery view.
+def test_git_repo_root_returns_toplevel_for_git_cwd(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    def fake_run(args, **kwargs):
+        # Expect: git -C <cwd> rev-parse --show-toplevel
+        assert args[:2] == ["git", "-C"]
+        assert args[3:] == ["rev-parse", "--show-toplevel"]
+        return SimpleNamespace(returncode=0, stdout="/Users/me/dev/foo\n", stderr="")
+
+    monkeypatch.setattr(claude_parser.subprocess, "run", fake_run)
+    claude_parser._REPO_ROOT_CACHE.clear()
+    assert claude_parser._git_repo_root("/Users/me/dev/foo/sub") == "/Users/me/dev/foo"
+
+
+def test_git_repo_root_returns_none_for_non_git_cwd(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        claude_parser.subprocess,
+        "run",
+        lambda *a, **k: SimpleNamespace(returncode=128, stdout="", stderr="fatal"),
+    )
+    claude_parser._REPO_ROOT_CACHE.clear()
+    assert claude_parser._git_repo_root("/tmp") is None
+
+
+def test_git_repo_root_returns_none_for_empty_cwd() -> None:
+    # No syscall for empty / None — short-circuit guard.
+    assert claude_parser._git_repo_root(None) is None
+    assert claude_parser._git_repo_root("") is None
+
+
+def test_git_repo_root_cache_re_queries_after_ttl(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kwargs):
+        calls.append(list(args))
+        return SimpleNamespace(returncode=0, stdout=fake_run.root + "\n", stderr="")
+
+    fake_run.root = "/repo/a"
+    monkeypatch.setattr(claude_parser.subprocess, "run", fake_run)
+    fake_clock = {"t": 0.0}
+    monkeypatch.setattr(claude_parser.time, "monotonic", lambda: fake_clock["t"])
+    claude_parser._REPO_ROOT_CACHE.clear()
+
+    assert claude_parser._git_repo_root("/repo/a/sub") == "/repo/a"
+    assert len(calls) == 1
+    # Within TTL.
+    fake_clock["t"] = claude_parser._REPO_ROOT_TTL_SECONDS - 0.01
+    assert claude_parser._git_repo_root("/repo/a/sub") == "/repo/a"
+    assert len(calls) == 1
+    # Past TTL: re-query, observe the change.
+    fake_run.root = "/repo/b"
+    fake_clock["t"] = claude_parser._REPO_ROOT_TTL_SECONDS + 0.01
+    assert claude_parser._git_repo_root("/repo/a/sub") == "/repo/b"
+    assert len(calls) == 2
+
+
+def test_window_repo_key_and_label_can_carry_independently() -> None:
+    """THI-243: the discovery view reads repoKey/repoLabel off every Window.
+    Schema must let the fields carry as their own values (not derived)."""
+    from switchboard.schemas import Window
+
+    w = Window(
+        id="main:0",
+        session="main",
+        index=0,
+        name="zsh",
+        kind="shell",
+        status="idle",
+        last_activity=0,
+        repo_key="/Users/me/dev/foo",
+        repo_label="foo",
+    )
+    assert w.repo_key == "/Users/me/dev/foo"
+    assert w.repo_label == "foo"
+    # Default None when the cwd isn't inside a git repo.
+    w2 = Window(
+        id="main:1",
+        session="main",
+        index=1,
+        name="zsh",
+        kind="shell",
+        status="idle",
+        last_activity=0,
+    )
+    assert w2.repo_key is None
+    assert w2.repo_label is None

@@ -19,6 +19,10 @@ export type Layout = "kanban" | "grid" | "list" | "split";
 export type ColumnSize = "narrow" | "normal" | "wide";
 /** Ordered narrow → normal → wide so +/- controls can step linearly (THI-128). */
 export const COLUMN_SIZE_ORDER: readonly ColumnSize[] = ["narrow", "normal", "wide"];
+/** THI-243: grouping axis for the dashboard. "sessions" is the historical
+ *  behavior (group by tmux session); "repos" is the discovery view that
+ *  buckets sessions under their git repo. Independent of `Layout`. */
+export type GroupingMode = "sessions" | "repos";
 
 export interface Settings {
   theme: Theme;
@@ -41,6 +45,18 @@ export interface Settings {
   /** Threshold for "Clean up idle panes…" in days. 0 hides the action.
    *  Default 7. Stored as a number; clamped at the UI layer (0–365). */
   idleCleanupDays: number;
+  /** THI-244: cwd applied when the user creates a NEW session from the
+   *  New-session overlay. Empty string ⇒ no explicit cwd (the backend lets
+   *  tmux fall back to its own default). `~` is expanded server-side
+   *  against the SERVER's $HOME. Per-window cwd has its own resolution
+   *  (the session's first window) and ignores this. */
+  defaultDirectory: string;
+  /** THI-243: discovery vs sessions grouping. Default "sessions" preserves
+   *  legacy behavior for existing users; honored today by ListView and
+   *  the Split rail (when it ships); Kanban + Grid follow in v0.4 (THI-247,
+   *  THI-248). The GroupingSwitcher hides itself when the active layout
+   *  doesn't yet honor the toggle. */
+  groupingMode: GroupingMode;
   /** THI-246: which pane the Split view's detail pane shows. Empty string
    *  ⇒ no selection yet. Persisted so a reload restores the last selection. */
   selectedPaneId: string;
@@ -125,6 +141,8 @@ export const DEFAULT_SETTINGS: Settings = {
   terminalFontSize: 13,
   selectedIde: "",
   idleCleanupDays: 7,
+  defaultDirectory: "",
+  groupingMode: "sessions",
   selectedPaneId: "",
   splitRailWidth: 280,
 };

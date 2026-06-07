@@ -16,6 +16,9 @@ interface Props {
 export function NewWindowOverlay({ session, onClose, onApplied }: Props) {
   const scrimProps = useScrimClose(onClose);
   const [name, setName] = useState("");
+  // THI-244: blank cwd ⇒ backend looks up the launching session's first
+  // window cwd. The user can override per-modal without mutating Settings.
+  const [cwd, setCwd] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -32,7 +35,7 @@ export function NewWindowOverlay({ session, onClose, onApplied }: Props) {
     }
     setBusy(true);
     setError(null);
-    const created = await createWindow(session, trimmed);
+    const created = await createWindow(session, trimmed, cwd.trim() || undefined);
     setBusy(false);
     if (created) {
       onApplied();
@@ -71,6 +74,19 @@ export function NewWindowOverlay({ session, onClose, onApplied }: Props) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. dev, tests, logs"
+              spellCheck={false}
+              autoComplete="off"
+            />
+          </div>
+          {/* THI-244: optional cwd override. Blank ⇒ the backend uses this
+           *  session's first window cwd, matching the user's expectation
+           *  that "+" lands next to its peers. */}
+          <div className="rename-row">
+            <span className="lbl">cwd</span>
+            <input
+              value={cwd}
+              onChange={(e) => setCwd(e.target.value)}
+              placeholder="leave blank to inherit session cwd"
               spellCheck={false}
               autoComplete="off"
             />

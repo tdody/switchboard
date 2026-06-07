@@ -1022,6 +1022,7 @@ export function App() {
             onQuickAction={handleQuickAction}
             pinnedPaneIds={pinnedIds}
             onTogglePin={onTogglePinWindow}
+            groupingMode={settings.groupingMode}
           />
         ) : settings.layout === "grid" ? (
           <GridView

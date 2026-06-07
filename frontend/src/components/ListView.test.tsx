@@ -26,6 +26,8 @@ function mkWindow(over: Partial<Window> = {}): Window {
     prUrl: null,
     ci: null,
     repoUrl: null,
+    repoKey: null,
+    repoLabel: null,
     agent: null,
     preview: [],
     ...over,
@@ -122,5 +124,73 @@ describe("ListView (THI-60)", () => {
   it("shows an empty placeholder when there are no visible windows", () => {
     const { container } = renderList([]);
     expect(container.textContent).toMatch(/no matching/i);
+  });
+
+  // ─── THI-243: discovery (repos) mode ─────────────────────────────────────
+  it("renders repo header rows and groups windows under them when groupingMode=repos", () => {
+    const { container } = renderList(
+      [
+        mkWindow({
+          paneId: "%a",
+          session: "alpha",
+          repoKey: "/r/alpha",
+          repoLabel: "alpha",
+        }),
+        mkWindow({
+          paneId: "%b",
+          session: "beta",
+          repoKey: "/r/beta",
+          repoLabel: "beta",
+        }),
+      ],
+      { groupingMode: "repos" },
+    );
+    const heads = container.querySelectorAll(".list-group-head");
+    expect(heads).toHaveLength(2);
+    expect(heads[0]!.textContent).toContain("alpha");
+    expect(heads[1]!.textContent).toContain("beta");
+  });
+
+  it("pins non-git sessions under Other (bottom of the list)", () => {
+    const { container } = renderList(
+      [
+        mkWindow({
+          paneId: "%o",
+          session: "lonely",
+          repoKey: null,
+          repoLabel: null,
+        }),
+        mkWindow({
+          paneId: "%a",
+          session: "alpha",
+          repoKey: "/r/alpha",
+          repoLabel: "alpha",
+        }),
+      ],
+      { groupingMode: "repos" },
+    );
+    const heads = Array.from(
+      container.querySelectorAll<HTMLDivElement>(".list-group-head .list-group-label"),
+    ).map((el) => el.textContent);
+    expect(heads).toEqual(["alpha", "Other"]);
+  });
+
+  it("renders one session header per tmux session when groupingMode=sessions", () => {
+    const { container } = renderList(
+      [
+        mkWindow({ paneId: "%a1", session: "alpha", name: "a1" }),
+        mkWindow({ paneId: "%a2", session: "alpha", name: "a2", index: 1 }),
+        mkWindow({ paneId: "%b1", session: "beta", name: "b1" }),
+      ],
+      { groupingMode: "sessions" },
+    );
+    const heads = Array.from(
+      container.querySelectorAll<HTMLDivElement>(".list-group-head .list-group-label"),
+    ).map((el) => el.textContent);
+    expect(heads).toEqual(["alpha", "beta"]);
+    const counts = Array.from(
+      container.querySelectorAll<HTMLDivElement>(".list-group-head .list-group-count"),
+    ).map((el) => el.textContent);
+    expect(counts).toEqual(["2", "1"]);
   });
 });
