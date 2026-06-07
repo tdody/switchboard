@@ -125,3 +125,45 @@ describe("CleanupModal — Step 1", () => {
     expect(screen.getByRole("button", { name: /review 1 selected/i })).toBeTruthy();
   });
 });
+
+describe("CleanupModal — Step 2 (Confirm)", () => {
+  it("advances to the Confirm view when clicking 'Review N selected'", () => {
+    renderModal([
+      mkWindow({ paneId: "%a", session: "alpha", name: "old", lastActivity: NOW - 30 * DAY_MS }),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: /review 1 selected/i }));
+    expect(screen.getByText(/close 1 panes\?/i)).toBeTruthy();
+    expect(screen.getByText(/these 1 panes will be closed/i)).toBeTruthy();
+    const list = screen.getByRole("list");
+    expect(within(list).getByText("alpha")).toBeTruthy();
+    expect(within(list).getByText("old")).toBeTruthy();
+  });
+
+  it("renders 'Back' and 'Confirm close' on Step 2 (no Cancel)", () => {
+    renderModal([
+      mkWindow({ paneId: "%a", session: "alpha", lastActivity: NOW - 30 * DAY_MS }),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: /review 1 selected/i }));
+    expect(screen.getByRole("button", { name: /← back/i })).toBeTruthy();
+    const confirmBtn = screen.getByRole("button", {
+      name: /confirm close/i,
+    }) as HTMLButtonElement;
+    expect(confirmBtn.disabled).toBe(false);
+    // Cancel is a Step-1 footer button; it must be gone on Step 2.
+    expect(screen.queryByRole("button", { name: /cancel/i })).toBeNull();
+  });
+
+  it("preserves selection when navigating Back from Step 2", () => {
+    renderModal([
+      mkWindow({ paneId: "%a", session: "a", lastActivity: NOW - 30 * DAY_MS }),
+      mkWindow({ paneId: "%b", session: "b", lastActivity: NOW - 20 * DAY_MS, index: 2, id: "b:2" }),
+    ]);
+    // Uncheck the first row, advance, then go back.
+    fireEvent.click(screen.getAllByRole("checkbox")[0]!);
+    fireEvent.click(screen.getByRole("button", { name: /review 1 selected/i }));
+    fireEvent.click(screen.getByRole("button", { name: /← back/i }));
+    const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
+    expect(boxes[0]!.checked).toBe(false); // unchecked state preserved
+    expect(boxes[1]!.checked).toBe(true);
+  });
+});
