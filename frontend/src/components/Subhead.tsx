@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 import type { KindFilter, StatusFilter } from "../lib/filter";
 import {
   COLUMN_SIZE_ORDER,
@@ -69,7 +71,41 @@ function ColumnSizeControl() {
   );
 }
 
-export function Subhead({
+// Module-scope so the component identity is stable across Subhead renders.
+// Previously declared inside Subhead's body, which allocated a fresh component
+// type per render and remounted the four tab buttons on every keystroke (THI-217).
+function Tab({
+  id,
+  label,
+  n,
+  tone,
+  dataTour,
+  activeFilter,
+  onSelect,
+}: {
+  id: StatusFilter;
+  label: string;
+  n: number;
+  tone?: string;
+  /** Optional `data-tour="…"` selector hook for the first-run tour. */
+  dataTour?: string;
+  activeFilter: StatusFilter;
+  onSelect: (id: StatusFilter) => void;
+}) {
+  return (
+    <button
+      className={`tab ${activeFilter === id ? "is-active" : ""}`}
+      onClick={() => onSelect(id)}
+      data-tour={dataTour}
+    >
+      {tone && <span className={`stat-dot tone-${tone}`} />}
+      <span>{label}</span>
+      <span className="count">{n}</span>
+    </button>
+  );
+}
+
+function SubheadInner({
   filter,
   setFilter,
   query,
@@ -97,30 +133,6 @@ export function Subhead({
     if (!trimmed) return;
     onSavePreset({ name: trimmed, filter, kind: kindFilter, query });
   };
-  const Tab = ({
-    id,
-    label,
-    n,
-    tone,
-    dataTour,
-  }: {
-    id: StatusFilter;
-    label: string;
-    n: number;
-    tone?: string;
-    /** Optional `data-tour="…"` selector hook for the first-run tour. */
-    dataTour?: string;
-  }) => (
-    <button
-      className={`tab ${filter === id ? "is-active" : ""}`}
-      onClick={() => setFilter(id)}
-      data-tour={dataTour}
-    >
-      {tone && <span className={`stat-dot tone-${tone}`} />}
-      <span>{label}</span>
-      <span className="count">{n}</span>
-    </button>
-  );
 
   return (
     <div className="subhead">
@@ -135,16 +147,18 @@ export function Subhead({
         <span className="kbd">/</span>
       </div>
       <span style={{ display: "inline-flex", gap: 2, alignItems: "center" }}>
-        <Tab id="all" label="All" n={counts.all} />
+        <Tab id="all" label="All" n={counts.all} activeFilter={filter} onSelect={setFilter} />
         <Tab
           id="waiting"
           label="Waiting"
           n={counts.waiting}
           tone="amber"
           dataTour="amber-waiting"
+          activeFilter={filter}
+          onSelect={setFilter}
         />
-        <Tab id="running" label="Running" n={counts.running} tone="cyan" />
-        <Tab id="idle" label="Idle" n={counts.idle} tone="gray" />
+        <Tab id="running" label="Running" n={counts.running} tone="cyan" activeFilter={filter} onSelect={setFilter} />
+        <Tab id="idle" label="Idle" n={counts.idle} tone="gray" activeFilter={filter} onSelect={setFilter} />
       </span>
       {/* Kind chips (THI-130). Radio-style: click toggles; only one can be
        *  active. The chip and the per-card kind glyph share icons from
@@ -214,6 +228,12 @@ export function Subhead({
     </div>
   );
 }
+
+// React.memo skips re-renders when props are shallow-equal (THI-217). Most
+// callers in App.tsx already pass useCallback'd handlers + useMemo'd counts;
+// the bare `setFilter` arrow at App.tsx:112 was wrapped in useCallback in the
+// same PR so the shallow-compare actually short-circuits on every poll.
+export const Subhead = memo(SubheadInner);
 
 function LayoutHint({
   filter,

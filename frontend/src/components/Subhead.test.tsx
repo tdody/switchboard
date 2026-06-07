@@ -191,6 +191,34 @@ describe("Subhead layout hint (THI-61)", () => {
   });
 });
 
+describe("Subhead memoization (THI-217)", () => {
+  it("is wrapped in React.memo so stable parent props short-circuit the render", () => {
+    // Memoized components carry the react.memo $$typeof tag. This proves the
+    // wrap is in place; the per-keystroke perf benefit relies on the parent
+    // (App.tsx) passing referentially stable callbacks, verified separately.
+    const tag = (Subhead as unknown as { $$typeof: symbol }).$$typeof;
+    expect(tag).toBe(Symbol.for("react.memo"));
+  });
+
+  it("tab buttons still wire onSelect through the hoisted Tab component", () => {
+    // Tab was previously declared inside Subhead's body; hoisting it changed
+    // its prop shape from closure-captured `setFilter` to an explicit
+    // `onSelect` prop. This smoke test confirms the rewire didn't break the
+    // status-filter click path that the existing arrow-nav + keyboard
+    // shortcut tests depend on.
+    const setFilter = vi.fn();
+    const { container } = render(
+      <Subhead {...baseProps} setFilter={setFilter} />,
+    );
+    const tabs = container.querySelectorAll<HTMLButtonElement>(
+      ".subhead > span:nth-of-type(1) .tab",
+    );
+    expect(tabs).toHaveLength(4);
+    fireEvent.click(tabs[1]!); // "Waiting" tab
+    expect(setFilter).toHaveBeenCalledWith("waiting");
+  });
+});
+
 describe("Subhead layout switcher (THI-59)", () => {
   it("kanban and grid buttons are both enabled; only the active one has is-active", () => {
     localStorage.clear();
