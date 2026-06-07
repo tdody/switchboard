@@ -62,6 +62,14 @@ export interface Window {
   // the cwd isn't inside a github repo. The xterm linkProvider appends
   // `/pull/N` to this base when linkifying `PR #N` mentions in the pane.
   repoUrl: string | null;
+  // THI-243: git toplevel path for the pane's cwd, or null when the cwd
+  // isn't inside a git repo. The grouping-mode toggle buckets panes by
+  // `repoKey` in discovery mode.
+  repoKey: string | null;
+  // THI-243: basename(repoKey) — display label for the repo header. Two
+  // repos with the same basename render the same label; the tooltip shows
+  // the full `repoKey` for disambiguation.
+  repoLabel: string | null;
   agent: Agent | null;
   preview: string[];
 }

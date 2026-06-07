@@ -17,6 +17,10 @@ export type Layout = "kanban" | "grid" | "list";
 export type ColumnSize = "narrow" | "normal" | "wide";
 /** Ordered narrow → normal → wide so +/- controls can step linearly (THI-128). */
 export const COLUMN_SIZE_ORDER: readonly ColumnSize[] = ["narrow", "normal", "wide"];
+/** THI-243: grouping axis for the dashboard. "sessions" is the historical
+ *  behavior (group by tmux session); "repos" is the discovery view that
+ *  buckets sessions under their git repo. Independent of `Layout`. */
+export type GroupingMode = "sessions" | "repos";
 
 export interface Settings {
   theme: Theme;
@@ -45,6 +49,12 @@ export interface Settings {
    *  against the SERVER's $HOME. Per-window cwd has its own resolution
    *  (the session's first window) and ignores this. */
   defaultDirectory: string;
+  /** THI-243: discovery vs sessions grouping. Default "sessions" preserves
+   *  legacy behavior for existing users; honored today by ListView and
+   *  the Split rail (when it ships); Kanban + Grid follow in v0.4 (THI-247,
+   *  THI-248). The GroupingSwitcher hides itself when the active layout
+   *  doesn't yet honor the toggle. */
+  groupingMode: GroupingMode;
 }
 
 // OKLCH lightness/chroma/hue for each accent preset.
@@ -124,6 +134,7 @@ export const DEFAULT_SETTINGS: Settings = {
   selectedIde: "",
   idleCleanupDays: 7,
   defaultDirectory: "",
+  groupingMode: "sessions",
 };
 
 export const POLL_MIN_S = 1;

@@ -11,6 +11,7 @@ at most 2 positional args, despite its `*args: Any`.
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -246,6 +247,12 @@ def collect_state() -> StateResponse:
             # `PR #N` linkifier still has a base URL on branches with no open
             # PR. Pure local git, cached 5 min.
             repo_url = claude_parser._git_repo_url(cwd) if cwd else None
+            # THI-243: repo toplevel + display label, used by the grouping-mode
+            # toggle to bucket panes in the discovery view. Cached 60 s — long
+            # enough to absorb noise, short enough that a freshly-opened pane
+            # in a new repo appears quickly.
+            repo_key = claude_parser._git_repo_root(cwd) if cwd else None
+            repo_label = os.path.basename(repo_key.rstrip("/")) if repo_key else None
 
             idx = _to_int(w.window_index)
             windows.append(
@@ -266,6 +273,8 @@ def collect_state() -> StateResponse:
                     pr_url=pr_url,
                     ci=ci,
                     repo_url=repo_url,
+                    repo_key=repo_key,
+                    repo_label=repo_label,
                     agent=agent,
                     preview=capture[-8:] if capture else [],
                 )

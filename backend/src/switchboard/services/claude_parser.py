@@ -441,6 +441,10 @@ _PR_CACHE: dict[
     tuple[float, tuple[int | None, CIState | None, str | None]],
 ] = {}
 _REPO_URL_CACHE: dict[str, tuple[float, str | None]] = {}
+# THI-243: repo-root cache, used by the grouping-mode toggle to map each pane
+# to its containing repo. Long TTL because repo roots are extremely stable —
+# users don't routinely move git checkouts around.
+_REPO_ROOT_CACHE: dict[str, tuple[float, str | None]] = {}
 # Branch resolution caches per-cwd; the key doesn't change when the user runs
 # `git checkout` from inside the pane, so a long TTL freezes the dashboard
 # branch chip until expiry (THI-126). With N agent panes polled at ~500 ms
@@ -467,6 +471,10 @@ _PR_TTL_SECONDS = 60.0
 # from `_PR_CACHE` so panes on a branch with no PR still get the URL for the
 # in-pane `PR #N` linkifier (THI-146 PR 2).
 _REPO_URL_TTL_SECONDS = 300.0
+# THI-243: repo root rarely changes. Long TTL is fine — even a `git checkout`
+# in the pane doesn't move the toplevel. A 60s window keeps the discovery
+# view responsive when the user opens a new pane in a new repo.
+_REPO_ROOT_TTL_SECONDS = 60.0
 
 
 def _git_branch(cwd: str | None) -> str | None:
@@ -496,6 +504,37 @@ def _git_branch(cwd: str | None) -> str | None:
         branch = None
     _BRANCH_CACHE[cwd] = (now, branch)
     return branch
+
+
+def _git_repo_root(cwd: str | None) -> str | None:
+    """THI-243: resolve `cwd` to its git toplevel via `git rev-parse
+    --show-toplevel`. None for non-git cwds, missing tools, or timeouts. The
+    resulting path feeds the grouping-mode toggle's discovery view.
+
+    Cached per cwd at `_REPO_ROOT_TTL_SECONDS` — see comments next to the TTL
+    constant for the rationale (toplevel rarely moves)."""
+    if not cwd:
+        return None
+    now = time.monotonic()
+    cached = _REPO_ROOT_CACHE.get(cwd)
+    if cached and now - cached[0] < _REPO_ROOT_TTL_SECONDS:
+        return cached[1]
+    try:
+        out = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+        root = out.stdout.strip() if out.returncode == 0 else None
+        # Empty string is meaningless; coerce to None so callers don't have to
+        # handle two empty-y values.
+        if not root:
+            root = None
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        root = None
+    _REPO_ROOT_CACHE[cwd] = (now, root)
+    return root
 
 
 def _gh_pr(cwd: str | None, branch: str | None) -> tuple[int | None, CIState | None, str | None]:
