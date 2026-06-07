@@ -126,7 +126,12 @@ export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
   const onDividerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (collapsed) return; // no drag while collapsed — toggle to expand first
     if (e.button !== 0) return; // primary button only
+    // preventDefault() stops text selection during the drag, but it ALSO
+    // suppresses the default focus-on-click — so the keyboard nudges
+    // (arrow / Shift+arrow / Home / End) wouldn't fire after a click.
+    // Restore focus explicitly.
     e.preventDefault();
+    e.currentTarget.focus();
     e.currentTarget.setPointerCapture(e.pointerId);
     dragStart.current = { x: e.clientX, w: expandedWidth };
     setDragWidth(expandedWidth);

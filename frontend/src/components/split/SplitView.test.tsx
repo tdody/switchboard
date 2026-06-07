@@ -273,6 +273,19 @@ describe("SplitView (THI-246 PR 2 — divider resize)", () => {
     ).toBe(200);
   });
 
+  it("pointer-down focuses the divider so keyboard nudges work after a click", () => {
+    const { container } = setup();
+    const div = container.querySelector<HTMLDivElement>(".sb-divider")!;
+    div.setPointerCapture = vi.fn();
+    div.releasePointerCapture = vi.fn();
+    expect(document.activeElement).not.toBe(div);
+    fireEvent.pointerDown(div, { button: 0, clientX: 100, pointerId: 1 });
+    expect(document.activeElement).toBe(div);
+    fireEvent.pointerUp(div, { clientX: 100, pointerId: 1 });
+    // Focus persists past pointer-up so the user can immediately use arrow keys.
+    expect(document.activeElement).toBe(div);
+  });
+
   it("disables pointer drag while collapsed (no settings change)", () => {
     updateSettings({ splitRailCollapsed: true });
     const { container } = setup();
