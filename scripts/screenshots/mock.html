@@ -141,6 +141,180 @@
     .stat-dot.gray { background: var(--tone-gray); }
     .tab .count { font-family: var(--font-mono); color: var(--text-dim); margin-left: 3px; }
 
+    /* THI-98 preset bar */
+    .preset-bar { display: inline-flex; align-items: center; gap: 4px; }
+    .preset-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      height: 22px; padding: 0 4px 0 8px;
+      border: 1px solid var(--hairline);
+      border-radius: 999px;
+      background: var(--panel);
+      font-size: 10.5px;
+      color: var(--text-mute);
+    }
+    .preset-chip-x {
+      width: 14px; height: 14px;
+      display: inline-grid; place-items: center;
+      border-radius: 50%;
+      color: var(--text-dim);
+    }
+    .preset-save {
+      display: inline-flex; align-items: center; gap: 4px;
+      height: 22px; padding: 0 9px;
+      border: 1px dashed var(--hairline);
+      border-radius: 999px;
+      color: var(--text-dim);
+      font-size: 10.5px;
+    }
+
+    /* THI-59/60 layout switcher */
+    .layout-switcher { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; }
+    .layout-switcher button {
+      width: 26px; height: 24px;
+      display: grid; place-items: center;
+      color: var(--text-mute);
+      border-radius: 6px;
+    }
+    .layout-switcher button.is-active {
+      color: var(--text);
+      background: var(--panel);
+      border: 1px solid var(--hairline);
+    }
+
+    /* THI-61 layout suggestion chip */
+    .layout-hint {
+      display: inline-flex; align-items: center; gap: 5px;
+      height: 22px; padding: 0 10px;
+      border: 1px dashed color-mix(in oklch, var(--accent) 55%, var(--hairline));
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-radius: 999px;
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+    }
+
+    /* THI-66 broadcast button on NeedsStrip */
+    .needs-broadcast {
+      display: inline-flex; align-items: center; gap: 4px;
+      height: 22px; padding: 0 10px;
+      border-radius: 999px;
+      color: var(--tone-amber);
+      font-size: 11px;
+    }
+
+    /* THI-98 pin badge inside card head */
+    .card-pin-badge {
+      display: inline-grid; place-items: center;
+      color: var(--accent);
+      margin-left: 2px;
+    }
+    .card-pinned {
+      box-shadow: 0 0 0 1px color-mix(in oklch, var(--accent) 50%, transparent),
+        var(--shadow-card, 0 1px 2px rgba(0,0,0,.4));
+    }
+
+    /* THI-60 list view */
+    .list-view {
+      display: flex; flex-direction: column;
+      padding: 12px 14px;
+      gap: 2px;
+      background: var(--bg);
+      overflow-y: auto;
+      height: 100%;
+    }
+    .list-row {
+      display: grid;
+      grid-template-columns: 14px 18px minmax(0, 1fr) auto auto auto auto;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 12px;
+      background: var(--bg-elev);
+      border: 1px solid transparent;
+      border-radius: 0;
+      font-size: 12px;
+    }
+    .list-row + .list-row { border-top: 1px solid var(--hairline); }
+    .list-row:first-child { border-radius: 8px 8px 0 0; }
+    .list-row:last-child  { border-radius: 0 0 8px 8px; }
+    .list-row.is-pending  { background: color-mix(in oklch, var(--tone-amber) 6%, var(--bg-elev)); }
+    .list-row.is-pinned   { background: color-mix(in oklch, var(--accent) 6%, var(--bg-elev)); }
+    .list-status-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .list-status-dot.tone-cyan  { background: var(--tone-cyan); }
+    .list-status-dot.tone-amber { background: var(--tone-amber); }
+    .list-status-dot.tone-gray  { background: var(--text-dim); }
+    .list-kind {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 18px; color: var(--text-mute);
+      font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+    }
+    .list-kind.kind-agent { color: var(--accent); }
+    .list-kind.kind-shell { color: var(--tone-cyan); }
+    .list-body {
+      display: inline-flex; align-items: center; gap: 8px;
+      min-width: 0;
+    }
+    .list-session { color: var(--text-dim); font-family: var(--font-mono); font-size: 11px; }
+    .list-session::after { content: " /"; }
+    .list-name { color: var(--text); font-weight: 600; font-family: var(--font-mono); letter-spacing: -.01em; }
+    .list-idx { color: var(--text-dim); font-family: var(--font-mono); font-size: 10.5px; }
+    .list-pin-badge { display: inline-grid; place-items: center; color: var(--accent); }
+    .list-desc {
+      color: var(--text-mute);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .list-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 1px 7px;
+      border: 1px solid var(--hairline);
+      border-radius: 999px;
+      background: var(--panel-2);
+      font-family: var(--font-mono); font-size: 10.5px;
+      color: var(--text-mute);
+    }
+    .list-chip .ci-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .list-chip.pr { color: var(--tone-lilac); border-color: color-mix(in oklch, var(--tone-lilac) 30%, var(--hairline)); }
+    .list-ago {
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+    }
+    .list-actions { display: inline-flex; gap: 2px; }
+    .list-actions .act {
+      width: 22px; height: 22px;
+      display: inline-grid; place-items: center;
+      color: var(--text-mute);
+      border-radius: 6px;
+    }
+    .list-status-pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      text-transform: lowercase;
+      border: 1px solid currentColor;
+      background: color-mix(in oklch, currentColor 12%, transparent);
+    }
+    .list-status-pill.idle    { color: var(--tone-green); }
+    .list-status-pill.running { color: var(--tone-cyan); }
+    .list-status-pill.waiting { color: var(--tone-amber); }
+    .list-status-pill .glyph { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+    /* THI-97 per-kind quick actions */
+    .act-quick {
+      min-width: 22px;
+      height: 22px;
+      padding: 0 6px;
+      display: inline-grid; place-items: center;
+      font-family: var(--font-mono); font-weight: 600; font-size: 11px;
+      color: var(--text-mute);
+      border-radius: 6px;
+      border: 1px solid var(--hairline);
+    }
+
     /* Kanban */
     .main { flex: 1; overflow: hidden; padding: 14px; background: var(--bg); }
     .kanban { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; height: 100%; overflow-x: auto; }
@@ -322,7 +496,14 @@
       <button class="needs-card">
         <span>backend</span><span class="crumb">/</span><b>tests</b><span class="crumb">·</span><span class="action">Run failing tests now?</span>
       </button>
+      <button class="needs-card">
+        <span>frontend</span><span class="crumb">/</span><b>claude-ui</b><span class="crumb">·</span><span class="action">Approve refactor?</span>
+      </button>
       <span class="spacer" style="flex:1"></span>
+      <button class="needs-broadcast" title="Broadcast to all 2 pending panes">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8l11-5-3 5 3 5z"/></svg>
+        <span>Broadcast</span>
+      </button>
       <button class="btn-ghost btn-icon" title="Dismiss">✕</button>
     </div>
 
@@ -343,10 +524,28 @@
         <button class="tab">⌨ Agent</button>
         <button class="tab">＞ Shell</button>
       </span>
+      <!-- THI-98 saved-filter presets -->
+      <span class="preset-bar">
+        <span class="preset-chip"><span>Stuck agents</span><span class="preset-chip-x">✕</span></span>
+        <span class="preset-chip"><span>Dev stack</span><span class="preset-chip-x">✕</span></span>
+        <button class="preset-save">+ Save filter</button>
+      </span>
       <span class="hd-spacer"></span>
       <span class="row-actions">
         <button class="tab">–</button>
         <button class="tab">+</button>
+      </span>
+      <!-- THI-59/60 layout switcher -->
+      <span class="layout-switcher">
+        <button class="is-active" title="Kanban">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="3.5" height="11"/><rect x="6.5" y="2.5" width="3.5" height="7"/><rect x="10.5" y="2.5" width="3" height="11"/></svg>
+        </button>
+        <button title="Grid">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="2.5" width="4.5" height="4.5"/><rect x="9" y="2.5" width="4.5" height="4.5"/><rect x="2.5" y="9" width="4.5" height="4.5"/><rect x="9" y="9" width="4.5" height="4.5"/></svg>
+        </button>
+        <button title="List">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3 4h10M3 8h10M3 12h10"/></svg>
+        </button>
       </span>
     </div>
 
@@ -367,7 +566,7 @@
         windows: [
           { kind: "agent", name: "deploy",     idx: 1, status: "idle",    branch: "main",                pr: 142, ci: "passing", recap: "Done. Migrations applied, all checks green. Ready for the next ticket." },
           { kind: "agent", name: "tests",      idx: 2, status: "waiting", branch: "feat/payments-fix",   pr: 187, ci: "running", pending: "Run failing tests now?" },
-          { kind: "agent", name: "api-server", idx: 3, status: "running", branch: "feat/payments-fix",   pr: 187, ci: "running", spinner: "Synthesizing", duration: "1m" },
+          { kind: "agent", name: "api-server", idx: 3, status: "running", branch: "feat/payments-fix",   pr: 187, ci: "running", spinner: "Synthesizing", duration: "1m", pinned: true },
           { kind: "shell", name: "psql",       idx: 4, status: "idle",    branch: "feat/payments-fix",   pr: 187, ci: "running" },
         ],
       },
@@ -401,6 +600,13 @@
       for (const w of col.windows) {
         const kindGlyph = w.kind === "agent" ? "C" : "$";
         const kindCls   = w.kind === "agent" ? "kind-agent" : "kind-shell";
+        const pinBadge = w.pinned ? `<span class="card-pin-badge" title="Pinned"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5h4v3.5L11 9H5l1-3V2.5Z"/><path d="M8 9v4.5"/></svg></span>` : "";
+        const pinCls   = w.pinned ? " card-pinned" : "";
+        // THI-97 per-kind quick actions: y / n for waiting agents, clear for shells
+        let quickActions = "";
+        if (w.kind === "agent" && w.status === "waiting") {
+          quickActions = `<button class="act-quick" title="Send y">y</button><button class="act-quick" title="Send n">n</button>`;
+        }
         let chips = "";
         if (w.branch) {
           const ciDot = w.ci ? `<span class="ci-dot ci-${w.ci}"></span>` : "";
@@ -413,10 +619,11 @@
         const recap = w.recap ? `<div class="recap">${w.recap}</div>` : "";
         const pending = w.pending ? `<div class="pending"><span class="glyph">›</span><span>${w.pending}</span></div>` : "";
         cards += `
-          <article class="card ${w.status}">
+          <article class="card ${w.status}${pinCls}">
             <div class="card-head">
               <span class="card-kind ${kindCls}">${kindGlyph}</span>
               <span class="card-name">${w.name} <span class="card-idx">:${w.idx}</span></span>
+              ${pinBadge}
               <span class="card-status ${w.status}"><span class="glyph"></span>${w.status}</span>
             </div>
             ${chips}
@@ -426,6 +633,8 @@
               <button class="act" title="Focus">◎</button>
               <button class="act" title="Rename">✎</button>
               <button class="act" title="Send keys">⌨</button>
+              <button class="act act-pin" title="Pin"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5h4v3.5L11 9H5l1-3V2.5Z"/><path d="M8 9v4.5"/></svg></button>
+              ${quickActions}
               <button class="act" title="Kill">🗑</button>
               <span class="spacer"></span>
               <span class="ago">${["4s","18s","42s","3m","11m","26m","1h"][w.idx % 7]}</span>
@@ -454,7 +663,76 @@
     /* ─── Overlay views ───────────────────────────────────── */
     const overlay = document.getElementById("overlay");
     const view = new URLSearchParams(location.search).get("view") || "kanban";
-    document.body.classList.toggle("modal-open", view !== "kanban");
+    // List/grid are full-page replacements, not modals — they don't blur the
+    // chrome behind them.
+    document.body.classList.toggle(
+      "modal-open",
+      view !== "kanban" && view !== "list" && view !== "grid",
+    );
+
+    /* ─── List view (THI-60) ──────────────────────────────── */
+    function renderList() {
+      const flat = [];
+      for (const col of COLUMNS) for (const w of col.windows) flat.push({ ...w, session: col.name });
+      // Same sort order as the real <ListView>: pending → pinned → tmux index.
+      flat.sort((a, b) => {
+        const pa = a.status === "waiting" ? 0 : 2;
+        const pb = b.status === "waiting" ? 0 : 2;
+        if (pa !== pb) return pa - pb;
+        const ap = a.pinned ? 0 : 1;
+        const bp = b.pinned ? 0 : 1;
+        if (ap !== bp) return ap - bp;
+        return a.idx - b.idx;
+      });
+      const toneFor = (s) => s === "waiting" ? "amber" : s === "running" ? "cyan" : "gray";
+      const desc = (w) => w.pending || w.recap || (w.spinner ? `⟳ ${w.spinner}` : `running ${w.kind}`);
+      const rowFor = (w, i) => {
+        const tone = toneFor(w.status);
+        const kindGlyph = w.kind === "agent" ? "C" : "$";
+        const kindCls = w.kind === "agent" ? "kind-agent" : "kind-shell";
+        const rowCls =
+          "list-row" +
+          (w.status === "waiting" ? " is-pending" : "") +
+          (w.pinned ? " is-pinned" : "");
+        const pinBadge = w.pinned
+          ? `<span class="list-pin-badge"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5h4v3.5L11 9H5l1-3V2.5Z"/><path d="M8 9v4.5"/></svg></span>`
+          : "";
+        const branchChip = w.branch
+          ? `<span class="list-chip">${w.ci ? `<span class="ci-dot ci-${w.ci}"></span>` : ""}${w.branch}</span>${w.pr ? `<span class="list-chip pr">#${w.pr}</span>` : ""}`
+          : "";
+        return `
+          <div class="${rowCls}">
+            <span class="list-status-dot tone-${tone}"></span>
+            <span class="list-kind ${kindCls}">${kindGlyph}</span>
+            <span class="list-body">
+              <span class="list-session">${w.session}</span>
+              <span class="list-name">${w.name}</span>
+              <span class="list-idx">:${w.idx}</span>
+              ${pinBadge}
+              <span class="list-desc">${desc(w)}</span>
+            </span>
+            <span class="list-chips">${branchChip}</span>
+            <span class="list-status-pill ${w.status}"><span class="glyph"></span>${w.status}</span>
+            <span class="list-ago">${["4s","18s","42s","3m","11m","26m","1h"][i % 7]}</span>
+            <span class="list-actions">
+              <button class="act" title="Focus">◎</button>
+              <button class="act" title="Rename">✎</button>
+              <button class="act" title="Send">⌨</button>
+              <button class="act" title="Pin"><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5h4v3.5L11 9H5l1-3V2.5Z"/><path d="M8 9v4.5"/></svg></button>
+              <button class="act" title="Kill">🗑</button>
+            </span>
+          </div>`;
+      };
+      const main = document.querySelector(".main");
+      main.innerHTML = `<div class="list-view">${flat.map(rowFor).join("")}</div>`;
+      // Flip layout switcher active state.
+      const sw = document.querySelectorAll(".layout-switcher button");
+      if (sw.length === 3) {
+        sw[0].classList.remove("is-active");
+        sw[2].classList.add("is-active");
+      }
+    }
+    if (view === "list") renderList();
 
     function openTerminal() {
       overlay.innerHTML = `

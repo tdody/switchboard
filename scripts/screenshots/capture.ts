@@ -33,10 +33,11 @@ const VIEWPORT = { width: 1440, height: 900 };
 
 const VIEWS: Array<{ view: string; file: string }> = [
   { view: "kanban",   file: "01-kanban.png" },
-  { view: "terminal", file: "02-terminal-modal.png" },
-  { view: "palette",  file: "03-command-palette.png" },
-  { view: "rename",   file: "04-auto-rename.png" },
-  { view: "settings", file: "05-settings.png" },
+  { view: "list",     file: "02-list-view.png" },
+  { view: "terminal", file: "03-terminal-modal.png" },
+  { view: "palette",  file: "04-command-palette.png" },
+  { view: "rename",   file: "05-auto-rename.png" },
+  { view: "settings", file: "06-settings.png" },
 ];
 
 /** Start a one-file static server bound to a free port and resolve its URL. */

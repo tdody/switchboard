@@ -56,6 +56,8 @@ def ws_client(tmp_path, monkeypatch):
 
 
 def test_ws_resize_calls_tmux_resize_window(monkeypatch, ws_client: TestClient) -> None:
+    import time
+
     resize_calls: list[tuple] = []
     monkeypatch.setattr(tmux, "get_window_size", lambda s, i: ("latest", 80, 24))
     monkeypatch.setattr(
@@ -67,16 +69,31 @@ def test_ws_resize_calls_tmux_resize_window(monkeypatch, ws_client: TestClient) 
 
     with ws_client.websocket_connect("/ws/pane?session=dev&index=2", headers=_HOST) as ws:
         ws.send_text('{"type":"resize","cols":120,"rows":40}')
-        # Closing here pushes the handler to its finally block.
+        # The resize handler is two sequential `asyncio.to_thread` awaits
+        # (get_window_size → resize_window). On slow CI runners closing the
+        # WS at the end of this `with` block can race the second await,
+        # leaving resize_calls empty. Poll until the call lands (or time out)
+        # so the assertion below sees the result on every run. Same pattern
+        # as test_ws_recv_loop_offloads_tmux_calls_to_thread.
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not resize_calls:
+            time.sleep(0.01)
     assert resize_calls == [("dev", 2, 120, 40)]
 
 
 def test_ws_resize_snapshots_then_restores_on_disconnect(
     monkeypatch, ws_client: TestClient
 ) -> None:
+    import time
+
+    resize_observed: list[tuple] = []
     restore_calls: list[tuple] = []
     monkeypatch.setattr(tmux, "get_window_size", lambda s, i: ("latest", 80, 24))
-    monkeypatch.setattr(tmux, "resize_window", lambda *a: True)
+    monkeypatch.setattr(
+        tmux,
+        "resize_window",
+        lambda *a: resize_observed.append(a) or True,
+    )
     monkeypatch.setattr(
         tmux,
         "restore_window_size",
@@ -85,6 +102,14 @@ def test_ws_resize_snapshots_then_restores_on_disconnect(
 
     with ws_client.websocket_connect("/ws/pane?session=dev&index=2", headers=_HOST) as ws:
         ws.send_text('{"type":"resize","cols":120,"rows":40}')
+        # Wait for the resize handler to complete its two `to_thread` hops
+        # before letting the `with` block close — otherwise the WS close
+        # may race the second await and skip stashing the snapshot, leaving
+        # `restore_window_size` uncalled on disconnect. Same flake source
+        # as test_ws_resize_calls_tmux_resize_window above.
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not resize_observed:
+            time.sleep(0.01)
 
     # The restored values are the snapshot, not the most recent resize.
     assert restore_calls == [("dev", 2, "latest", 80, 24)]
