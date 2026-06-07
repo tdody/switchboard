@@ -150,6 +150,8 @@ def test_ws_resize_with_bogus_dims_is_ignored(monkeypatch, ws_client: TestClient
 
 
 def test_ws_non_resize_json_falls_through_to_send_keys(monkeypatch, ws_client: TestClient) -> None:
+    import time
+
     send_calls: list[tuple] = []
     monkeypatch.setattr(
         tmux,
@@ -164,6 +166,12 @@ def test_ws_non_resize_json_falls_through_to_send_keys(monkeypatch, ws_client: T
         # verbatim as a paste — otherwise legitimate keystrokes that happen
         # to start with `{` (e.g. typing JSON into a REPL) get swallowed.
         ws.send_text('{"foo": 1}')
+        # send_keys now runs via asyncio.to_thread; closing the WS at the end
+        # of the `with` block can race the offload on slow CI runners. Poll
+        # until the call lands (or time out) so the assertion sees it.
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not send_calls:
+            time.sleep(0.01)
 
     assert send_calls == [("dev", 2, '{"foo": 1}')]
 
@@ -171,6 +179,8 @@ def test_ws_non_resize_json_falls_through_to_send_keys(monkeypatch, ws_client: T
 def test_ws_signal_control_message_routes_to_send_signal(
     monkeypatch, ws_client: TestClient
 ) -> None:
+    import time
+
     signals: list[tuple] = []
     monkeypatch.setattr(
         tmux,
@@ -180,11 +190,19 @@ def test_ws_signal_control_message_routes_to_send_signal(
 
     with ws_client.websocket_connect("/ws/pane?session=dev&index=2", headers=_HOST) as ws:
         ws.send_text('{"signal":"C-c"}')
+        # send_signal runs via asyncio.to_thread; poll for the call before
+        # the WS close races the offload (same flake source as the resize
+        # tests).
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not signals:
+            time.sleep(0.01)
 
     assert signals == [("dev", 2, "C-c")]
 
 
 def test_ws_plain_text_is_pasted_as_keys(monkeypatch, ws_client: TestClient) -> None:
+    import time
+
     pastes: list[str] = []
 
     def _send_keys(session, index, *, keys=None, paste=None, bracketed=False):
@@ -195,6 +213,12 @@ def test_ws_plain_text_is_pasted_as_keys(monkeypatch, ws_client: TestClient) -> 
 
     with ws_client.websocket_connect("/ws/pane?session=dev&index=2", headers=_HOST) as ws:
         ws.send_text("abc")
+        # send_keys runs via asyncio.to_thread; poll for the call before
+        # the WS close races the offload (CI failure observed 2026-06-07
+        # on the THI-243 branch).
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not pastes:
+            time.sleep(0.01)
 
     assert pastes == ["abc"]
 

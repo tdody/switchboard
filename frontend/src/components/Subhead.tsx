@@ -225,6 +225,7 @@ function SubheadInner({
       <ColumnSizeControl />
       <span className="hdr-spacer" />
       <LayoutHint filter={filter} visibleCount={visibleCount} />
+      <GroupingSwitcher />
       <LayoutSwitcher />
     </div>
   );
@@ -302,3 +303,40 @@ function LayoutSwitcher() {
   );
 }
 
+
+function GroupingSwitcher() {
+  // THI-243: choose how the dashboard groups panes — by tmux session
+  // (historical) or by discovered repo. ListView (and the Split rail, when
+  // it ships) honor the toggle; Kanban + Grid don't yet — until they do,
+  // hide the switcher in those layouts so the toggle is never a no-op.
+  // Tracked as v0.4 follow-ups; the persisted `groupingMode` is preserved
+  // across layouts so the user's preference comes back when they return to
+  // a layout that honors it.
+  const layout = useSetting("layout");
+  const mode = useSetting("groupingMode");
+  if (layout === "kanban" || layout === "grid") return null;
+  return (
+    <span className="grouping-switcher" role="group" aria-label="Grouping mode">
+      <Tooltip content="Group by tmux session">
+        <button
+          className={mode === "sessions" ? "is-active" : ""}
+          onClick={() => updateSettings({ groupingMode: "sessions" })}
+          aria-pressed={mode === "sessions"}
+          aria-label="Group by session"
+        >
+          Sessions
+        </button>
+      </Tooltip>
+      <Tooltip content="Group by discovered git repo">
+        <button
+          className={mode === "repos" ? "is-active" : ""}
+          onClick={() => updateSettings({ groupingMode: "repos" })}
+          aria-pressed={mode === "repos"}
+          aria-label="Group by repo"
+        >
+          Repos
+        </button>
+      </Tooltip>
+    </span>
+  );
+}

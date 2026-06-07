@@ -219,6 +219,56 @@ describe("Subhead memoization (THI-217)", () => {
   });
 });
 
+describe("Subhead grouping switcher (THI-243)", () => {
+  it("renders both Sessions and Repos buttons, with Sessions active by default", () => {
+    localStorage.clear();
+    updateSettings({ layout: "list" });
+    const { container } = render(<Subhead {...baseProps} />);
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      ".grouping-switcher button",
+    );
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]!.textContent).toBe("Sessions");
+    expect(buttons[1]!.textContent).toBe("Repos");
+    expect(buttons[0]!.className).toContain("is-active");
+    expect(buttons[1]!.className).not.toContain("is-active");
+  });
+
+  it("clicking Repos flips the active state and persists groupingMode", () => {
+    localStorage.clear();
+    updateSettings({ layout: "list" });
+    const { container } = render(<Subhead {...baseProps} />);
+    const buttons = container.querySelectorAll<HTMLButtonElement>(
+      ".grouping-switcher button",
+    );
+    fireEvent.click(buttons[1]!);
+    const after = container.querySelectorAll<HTMLButtonElement>(
+      ".grouping-switcher button",
+    );
+    expect(after[0]!.className).not.toContain("is-active");
+    expect(after[1]!.className).toContain("is-active");
+    expect(
+      JSON.parse(localStorage.getItem("switchboard:settings")!).groupingMode,
+    ).toBe("repos");
+  });
+
+  it("is hidden in kanban and grid layouts (those views don't honor it yet)", () => {
+    localStorage.clear();
+    updateSettings({ layout: "kanban" });
+    const { container, rerender } = render(<Subhead {...baseProps} />);
+    expect(container.querySelector(".grouping-switcher")).toBeNull();
+
+    updateSettings({ layout: "grid" });
+    rerender(<Subhead {...baseProps} />);
+    expect(container.querySelector(".grouping-switcher")).toBeNull();
+
+    // Sanity: comes back in list.
+    updateSettings({ layout: "list" });
+    rerender(<Subhead {...baseProps} />);
+    expect(container.querySelector(".grouping-switcher")).not.toBeNull();
+  });
+});
+
 describe("Subhead layout switcher (THI-59)", () => {
   it("kanban and grid buttons are both enabled; only the active one has is-active", () => {
     localStorage.clear();

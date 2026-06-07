@@ -26,6 +26,8 @@ function pendingWindow(paneId: string): Window {
     prUrl: null,
     ci: null,
     repoUrl: null,
+    repoKey: null,
+    repoLabel: null,
     agent: null,
     preview: [],
   };
