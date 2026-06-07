@@ -306,10 +306,15 @@ function LayoutSwitcher() {
 
 function GroupingSwitcher() {
   // THI-243: choose how the dashboard groups panes — by tmux session
-  // (historical) or by discovered repo. MVP affects ListView only; Kanban +
-  // Grid land in follow-up PRs (the toggle is global, but those views still
-  // render in session mode until they're wired through).
+  // (historical) or by discovered repo. ListView (and the Split rail, when
+  // it ships) honor the toggle; Kanban + Grid don't yet — until they do,
+  // hide the switcher in those layouts so the toggle is never a no-op.
+  // Tracked as v0.4 follow-ups; the persisted `groupingMode` is preserved
+  // across layouts so the user's preference comes back when they return to
+  // a layout that honors it.
+  const layout = useSetting("layout");
   const mode = useSetting("groupingMode");
+  if (layout === "kanban" || layout === "grid") return null;
   return (
     <span className="grouping-switcher" role="group" aria-label="Grouping mode">
       <Tooltip content="Group by tmux session">
