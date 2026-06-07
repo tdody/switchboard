@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { CleanupModal } from "./CleanupModal";
 import { mkWindow } from "../test/factories";
@@ -9,6 +9,13 @@ const killWindowMock = vi.fn<(s: string, i: number) => Promise<boolean>>();
 vi.mock("../api/client", () => ({
   killWindow: (s: string, i: number) => killWindowMock(s, i),
 }));
+
+async function flushPromises() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
 
 const DAY_MS = 86_400_000;
 const NOW = 100 * DAY_MS;
@@ -246,5 +253,91 @@ describe("CleanupModal — Step 2 (Confirm)", () => {
     // The hint MUST still be visible because snapshotAllWindows was frozen
     // when the user clicked "Review 1 selected →" above.
     expect(screen.getByText(/closes the session/i)).toBeTruthy();
+  });
+});
+
+describe("CleanupModal — execute + Esc", () => {
+  it("calls killWindow once per snapshot row on Confirm close", async () => {
+    killWindowMock.mockResolvedValue(true);
+    const onClose = vi.fn();
+    const onAfterCleanup = vi.fn<(s: { ok: number; failed: number }) => void>();
+    render(
+      <CleanupModal
+        windows={[
+          mkWindow({ paneId: "%a", session: "a", index: 1, lastActivity: NOW - 30 * DAY_MS }),
+          mkWindow({ paneId: "%b", session: "b", index: 2, id: "b:2", lastActivity: NOW - 20 * DAY_MS }),
+        ]}
+        pinnedIds={new Set()}
+        thresholdDays={7}
+        onClose={onClose}
+        onAfterCleanup={onAfterCleanup}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /review 2 selected/i }));
+    fireEvent.click(screen.getByRole("button", { name: /confirm close/i }));
+    await flushPromises();
+    expect(killWindowMock).toHaveBeenCalledTimes(2);
+    expect(killWindowMock).toHaveBeenCalledWith("a", 1);
+    expect(killWindowMock).toHaveBeenCalledWith("b", 2);
+    expect(onAfterCleanup).toHaveBeenCalledWith({ ok: 2, failed: 0 });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("counts non-2xx kills as failures in the summary", async () => {
+    killWindowMock.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const onClose = vi.fn();
+    const onAfterCleanup = vi.fn<(s: { ok: number; failed: number }) => void>();
+    render(
+      <CleanupModal
+        windows={[
+          mkWindow({ paneId: "%a", session: "a", index: 1, lastActivity: NOW - 30 * DAY_MS }),
+          mkWindow({ paneId: "%b", session: "b", index: 2, id: "b:2", lastActivity: NOW - 20 * DAY_MS }),
+        ]}
+        pinnedIds={new Set()}
+        thresholdDays={7}
+        onClose={onClose}
+        onAfterCleanup={onAfterCleanup}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /review 2 selected/i }));
+    fireEvent.click(screen.getByRole("button", { name: /confirm close/i }));
+    await flushPromises();
+    expect(onAfterCleanup).toHaveBeenCalledWith({ ok: 1, failed: 1 });
+    // onClose must still fire even on partial failure.
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("Esc from Step 1 closes the modal", () => {
+    const onClose = vi.fn();
+    render(
+      <CleanupModal
+        windows={[mkWindow({ paneId: "%a", lastActivity: NOW - 30 * DAY_MS })]}
+        pinnedIds={new Set()}
+        thresholdDays={7}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("Esc from Step 2 returns to Step 1 (does NOT close)", () => {
+    const onClose = vi.fn();
+    render(
+      <CleanupModal
+        windows={[mkWindow({ paneId: "%a", session: "alpha", lastActivity: NOW - 30 * DAY_MS })]}
+        pinnedIds={new Set()}
+        thresholdDays={7}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /review 1 selected/i }));
+    expect(screen.getByText(/close 1 panes\?/i)).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /review 1 selected/i })).toBeTruthy(); // back on Step 1
+    // Also confirm Step-2 content is actually gone, not just that Step-1 is present.
+    expect(screen.queryByText(/close 1 panes\?/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /confirm close/i })).toBeNull();
   });
 });
