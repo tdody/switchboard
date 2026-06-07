@@ -337,9 +337,16 @@ export function App() {
     () => applySessionOrder(sessions, sessionOrder),
     [sessions, sessionOrder],
   );
+  // THI-209: arrow-key nav must walk the same order Kanban renders, including
+  // pinned-first and drag-reorder overlays. Without these options the comparator
+  // skips/revisits cards on any pinned or reordered tile.
   const navCols = useMemo(
-    () => columnsForNav(orderedSessions, visible),
-    [orderedSessions, visible],
+    () =>
+      columnsForNav(orderedSessions, visible, {
+        pinnedPaneIds: pinnedIds,
+        windowOrder,
+      }),
+    [orderedSessions, visible, pinnedIds, windowOrder],
   );
 
   const hostTerm = useMemo(() => {
