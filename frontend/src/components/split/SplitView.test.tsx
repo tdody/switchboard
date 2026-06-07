@@ -203,3 +203,98 @@ describe("SplitView (THI-246 PR 2 — repos mode)", () => {
     expect(container.querySelector(".sb-rail-empty")).not.toBeNull();
   });
 });
+
+describe("SplitView (THI-246 PR 2 — divider resize)", () => {
+  function setup() {
+    updateSettings({ splitRailWidth: 280 });
+    return render(
+      <SplitView
+        windows={[mkWindow({ paneId: "%a", session: "alpha" })]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+  }
+
+  it("divider is a keyboard-reachable ARIA separator with the correct bounds", () => {
+    const { container } = setup();
+    const div = container.querySelector<HTMLDivElement>(".sb-divider")!;
+    expect(div.getAttribute("role")).toBe("separator");
+    expect(div.getAttribute("aria-orientation")).toBe("vertical");
+    expect(div.getAttribute("aria-valuemin")).toBe("200");
+    expect(div.getAttribute("aria-valuemax")).toBe("460");
+    expect(div.getAttribute("aria-valuenow")).toBe("280");
+    expect(div.tabIndex).toBe(0);
+  });
+
+  it("pointer-drag updates the grid-template width and persists on pointer-up", () => {
+    const { container } = setup();
+    const div = container.querySelector<HTMLDivElement>(".sb-divider")!;
+    const split = container.querySelector<HTMLDivElement>(".sb-split")!;
+
+    // jsdom's PointerEvent doesn't ship setPointerCapture; stub it so the
+    // production capture call doesn't throw under test. The drag math is
+    // unaffected.
+    div.setPointerCapture = vi.fn();
+    div.releasePointerCapture = vi.fn();
+
+    fireEvent.pointerDown(div, { button: 0, clientX: 100, pointerId: 1 });
+    fireEvent.pointerMove(div, { clientX: 160, pointerId: 1 });
+    // Mid-drag: the grid template reflows but settings haven't been written yet.
+    expect(split.style.gridTemplateColumns).toContain("340px");
+    expect(
+      JSON.parse(localStorage.getItem("switchboard:settings")!).splitRailWidth,
+    ).toBe(280);
+
+    fireEvent.pointerUp(div, { clientX: 160, pointerId: 1 });
+    expect(
+      JSON.parse(localStorage.getItem("switchboard:settings")!).splitRailWidth,
+    ).toBe(340);
+  });
+
+  it("clamps the drag to [200, 460]", () => {
+    const { container } = setup();
+    const div = container.querySelector<HTMLDivElement>(".sb-divider")!;
+    div.setPointerCapture = vi.fn();
+    div.releasePointerCapture = vi.fn();
+
+    // Drag way to the right: 280 + 999 = 1279 → clamps to 460.
+    fireEvent.pointerDown(div, { button: 0, clientX: 0, pointerId: 1 });
+    fireEvent.pointerUp(div, { clientX: 999, pointerId: 1 });
+    expect(
+      JSON.parse(localStorage.getItem("switchboard:settings")!).splitRailWidth,
+    ).toBe(460);
+
+    // Now drag way to the left from 460: 460 - 999 = -539 → clamps to 200.
+    fireEvent.pointerDown(div, { button: 0, clientX: 0, pointerId: 2 });
+    fireEvent.pointerUp(div, { clientX: -999, pointerId: 2 });
+    expect(
+      JSON.parse(localStorage.getItem("switchboard:settings")!).splitRailWidth,
+    ).toBe(200);
+  });
+
+  it("arrow keys nudge the width; Shift makes the step larger", () => {
+    const { container } = setup();
+    const div = container.querySelector<HTMLDivElement>(".sb-divider")!;
+
+    fireEvent.keyDown(div, { key: "ArrowRight" });
+    expect(
+      JSON.parse(localStorage.getItem("switchboard:settings")!).splitRailWidth,
+    ).toBe(290);
+
+    fireEvent.keyDown(div, { key: "ArrowLeft", shiftKey: true });
+    expect(
+      JSON.parse(localStorage.getItem("switchboard:settings")!).splitRailWidth,
+    ).toBe(240);
+
+    fireEvent.keyDown(div, { key: "Home" });
+    expect(
+      JSON.parse(localStorage.getItem("switchboard:settings")!).splitRailWidth,
+    ).toBe(200);
+
+    fireEvent.keyDown(div, { key: "End" });
+    expect(
+      JSON.parse(localStorage.getItem("switchboard:settings")!).splitRailWidth,
+    ).toBe(460);
+  });
+});

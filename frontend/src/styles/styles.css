@@ -3162,12 +3162,29 @@ input, textarea, select { font: inherit; color: inherit; }
 .sb-divider {
   position: relative;
   z-index: 5;
+  cursor: col-resize;
+  /* The 7px gutter from the grid template gives the user a comfortable hit
+   * target without a visible band. The thin hairline lives in ::after. */
+  touch-action: none;
 }
 .sb-divider::after {
   content: "";
   position: absolute;
   inset: 0 3px;
   background: var(--hairline);
+}
+.sb-divider:hover::after,
+.sb-divider:focus-visible::after,
+.sb-divider.is-dragging::after {
+  background: var(--accent-edge);
+}
+.sb-divider:focus-visible {
+  outline: none;
+}
+/* While the user is dragging, keep the col-resize cursor across the whole
+ * viewport so it doesn't flicker when the pointer briefly leaves the gutter. */
+.sb-divider.is-dragging {
+  cursor: col-resize;
 }
 
 /* ── detail pane ───────────────────────────────────────────────────────── */

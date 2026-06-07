@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { sortPendingFirst } from "../../lib/filter";
 import {
@@ -10,6 +10,20 @@ import { updateSettings, useSetting } from "../../lib/settings";
 import type { Session, Window } from "../../types";
 import { Icon } from "../Icon";
 import { StatusPill } from "../StatusPill";
+
+/** Rail width bounds — clamps the divider drag and any settings hydration. */
+export const SPLIT_RAIL_MIN = 200;
+export const SPLIT_RAIL_MAX = 460;
+/** Keyboard nudges for the separator: arrows step by 10px, Shift+arrows
+ *  by 50px so power-users can resize quickly without a mouse. */
+const KEYBOARD_STEP = 10;
+const KEYBOARD_STEP_LARGE = 50;
+
+function clampRail(w: number): number {
+  if (w < SPLIT_RAIL_MIN) return SPLIT_RAIL_MIN;
+  if (w > SPLIT_RAIL_MAX) return SPLIT_RAIL_MAX;
+  return w;
+}
 
 interface Props {
   windows: Window[];
@@ -40,7 +54,54 @@ interface Props {
 export function SplitView({ windows, sessions, onFocus }: Props) {
   const groupingMode = useSetting("groupingMode");
   const selectedPaneId = useSetting("selectedPaneId");
-  const railWidth = useSetting("splitRailWidth");
+  const persistedRailWidth = useSetting("splitRailWidth");
+
+  // Divider drag — `dragWidth` overrides the persisted width during a drag so
+  // the column reflows in real time without thrashing the settings store on
+  // every pointer move. Final width persists once on pointer-up.
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const dragStart = useRef<{ x: number; w: number } | null>(null);
+  const railWidth = clampRail(dragWidth ?? persistedRailWidth);
+
+  const onDividerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return; // primary button only
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragStart.current = { x: e.clientX, w: railWidth };
+    setDragWidth(railWidth);
+  };
+  const onDividerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragStart.current) return;
+    setDragWidth(clampRail(dragStart.current.w + (e.clientX - dragStart.current.x)));
+  };
+  const onDividerPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragStart.current) return;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    const final = clampRail(dragStart.current.w + (e.clientX - dragStart.current.x));
+    dragStart.current = null;
+    setDragWidth(null);
+    if (final !== persistedRailWidth) updateSettings({ splitRailWidth: final });
+  };
+  const onDividerKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    // ARIA separator pattern: arrow keys nudge; Shift increases the step.
+    let delta = 0;
+    if (e.key === "ArrowLeft") delta = e.shiftKey ? -KEYBOARD_STEP_LARGE : -KEYBOARD_STEP;
+    else if (e.key === "ArrowRight") delta = e.shiftKey ? KEYBOARD_STEP_LARGE : KEYBOARD_STEP;
+    else if (e.key === "Home") {
+      e.preventDefault();
+      if (persistedRailWidth !== SPLIT_RAIL_MIN)
+        updateSettings({ splitRailWidth: SPLIT_RAIL_MIN });
+      return;
+    } else if (e.key === "End") {
+      e.preventDefault();
+      if (persistedRailWidth !== SPLIT_RAIL_MAX)
+        updateSettings({ splitRailWidth: SPLIT_RAIL_MAX });
+      return;
+    } else return;
+    e.preventDefault();
+    const next = clampRail(persistedRailWidth + delta);
+    if (next !== persistedRailWidth) updateSettings({ splitRailWidth: next });
+  };
 
   // Sessions-mode rows: keep each session bucket in tmux index order with
   // pending panes floated to the top, matching Kanban's per-column rule.
@@ -104,10 +165,20 @@ export function SplitView({ windows, sessions, onFocus }: Props) {
           )}
         </div>
       </aside>
-      {/* Divider placeholder — drag-to-resize lands in PR 2. The 7px gutter
-       *  preserves the grid-template-columns shape so PR 2 just wires up the
-       *  pointer handlers without re-laying out the surface. */}
-      <div className="sb-divider" aria-hidden="true" />
+      <div
+        className={`sb-divider${dragWidth !== null ? " is-dragging" : ""}`}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize rail"
+        aria-valuenow={railWidth}
+        aria-valuemin={SPLIT_RAIL_MIN}
+        aria-valuemax={SPLIT_RAIL_MAX}
+        tabIndex={0}
+        onPointerDown={onDividerPointerDown}
+        onPointerMove={onDividerPointerMove}
+        onPointerUp={onDividerPointerUp}
+        onKeyDown={onDividerKeyDown}
+      />
       <section className="sb-detail" role="main" aria-label="Detail pane">
         {selected ? (
           <DetailPlaceholder window={selected} onFocus={onFocus} />
