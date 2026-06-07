@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { CleanupModal } from "./CleanupModal";
 import { mkWindow } from "../test/factories";
@@ -69,5 +69,59 @@ describe("CleanupModal — Step 1", () => {
     fireEvent.click(checkbox);  // uncheck
     const reviewBtn = screen.getByRole("button", { name: /review/i });
     expect((reviewBtn as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("auto-unchecks mid-turn agent rows with the 'agent active' tag", () => {
+    renderModal([
+      mkWindow({
+        paneId: "%a",
+        session: "alpha",
+        kind: "agent",
+        status: "running",
+        lastActivity: NOW - 30 * DAY_MS,
+      }),
+    ]);
+    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+    const row = screen.getByRole("listitem");
+    expect(within(row).getByText(/agent active/i)).toBeTruthy();
+  });
+
+  it("auto-unchecks pinned rows with the 'pinned' tag", () => {
+    renderModal(
+      [mkWindow({ paneId: "%p", session: "p", lastActivity: NOW - 30 * DAY_MS })],
+      new Set(["%p"]),
+    );
+    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+    const row = screen.getByRole("listitem");
+    expect(within(row).getByText(/pinned/i)).toBeTruthy();
+  });
+
+  it("leaves non-pinned, non-mid-turn rows checked by default", () => {
+    // Use an agent with status "idle" to confirm the non-running agent path
+    // takes the default-checked branch (the more interesting boundary than
+    // the trivial shell case, which is also covered by the toggle test).
+    renderModal([
+      mkWindow({
+        paneId: "%a",
+        session: "a",
+        kind: "agent",
+        status: "idle",
+        lastActivity: NOW - 30 * DAY_MS,
+      }),
+    ]);
+    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+  });
+
+  it("toggles row checkbox and updates the Review button count", () => {
+    renderModal([
+      mkWindow({ paneId: "%a", session: "a", lastActivity: NOW - 30 * DAY_MS }),
+      mkWindow({ paneId: "%b", session: "b", lastActivity: NOW - 20 * DAY_MS, index: 2, id: "b:2" }),
+    ]);
+    expect(screen.getByRole("button", { name: /review 2 selected/i })).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("checkbox")[0]!);
+    expect(screen.getByRole("button", { name: /review 1 selected/i })).toBeTruthy();
   });
 });
