@@ -147,9 +147,7 @@ def post_rename_session(session: str, body: RenameBody) -> dict[str, object]:
 
 
 @router.post("/window")
-def post_window(
-    session: str, name: TmuxName, body: CwdBody | None = None
-) -> dict[str, object]:
+def post_window(session: str, name: TmuxName, body: CwdBody | None = None) -> dict[str, object]:
     # THI-244: resolve the cwd in this order:
     #   1. explicit body.cwd, if it validates as an existing absolute dir;
     #   2. otherwise the launching session's first window cwd (matches the

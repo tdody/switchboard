@@ -106,9 +106,7 @@ def test_delete_session_ok(client: TestClient, monkeypatch) -> None:
 
 
 def test_post_window_ok_returns_new_id(client: TestClient, monkeypatch) -> None:
-    monkeypatch.setattr(
-        "switchboard.services.tmux.new_window", lambda s, n, cwd=None: 4
-    )
+    monkeypatch.setattr("switchboard.services.tmux.new_window", lambda s, n, cwd=None: 4)
     r = client.post("/api/window?session=dev&name=tests", headers=_csrf(client))
     assert r.status_code == 200
     assert r.json() == {"ok": True, "index": 4, "id": "dev:4"}
@@ -127,9 +125,7 @@ def test_post_session_ok(client: TestClient, monkeypatch) -> None:
 
 
 def test_post_session_409_on_duplicate(client: TestClient, monkeypatch) -> None:
-    monkeypatch.setattr(
-        "switchboard.services.tmux.new_session", lambda name, cwd=None: False
-    )
+    monkeypatch.setattr("switchboard.services.tmux.new_session", lambda name, cwd=None: False)
     r = client.post("/api/session?name=dev", headers=_csrf(client))
     assert r.status_code == 409
 
@@ -137,9 +133,7 @@ def test_post_session_409_on_duplicate(client: TestClient, monkeypatch) -> None:
 # THI-244: clients can supply a cwd for new-session / new-window. Backend
 # validates it as an existing absolute directory; invalid paths fall back to
 # None so the user never has to debug a bad setting through 4xx noise.
-def test_post_session_threads_resolved_cwd(
-    client: TestClient, monkeypatch, tmp_path
-) -> None:
+def test_post_session_threads_resolved_cwd(client: TestClient, monkeypatch, tmp_path) -> None:
     seen: list[tuple[str, str | None]] = []
     monkeypatch.setattr(
         "switchboard.services.tmux.new_session",
@@ -155,9 +149,7 @@ def test_post_session_threads_resolved_cwd(
     assert seen == [("feat", real_dir)]
 
 
-def test_post_session_drops_invalid_cwd(
-    client: TestClient, monkeypatch
-) -> None:
+def test_post_session_drops_invalid_cwd(client: TestClient, monkeypatch) -> None:
     seen: list[tuple[str, str | None]] = []
     monkeypatch.setattr(
         "switchboard.services.tmux.new_session",
@@ -173,9 +165,7 @@ def test_post_session_drops_invalid_cwd(
     assert seen == [("feat", None)]
 
 
-def test_post_session_drops_relative_cwd(
-    client: TestClient, monkeypatch
-) -> None:
+def test_post_session_drops_relative_cwd(client: TestClient, monkeypatch) -> None:
     seen: list[tuple[str, str | None]] = []
     monkeypatch.setattr(
         "switchboard.services.tmux.new_session",
@@ -191,9 +181,7 @@ def test_post_session_drops_relative_cwd(
     assert seen == [("feat", None)]
 
 
-def test_post_session_expands_tilde(
-    client: TestClient, monkeypatch, tmp_path
-) -> None:
+def test_post_session_expands_tilde(client: TestClient, monkeypatch, tmp_path) -> None:
     seen: list[tuple[str, str | None]] = []
     monkeypatch.setattr(
         "switchboard.services.tmux.new_session",
@@ -210,9 +198,7 @@ def test_post_session_expands_tilde(
     assert seen == [("feat", str(tmp_path))]
 
 
-def test_post_window_threads_resolved_cwd(
-    client: TestClient, monkeypatch, tmp_path
-) -> None:
+def test_post_window_threads_resolved_cwd(client: TestClient, monkeypatch, tmp_path) -> None:
     seen: list[tuple[str, str, str | None]] = []
     monkeypatch.setattr(
         "switchboard.services.tmux.new_window",
