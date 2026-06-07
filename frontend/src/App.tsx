@@ -66,6 +66,7 @@ import {
   type NotifyState,
 } from "./lib/pendingNotify";
 import { applyAccent, useSettings } from "./lib/settings";
+import { useModalRouting } from "./lib/useModalRouting";
 import { groupBySession } from "./lib/groupBySession";
 import { pickPollInterval } from "./lib/pollTier";
 import { useInputActive } from "./lib/useInputActive";
@@ -93,14 +94,6 @@ const MODAL_OPEN_POLL_MS = 500;
 // hand the cached value back. Decoupled from the /api/state cadence so a busy
 // modal-open dashboard doesn't pile up jsonl walks (THI-110).
 const USAGE_POLL_MS = 30_000;
-
-/** A pending destructive action awaiting confirmation in the ConfirmDialog. */
-interface ConfirmState {
-  title: string;
-  message: string;
-  confirmLabel: string;
-  onConfirm: () => Promise<void>;
-}
 
 export function App() {
   const settings = useSettings();
@@ -157,31 +150,47 @@ export function App() {
 
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastData[]>([]);
-  const [showSettings, setShowSettings] = useState(false);
-  const [cleanupOpen, setCleanupOpen] = useState(false);
-  const [showShortcuts, setShowShortcuts] = useState(false);
-  // THI-100: pane history search modal (`⌘⇧F` / `Ctrl+Shift+F`).
-  const [showSearch, setShowSearch] = useState(false);
-  // THI-99: session templates modal.
-  const [showTemplates, setShowTemplates] = useState(false);
-  // In-app Documentation modal (THI-136). Opened from the Header docs button
-  // and from the final step of the first-run tour.
-  const [showDocs, setShowDocs] = useState(false);
-  const [paletteTargetId, setPaletteTargetId] = useState<string | null>(null);
-  // THI-66 broadcast palette state. When non-null, the palette opens with
-  // these as targets; `paletteTargetId` still holds the "anchor" pane (used
-  // for the recents seed and the placeholder fallback if the user prunes
-  // every other target).
-  const [broadcastTargetIds, setBroadcastTargetIds] = useState<string[] | null>(
-    null,
-  );
-  const [renameTargetId, setRenameTargetId] = useState<string | null>(null);
-  const [newWindowSession, setNewWindowSession] = useState<string | null>(null);
-  const [showNewSession, setShowNewSession] = useState(false);
-  const [renameSessionTarget, setRenameSessionTarget] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
-  // Auto-rename modal target (THI-67). Session id when open, null when closed.
-  const [autoRenameSession, setAutoRenameSession] = useState<string | null>(null);
+
+  // THI-229: modal-routing state is centralized so `anyOpen` is computed once
+  // and every consumer (nav-suppression, Tour gate, future Track-3 modals)
+  // reads the same value. Before this refactor App.tsx held 13 useStates and
+  // the keydown effect's dep array drifted out of sync — THI-206 was the
+  // visible symptom. Local destructure with old names keeps existing call
+  // sites unchanged for this PR; renaming is a follow-up if it's ever worth
+  // the churn.
+  const { flags, setters, anyOpen } = useModalRouting();
+  const {
+    settings: showSettings,
+    cleanup: cleanupOpen,
+    shortcuts: showShortcuts,
+    search: showSearch,
+    templates: showTemplates,
+    docs: showDocs,
+    newSession: showNewSession,
+    paletteTargetId,
+    broadcastTargetIds,
+    renameTargetId,
+    newWindowSession,
+    renameSessionTarget,
+    autoRenameSession,
+    confirm,
+  } = flags;
+  const {
+    setSettings: setShowSettings,
+    setCleanup: setCleanupOpen,
+    setShortcuts: setShowShortcuts,
+    setSearch: setShowSearch,
+    setTemplates: setShowTemplates,
+    setDocs: setShowDocs,
+    setNewSession: setShowNewSession,
+    setPaletteTargetId,
+    setBroadcastTargetIds,
+    setRenameTargetId,
+    setNewWindowSession,
+    setRenameSessionTarget,
+    setAutoRenameSession,
+    setConfirm,
+  } = setters;
   // Whether the backend has an Anthropic key configured — drives whether the
   // ✨ button shows in the Kanban column headers. Fetched once on mount
   // (the key doesn't change at runtime); refetched after Settings closes in
@@ -725,21 +734,12 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const tag = ((e.target as HTMLElement)?.tagName || "").toLowerCase();
       const inField = tag === "input" || tag === "textarea";
-      const anyOverlay =
-        openId ||
-        paletteTargetId ||
-        renameTargetId ||
-        cleanupOpen ||
-        showSettings ||
-        showShortcuts ||
-        showSearch ||
-        showTemplates ||
-        showDocs ||
-        newWindowSession ||
-        showNewSession ||
-        renameSessionTarget ||
-        autoRenameSession ||
-        confirm;
+      // THI-229: `anyOpen` is computed inside useModalRouting from the same
+      // 13 flags this guard used to spell out by hand. `openId` is the
+      // terminal-modal URL param (own state) — still OR'd in here.
+      // THI-206 fix: `showSearch`, `showTemplates`, `cleanupOpen` are all
+      // covered automatically now via `anyOpen`.
+      const anyOverlay = openId || anyOpen;
 
       // ⌘K / Ctrl+K — open palette pre-targeted to first pending, then highlighted,
       // then first window. Always available, even from inside inputs.
@@ -835,17 +835,13 @@ export function App() {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [
+    // THI-229: single `anyOpen` replaces the 11 cherry-picked flags this
+    // dep array used to list. Fixes THI-206 — the old list omitted
+    // showSearch/showTemplates/cleanupOpen, so flipping any of those left
+    // the handler with a stale closure that didn't treat them as overlays
+    // and arrow keys leaked into the active modal.
+    anyOpen,
     openId,
-    paletteTargetId,
-    renameTargetId,
-    showSettings,
-    showShortcuts,
-    showDocs,
-    newWindowSession,
-    showNewSession,
-    renameSessionTarget,
-    autoRenameSession,
-    confirm,
     navCols,
     highlightedId,
     windows,
@@ -1127,22 +1123,11 @@ export function App() {
        *  Final step renders a "More in Docs →" link via `onOpenDocs`
        *  (THI-136). */}
       <Tour
-        enabled={
-          !!state &&
-          !inEmpty &&
-          visible.length > 0 &&
-          !openId &&
-          !paletteTargetId &&
-          !renameTargetId &&
-          !newWindowSession &&
-          !showNewSession &&
-          !renameSessionTarget &&
-          !cleanupOpen &&
-          !showSettings &&
-          !showShortcuts &&
-          !showDocs &&
-          !confirm
-        }
+        // THI-229: !anyOpen replaces the previous hand-curated list of 11
+        // !flag checks, which silently allowed the tour to render under
+        // search/templates/auto-rename — three modals the original list
+        // forgot. The hook's anyOpen covers all 13 modal flags.
+        enabled={!!state && !inEmpty && visible.length > 0 && !openId && !anyOpen}
         onOpenDocs={() => setShowDocs(true)}
       />
       <ToastStack toasts={toasts} />
