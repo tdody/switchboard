@@ -108,7 +108,12 @@ export function App() {
   const filter: StatusFilter = (
     STATUS_FILTERS.includes(filterParam as StatusFilter) ? filterParam : "all"
   ) as StatusFilter;
-  const setFilter = (v: StatusFilter) => setFilterParam(v);
+  // useCallback so `<Subhead>`'s memo can short-circuit on every poll
+  // (THI-217); without it the bare arrow allocates a fresh ref per render.
+  const setFilter = useCallback(
+    (v: StatusFilter) => setFilterParam(v),
+    [setFilterParam],
+  );
 
   // Kind chip filter (THI-130). URL-synced for back/forward + shareable links;
   // not localStorage-backed, matching the status filter convention. Unknown
