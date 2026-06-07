@@ -252,9 +252,7 @@ def collect_state() -> StateResponse:
             # enough to absorb noise, short enough that a freshly-opened pane
             # in a new repo appears quickly.
             repo_key = claude_parser._git_repo_root(cwd) if cwd else None
-            repo_label = (
-                os.path.basename(repo_key.rstrip("/")) if repo_key else None
-            )
+            repo_label = os.path.basename(repo_key.rstrip("/")) if repo_key else None
 
             idx = _to_int(w.window_index)
             windows.append(
