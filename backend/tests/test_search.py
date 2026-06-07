@@ -201,7 +201,7 @@ def test_search_caps_total_matches_and_sets_truncated_flag(
     """THI-220: a noisy query that produces more than 200 matches across
     all panes must cap the flat list at 200 and set `truncated=True`.
     """
-    # Build 5 panes × 50 lines = 250 lines total, all containing the needle.
+    # Build 5 panes with 50 lines each = 250 lines total, all containing the needle.
     # Per-pane cap is 50 so every line is reported; total is 250 > 200.
     panes: dict[tuple[str, int], dict[str, object]] = {
         ("main", idx): {
