@@ -87,6 +87,11 @@ export interface SearchMatch {
 export interface SearchResponse {
   query: string;
   matches: SearchMatch[];
+  /** THI-220: True when the route capped the result list (200) and the tail
+   *  was dropped. The SearchModal surfaces a banner in this case so the
+   *  user knows to narrow the query rather than treating the list as
+   *  complete. Optional for backward-compat with older snapshots. */
+  truncated?: boolean;
 }
 
 // Session templates (THI-99).

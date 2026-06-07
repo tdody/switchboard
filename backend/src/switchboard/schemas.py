@@ -141,6 +141,11 @@ class SearchMatch(_CamelModel):
 class SearchResponse(_CamelModel):
     query: str
     matches: list[SearchMatch]
+    # THI-220: True when the per-pane scan produced more than the route's
+    # global cap (200) and the tail was discarded. The UI surfaces a banner
+    # so the user can narrow the query rather than think the result list is
+    # complete.
+    truncated: bool = False
 
 
 class RenameSuggestion(_CamelModel):

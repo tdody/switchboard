@@ -155,4 +155,40 @@ describe("SearchModal", () => {
     });
     expect(container.querySelectorAll(".search-result")).toHaveLength(0);
   });
+
+  it("renders the truncation banner when the response sets truncated=true (THI-220)", async () => {
+    mockFetch({
+      query: "needle",
+      matches: [makeMatch()],
+      truncated: true,
+    });
+    const { container } = render(
+      <SearchModal onClose={() => {}} onOpenMatch={() => {}} />,
+    );
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    fireEvent.change(input, { target: { value: "x" } });
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const banner = container.querySelector(".search-truncated");
+    expect(banner).not.toBeNull();
+    expect(banner!.textContent).toMatch(/narrow your query/i);
+  });
+
+  it("hides the truncation banner when the response is not truncated", async () => {
+    mockFetch(mockSearchResponse([makeMatch()]));
+    const { container } = render(
+      <SearchModal onClose={() => {}} onOpenMatch={() => {}} />,
+    );
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    fireEvent.change(input, { target: { value: "x" } });
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.querySelector(".search-truncated")).toBeNull();
+  });
 });

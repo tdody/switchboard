@@ -176,7 +176,7 @@ def test_search_returns_empty_for_no_matches(
 
     r = client.get("/api/search", params={"q": "missing"})
     assert r.status_code == 200
-    assert r.json() == {"query": "missing", "matches": []}
+    assert r.json() == {"query": "missing", "matches": [], "truncated": False}
 
 
 def test_search_rejects_empty_query_with_400(client: TestClient) -> None:
@@ -192,4 +192,54 @@ def test_search_returns_empty_when_tmux_is_down(
     monkeypatch.setattr(tmux, "get_server", lambda: None)
     r = client.get("/api/search", params={"q": "anything"})
     assert r.status_code == 200
-    assert r.json() == {"query": "anything", "matches": []}
+    assert r.json() == {"query": "anything", "matches": [], "truncated": False}
+
+
+def test_search_caps_total_matches_and_sets_truncated_flag(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THI-220: a noisy query that produces more than 200 matches across
+    all panes must cap the flat list at 200 and set `truncated=True`.
+    """
+    # Build 5 panes with 50 lines each = 250 lines total, all containing the needle.
+    # Per-pane cap is 50 so every line is reported; total is 250 > 200.
+    panes: dict[tuple[str, int], dict[str, object]] = {
+        ("main", idx): {
+            "pane_id": f"%{idx}",
+            "window_name": f"pane{idx}",
+            "lines": [f"hit line {n}" for n in range(50)],
+        }
+        for idx in range(5)
+    }
+    monkeypatch.setattr(tmux, "get_server", lambda: _make_fake_server(panes))
+    monkeypatch.setattr(tmux, "capture_pane", _stub_capture(panes))
+
+    r = client.get("/api/search", params={"q": "hit"})
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["matches"]) == 200, "global cap should clamp to 200"
+    assert body["truncated"] is True
+
+
+def test_search_truncated_is_false_when_under_the_cap(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The truncated flag must be False when the result list fits under
+    the global cap (regression guard for off-by-one)."""
+    # 200 matches exactly — exactly at the cap, not over.
+    panes: dict[tuple[str, int], dict[str, object]] = {
+        ("main", idx): {
+            "pane_id": f"%{idx}",
+            "window_name": f"pane{idx}",
+            "lines": [f"hit {n}" for n in range(50)],
+        }
+        for idx in range(4)
+    }
+    monkeypatch.setattr(tmux, "get_server", lambda: _make_fake_server(panes))
+    monkeypatch.setattr(tmux, "capture_pane", _stub_capture(panes))
+
+    r = client.get("/api/search", params={"q": "hit"})
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["matches"]) == 200
+    assert body["truncated"] is False
