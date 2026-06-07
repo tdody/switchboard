@@ -1046,6 +1046,17 @@ input, textarea, select { font: inherit; color: inherit; }
   font-size: 12.5px;
   text-align: center;
 }
+/* THI-220: surfaces the route's 200-match cap. Sticky-ish at the top of the
+ * scrollable result list so the user always sees the warning even after
+ * scrolling. Amber tint matches the dashboard's other "soft heads-up" cues. */
+.search-truncated {
+  padding: 6px 14px;
+  margin: 0 0 4px;
+  color: var(--tone-amber);
+  background: color-mix(in oklch, var(--tone-amber) 12%, transparent);
+  border-bottom: 1px solid var(--hairline);
+  font-size: 11.5px;
+}
 .search-result {
   display: flex;
   flex-direction: column;

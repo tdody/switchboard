@@ -24,6 +24,12 @@ router = APIRouter(prefix="/api")
 _DEFAULT_LINES = 500
 _MAX_LINES = 5_000
 _MAX_MATCHES_PER_PANE = 50
+# THI-220: hard cap on the flat result list. The per-pane cap above prevents
+# a single noisy pane from drowning the rest, but the route had no global
+# bound — a 100-pane scan for a common term like "error" could send 5k rows
+# and create 5k DOM buttons (\~500 kB / 200-400 ms paint stall). 200 keeps
+# the JSON under \~20 kB and the result list under one screen of buttons.
+_MAX_TOTAL_MATCHES = 200
 
 # CSI escape sequences only (no OSC/DCS — tmux's `-e` output doesn't carry
 # those for ordinary content). Matches `\x1b[…<final>` where the final byte
@@ -108,4 +114,7 @@ async def search(q: str, lines: int = _DEFAULT_LINES) -> SearchResponse:
         )
     )
     flat: list[SearchMatch] = [m for sub in results for m in sub]
-    return SearchResponse(query=q, matches=flat)
+    truncated = len(flat) > _MAX_TOTAL_MATCHES
+    if truncated:
+        flat = flat[:_MAX_TOTAL_MATCHES]
+    return SearchResponse(query=q, matches=flat, truncated=truncated)

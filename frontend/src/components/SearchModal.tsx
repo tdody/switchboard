@@ -25,6 +25,7 @@ export function SearchModal({ onClose, onOpenMatch }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<SearchMatch[]>([]);
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -37,6 +38,7 @@ export function SearchModal({ onClose, onOpenMatch }: Props) {
     const trimmed = query.trim();
     if (!trimmed) {
       setMatches([]);
+      setTruncated(false);
       setLoading(false);
       return;
     }
@@ -47,11 +49,13 @@ export function SearchModal({ onClose, onOpenMatch }: Props) {
         const result = await searchPanes(trimmed, ctrl.signal);
         if (!ctrl.signal.aborted) {
           setMatches(result.matches);
+          setTruncated(result.truncated === true);
           setLoading(false);
         }
       } catch {
         if (!ctrl.signal.aborted) {
           setMatches([]);
+          setTruncated(false);
           setLoading(false);
         }
       }
@@ -99,6 +103,11 @@ export function SearchModal({ onClose, onOpenMatch }: Props) {
           </button>
         </div>
         <div className="search-body">
+          {truncated && (
+            <div className="search-truncated" role="status">
+              Showing the first {matches.length} matches — narrow your query to see more.
+            </div>
+          )}
           {matches.length === 0 && query.trim() && !loading ? (
             <div className="search-empty">No matches.</div>
           ) : (
