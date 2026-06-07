@@ -4,7 +4,7 @@ import { OTHER_REPO_KEY, OTHER_REPO_LABEL, groupByRepo } from "./groupByRepo";
 import { mkWindow } from "../test/factories";
 
 describe("groupByRepo", () => {
-  it("buckets windows by their session's first-seen repo", () => {
+  it("buckets each window by its own repoKey", () => {
     const a1 = mkWindow({
       paneId: "%a1",
       session: "alpha",
@@ -29,10 +29,10 @@ describe("groupByRepo", () => {
     expect(groups[1]!.windows.map((w) => w.paneId)).toEqual(["%b1"]);
   });
 
-  it("pins a session to the first git-backed window's repo (sessions atomic)", () => {
+  it("within one session, non-git windows go to Other and git ones to their own repo", () => {
     // Same session, two windows: first is non-git, second is in /r/alpha.
-    // The session must land under /r/alpha — first GIT-BACKED window wins —
-    // and BOTH windows render under that bucket.
+    // Per-window bucketing puts each in its own group — the non-git one
+    // lands in Other and the git one in /r/alpha.
     const noGit = mkWindow({
       paneId: "%n1",
       session: "mixed",
@@ -46,11 +46,15 @@ describe("groupByRepo", () => {
       repoLabel: "alpha",
     });
     const groups = groupByRepo([noGit, inAlpha]);
-    expect(groups.map((g) => g.key)).toEqual(["/r/alpha"]);
-    expect(groups[0]!.windows.map((w) => w.paneId)).toEqual(["%n1", "%n2"]);
+    // /r/alpha real bucket first, Other pinned to bottom.
+    expect(groups.map((g) => g.key)).toEqual(["/r/alpha", OTHER_REPO_KEY]);
+    expect(groups[0]!.windows.map((w) => w.paneId)).toEqual(["%n2"]);
+    expect(groups[1]!.windows.map((w) => w.paneId)).toEqual(["%n1"]);
   });
 
-  it("a session whose windows span repos lands under the first-seen repo", () => {
+  it("a session whose windows span repos appears under each repo it touches", () => {
+    // Sessions are NOT atomic — a daily-driver session that mixes projects
+    // fragments across groups, which is the point of the discovery view.
     const a = mkWindow({
       paneId: "%a",
       session: "x",
@@ -64,13 +68,12 @@ describe("groupByRepo", () => {
       repoLabel: "beta",
     });
     const groups = groupByRepo([a, b]);
-    // /r/alpha was seen first → session "x" lives entirely there.
-    expect(groups).toHaveLength(1);
-    expect(groups[0]!.key).toBe("/r/alpha");
-    expect(groups[0]!.windows.map((w) => w.paneId)).toEqual(["%a", "%b"]);
+    expect(groups.map((g) => g.key)).toEqual(["/r/alpha", "/r/beta"]);
+    expect(groups[0]!.windows.map((w) => w.paneId)).toEqual(["%a"]);
+    expect(groups[1]!.windows.map((w) => w.paneId)).toEqual(["%b"]);
   });
 
-  it("sessions with no git-backed window land in Other (pinned to bottom)", () => {
+  it("windows with no git-backed cwd land in Other (pinned to bottom)", () => {
     const a = mkWindow({
       paneId: "%a",
       session: "alpha",
@@ -118,7 +121,7 @@ describe("groupByRepo", () => {
     expect(groupByRepo([])).toEqual([]);
   });
 
-  it("Other is absent when every session resolves to a repo", () => {
+  it("Other is absent when every window resolves to a repo", () => {
     const a = mkWindow({
       paneId: "%a",
       session: "alpha",
