@@ -35,6 +35,19 @@ const SECTIONS: Section[] = [
       { label: "Open command palette (Linux/Windows)", keys: ["Ctrl", "K"] },
     ],
   },
+  // THI-225: ⌘⇧F was wired in THI-100 (pane history search modal) but the
+  // sheet wasn't refreshed. Listed as its own section so the Linux/Windows
+  // variant has a clean home.
+  {
+    title: "Search",
+    rows: [
+      { label: "Search every pane's history", keys: ["⌘", "⇧", "F"] },
+      {
+        label: "Search every pane's history (Linux/Windows)",
+        keys: ["Ctrl", "Shift", "F"],
+      },
+    ],
+  },
   {
     title: "Modal",
     rows: [

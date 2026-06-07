@@ -12,9 +12,10 @@ interface Step {
   placement: "top" | "bottom" | "left" | "right";
 }
 
-// 4-step content. Anchors live as `data-tour="<id>"` on the target elements
-// (see Header.tsx, Subhead.tsx, WindowCard.tsx via Kanban). Adding a 5th step
-// is mechanical — write a new data-tour attr + append here.
+// Step content. Anchors live as `data-tour="<id>"` on the target elements
+// (see Header.tsx, Subhead.tsx, Kanban.tsx). When an anchor isn't in the DOM
+// (e.g. the user dismissed empty-state before any cards rendered) the step
+// falls back to a centered popover via `fallbackRect` — better than blanking.
 const STEPS: Step[] = [
   {
     selector: '[data-tour="first-card"]',
@@ -28,6 +29,27 @@ const STEPS: Step[] = [
     body: "Click any card to pop a live terminal modal. Esc Esc to close. The pane's bytes stream over WebSocket — no reload.",
     placement: "bottom",
   },
+  // THI-225: pin button — the pin lives on every card, but the first-card
+  // anchor already scopes us to one. The compound selector finds the .act-pin
+  // inside it, with no extra plumbing through WindowCard's props.
+  {
+    selector: '[data-tour="first-card"] .act-pin',
+    title: "Pin the panes that matter",
+    body: "Pinning lifts a card to the top of its column and keeps it visible through every filter. Click the pin again to unpin.",
+    placement: "bottom",
+  },
+  {
+    selector: '[data-tour="preset-save"]',
+    title: "Save filter presets",
+    body: "Combine search, status, and kind into a named preset. The chip-bar applies any saved preset in one click — handy for revisiting a specific cohort of panes.",
+    placement: "bottom",
+  },
+  {
+    selector: '[data-tour="layout-switcher"]',
+    title: "Three ways to see your panes",
+    body: "Kanban groups by session, Grid is a flow of wide cards, List is a dense text-only row per pane. Switch any time — the layout follows your screen size.",
+    placement: "bottom",
+  },
   {
     selector: '[data-tour="amber-waiting"]',
     title: "Amber means waiting on you",
@@ -38,6 +60,14 @@ const STEPS: Step[] = [
     selector: '[data-tour="kbar-hint"]',
     title: "⌘K sends commands anywhere",
     body: "Press ⌘K (or Ctrl+K) from any view to open the command palette and send keys to the focused pane.",
+    placement: "bottom",
+  },
+  // THI-225: reuses the kbar-hint anchor since both global hotkeys are
+  // accessed from anywhere on the dashboard. No new anchor needed.
+  {
+    selector: '[data-tour="kbar-hint"]',
+    title: "⌘⇧F searches every buffer",
+    body: "Press ⌘⇧F (or Ctrl+Shift+F) to grep the scrollback of every open pane at once. Click a result to jump straight to that pane.",
     placement: "bottom",
   },
 ];

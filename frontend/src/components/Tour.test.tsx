@@ -49,15 +49,15 @@ describe("Tour", () => {
     render(<Tour enabled={true} />);
     const dialog = screen.getByRole("dialog");
     expect(dialog.textContent).toContain("This is a window card");
-    expect(dialog.textContent).toContain("Step 1 of 4");
+    expect(dialog.textContent).toContain("Step 1 of 8");
   });
 
   it("advances on Next click", () => {
     plantAnchor("first-card");
     render(<Tour enabled={true} />);
-    expect(screen.getByText(/Step 1 of 4/)).toBeTruthy();
+    expect(screen.getByText(/Step 1 of 8/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText(/Step 2 of 4/)).toBeTruthy();
+    expect(screen.getByText(/Step 2 of 8/)).toBeTruthy();
   });
 
   it("`Back` is disabled on step 1 and goes back from step 2", () => {
@@ -67,23 +67,25 @@ describe("Tour", () => {
     expect(back.hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    expect(screen.getByText(/Step 1 of 4/)).toBeTruthy();
+    expect(screen.getByText(/Step 1 of 8/)).toBeTruthy();
   });
 
   it("the final step's primary action label is `Done` and dismisses the tour", () => {
     plantAnchor("first-card");
+    plantAnchor("preset-save");
+    plantAnchor("layout-switcher");
     plantAnchor("amber-waiting");
     plantAnchor("kbar-hint");
     render(<Tour enabled={true} />);
-    // 3 Next clicks to reach the last step.
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText(/Step 4 of 4/)).toBeTruthy();
+    // 7 Next clicks to reach the last (8th) step (THI-225).
+    for (let i = 0; i < 7; i++) {
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    }
+    expect(screen.getByText(/Step 8 of 8/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     // Persisted as dismissed.
-    expect(localStorage.getItem("switchboard:tour:v1:dismissed")).toBe("1");
+    expect(localStorage.getItem("switchboard:tour:v2:dismissed")).toBe("1");
   });
 
   it("Skip tour dismisses and persists immediately", () => {
@@ -91,7 +93,7 @@ describe("Tour", () => {
     render(<Tour enabled={true} />);
     fireEvent.click(screen.getByRole("button", { name: "Skip tour" }));
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(localStorage.getItem("switchboard:tour:v1:dismissed")).toBe("1");
+    expect(localStorage.getItem("switchboard:tour:v2:dismissed")).toBe("1");
   });
 
   it("Esc dismisses the tour", () => {
@@ -99,16 +101,16 @@ describe("Tour", () => {
     render(<Tour enabled={true} />);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(localStorage.getItem("switchboard:tour:v1:dismissed")).toBe("1");
+    expect(localStorage.getItem("switchboard:tour:v2:dismissed")).toBe("1");
   });
 
   it("ArrowRight advances and ArrowLeft goes back", () => {
     plantAnchor("first-card");
     render(<Tour enabled={true} />);
     fireEvent.keyDown(document, { key: "ArrowRight" });
-    expect(screen.getByText(/Step 2 of 4/)).toBeTruthy();
+    expect(screen.getByText(/Step 2 of 8/)).toBeTruthy();
     fireEvent.keyDown(document, { key: "ArrowLeft" });
-    expect(screen.getByText(/Step 1 of 4/)).toBeTruthy();
+    expect(screen.getByText(/Step 1 of 8/)).toBeTruthy();
   });
 
   it("re-mounting after dismissal stays hidden", () => {

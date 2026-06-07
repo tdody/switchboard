@@ -6,7 +6,10 @@
  * Pure storage helpers; the rendering logic lives in `components/Tour.tsx`.
  */
 
-const STORAGE_KEY = "switchboard:tour:v1:dismissed";
+// THI-225: bumped from v1 → v2 because the tour gained 4 new steps covering
+// v0.2 features (pin, presets, layout switcher, pane-history search). Users
+// who dismissed v1 will see v2 once, then never again.
+const STORAGE_KEY = "switchboard:tour:v2:dismissed";
 
 export function isTourDismissed(): boolean {
   if (typeof localStorage === "undefined") return false;

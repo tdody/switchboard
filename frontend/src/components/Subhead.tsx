@@ -212,6 +212,7 @@ function SubheadInner({
             <button
               type="button"
               className="preset-save"
+              data-tour="preset-save"
               onClick={handleSavePreset}
             >
               <Icon name="plus" size={11} />
@@ -269,7 +270,7 @@ function LayoutSwitcher() {
   // — that's THI-60.
   const layout = useSetting("layout");
   return (
-    <span className="layout-switcher">
+    <span className="layout-switcher" data-tour="layout-switcher">
       <Tooltip content="Kanban">
         <button
           className={layout === "kanban" ? "is-active" : ""}
