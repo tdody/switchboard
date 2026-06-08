@@ -81,6 +81,11 @@ export interface Settings {
    *  groupByRepo regardless. Same live-new-appended semantics as
    *  splitRailSessionOrder. */
   splitRailRepoOrder: string[];
+  /** THI-246: whether the Split view's detail sidebar (Linked / Notes /
+   *  Activity) is open. Persisted so the user's preference survives
+   *  reloads. Sidebar only renders for agent panes regardless — shell
+   *  panes don't have linkable PR / Linear / notes context. */
+  splitDetailSidebar: boolean;
 }
 
 // OKLCH lightness/chroma/hue for each accent preset.
@@ -166,6 +171,7 @@ export const DEFAULT_SETTINGS: Settings = {
   splitRailCollapsed: false,
   splitRailSessionOrder: [],
   splitRailRepoOrder: [],
+  splitDetailSidebar: true,
 };
 
 export const POLL_MIN_S = 1;

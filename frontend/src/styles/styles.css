@@ -3363,9 +3363,70 @@ input, textarea, select { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 
-/* PR 1 placeholders — replaced by inline xterm in PR 3. */
-.sb-detail-empty,
-.sb-detail-stub {
+/* Detail body — flexes between the inline xterm (left) and the optional
+ * sidebar (right, 256px). The sb-body wrapper exists because PaneTerminal
+ * renders just `.term-body` + the prompt overlay, and we need a grid
+ * row to host both the terminal and the sidebar side-by-side. */
+.sb-detail .sb-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.sb-detail .sb-body > .term-body {
+  flex: 1;
+  min-width: 0;
+}
+.sb-side {
+  width: 256px;
+  flex: none;
+  border-left: 1px solid var(--hairline);
+  background: var(--bg-elev);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.sb-side-sec + .sb-side-sec {
+  border-top: 1px solid var(--hairline);
+}
+.sb-side-sec-hd {
+  padding: 9px 14px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.sb-side-sec-body {
+  padding: 4px 14px 14px;
+  font-size: 12px;
+  color: var(--text-mute);
+}
+.sb-side-stub {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  margin: 0;
+}
+/* "Needs your input" banner — amber background, pinned at the top of the
+ * Activity section when the pane is waiting. */
+.sb-side-need-human {
+  background: color-mix(in oklab, var(--tone-amber) 18%, transparent);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+/* Sidebar toggle in the detail header. Same shape as the focus-in-tmux
+ * button; aria-pressed drives the active tint. */
+.sb-side-toggle.is-open {
+  color: var(--accent);
+}
+
+/* Existing empty-state hint — kept; the stub state is gone now that the
+ * inline xterm ships. */
+.sb-detail-empty {
   flex: 1;
   display: grid;
   place-items: center;
@@ -3375,8 +3436,7 @@ input, textarea, select { font: inherit; color: inherit; }
   font-size: 13px;
   background: #050608;
 }
-.sb-detail-empty-sub,
-.sb-detail-stub-sub {
+.sb-detail-empty-sub {
   margin-top: 8px;
   color: var(--text-dim);
   font-size: 11.5px;

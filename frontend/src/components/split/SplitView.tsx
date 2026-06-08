@@ -618,13 +618,17 @@ function DotRow({
   );
 }
 
-/** The detail pane's content: header + inline xterm + connection chip.
+/** The detail pane's content: header + inline xterm + optional sidebar.
  *
  *  PaneTerminal is keyed on `paneId` so changing the selected pane tears
  *  down the previous xterm + WebSocket and remounts a fresh one. As long as
  *  the same pane stays selected — even across `windows[]` re-renders from
  *  every /api/state poll — the key is stable and PaneTerminal reuses its
  *  existing terminal + connection.
+ *
+ *  Sidebar (Linked / Notes / Activity) is gated to agent panes — shell
+ *  panes don't have a meaningful Linked/Notes/Activity story. The toggle
+ *  is hidden when the gate excludes the pane.
  *
  *  Toast handling is optional; older callers / tests don't supply it and
  *  pass-throughs become no-ops. */
@@ -638,23 +642,78 @@ function Detail({
   onToast?: (msg: string) => void;
 }) {
   const [conn, setConn] = useState<Connection>("connecting");
+  const sidebarPref = useSetting("splitDetailSidebar");
   const handleToast = onToast ?? (() => {});
+  const isAgent = w.kind === "agent";
+  // Sidebar visible iff: pane is an agent AND the user hasn't dismissed it.
+  // Shell panes don't render the toggle at all, so their effective state is
+  // always "no sidebar" regardless of the persisted preference.
+  const sidebarOpen = isAgent && sidebarPref;
   return (
     <>
-      <DetailHeader window={w} onFocus={onFocus} conn={conn} />
-      <PaneTerminal
-        key={w.paneId}
+      <DetailHeader
         window={w}
-        onEscape={() => {
-          /* No-op for the inline detail. The terminal already swallowed Esc
-           * via xterm's customKeyEventHandler; the parent wants to keep the
-           * pane focused. Future work: clear the selectedPaneId so the rail
-           * returns to the empty hint. */
-        }}
-        onToast={handleToast}
-        onConnectionChange={(state) => setConn(state)}
+        onFocus={onFocus}
+        conn={conn}
+        sidebarToggleable={isAgent}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() =>
+          updateSettings({ splitDetailSidebar: !sidebarPref })
+        }
       />
+      <div className={`sb-body${sidebarOpen ? " has-sidebar" : ""}`}>
+        <PaneTerminal
+          key={w.paneId}
+          window={w}
+          onEscape={() => {
+            /* No-op for the inline detail. The terminal already swallowed Esc
+             * via xterm's customKeyEventHandler; the parent wants to keep the
+             * pane focused. Future work: clear the selectedPaneId so the rail
+             * returns to the empty hint. */
+          }}
+          onToast={handleToast}
+          onConnectionChange={(state) => setConn(state)}
+        />
+        {sidebarOpen && <DetailSidebar window={w} />}
+      </div>
     </>
+  );
+}
+
+/** Stub sidebar — sections fill in in follow-up commits within PR 3. */
+function DetailSidebar({ window: w }: { window: Window }) {
+  return (
+    <aside className="sb-side" aria-label="Pane sidebar">
+      <DetailSidebarSection title="Linked">
+        <p className="sb-side-stub">PR + Linear cards land next.</p>
+      </DetailSidebarSection>
+      <DetailSidebarSection title="Notes">
+        <p className="sb-side-stub">Per-pane notes land next.</p>
+      </DetailSidebarSection>
+      <DetailSidebarSection title="Activity">
+        {w.status === "waiting" && (
+          <div className="sb-side-need-human" role="alert">
+            Needs your input.
+          </div>
+        )}
+        <p className="sb-side-stub">Activity feed lands next.</p>
+      </DetailSidebarSection>
+    </aside>
+  );
+}
+
+function DetailSidebarSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="sb-side-sec">
+      <header className="sb-side-sec-hd">{title}</header>
+      <div className="sb-side-sec-body">{children}</div>
+    </section>
   );
 }
 
@@ -667,10 +726,17 @@ function DetailHeader({
   window: w,
   onFocus,
   conn,
+  sidebarToggleable,
+  sidebarOpen,
+  onToggleSidebar,
 }: {
   window: Window;
   onFocus: (w: Window) => void;
   conn?: Connection;
+  /** When false, the sidebar toggle button is hidden (shell panes). */
+  sidebarToggleable?: boolean;
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
 }) {
   const agent = w.agent;
   return (
@@ -741,6 +807,17 @@ function DetailHeader({
         <span className="sb-pane-action" title={agent.action}>
           {agent.action}
         </span>
+      )}
+      {sidebarToggleable && onToggleSidebar && (
+        <button
+          className={`btn btn-icon btn-ghost sb-side-toggle${sidebarOpen ? " is-open" : ""}`}
+          onClick={onToggleSidebar}
+          aria-pressed={sidebarOpen}
+          aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+          title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+        >
+          <Icon name="docs" />
+        </button>
       )}
       <button
         className="btn btn-icon btn-ghost"
