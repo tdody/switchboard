@@ -523,7 +523,13 @@ export function PaneTerminal({ window: win, onEscape, onToast, onConnectionChang
 
   return (
     <>
-      <div className="term-body" ref={hostRef} style={{ padding: 6 }} />
+      {/* The padded wrapper supplies the visual gutter around xterm; the
+       *  inner term-host is what xterm measures with clientHeight. Keeping
+       *  the padding off the measured element avoids fit() over-counting
+       *  rows and clipping the last line at the bottom edge. */}
+      <div className="term-body">
+        <div className="term-host" ref={hostRef} />
+      </div>
       {prompt && (
         <PromptOverlay
           prompt={prompt}

@@ -1746,9 +1746,16 @@ input, textarea, select { font: inherit; color: inherit; }
 .term-spacer { flex: 1; }
 .term-actions { display: flex; gap: 4px; align-items: center; }
 .term-body {
-  /* THI-150: theme-aware. Previously `#050608` + a hardcoded `#d6d9e0`
-     text color — both bled around the xterm viewport (the 100px bottom
-     padding shows through) and looked wrong wrapping a light theme. */
+  /* Padded wrapper around the xterm host. The 6px gutter is visual only —
+   * xterm.js measures `.term-host`'s clientHeight, which excludes this
+   * padding, so fit() never over-counts rows and the bottom cell stays
+   * inside the box. Pre-refactor (PR 3): the padding sat directly on
+   * `.term-body` as the xterm host, which made clientHeight include the
+   * gutter and clipped the last row at tall modal heights.
+   *
+   * THI-150: theme-aware background. Pre-fix this was `#050608` + a
+   * hardcoded text color — both bled around the xterm viewport and looked
+   * wrong wrapping a light theme. */
   background:
     radial-gradient(900px 360px at 80% 0%, color-mix(in oklch, var(--accent) 12%, transparent), transparent 70%),
     var(--panel);
@@ -1756,27 +1763,33 @@ input, textarea, select { font: inherit; color: inherit; }
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.55;
-  padding: 16px 22px 100px;
+  padding: 6px;
   /* xterm.js owns scrolling via its own .xterm-viewport — the host element
      must not also be a scroll container, or fit()'s sub-pixel rounding spawns
-     a spurious second scrollbar. (Most of this rule is dead styling from the
-     pre-xterm line renderer; full cleanup tracked in THI-103.) */
+     a spurious second scrollbar. */
   overflow: hidden;
   position: relative;
+  display: flex;
+  min-height: 0;
+}
+.term-host {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 /* Auto-hiding terminal scrollbar — the gutter is always reserved (no reflow),
-   but the thumb is only painted while `.scrolling` is set, which TerminalModal
+   but the thumb is only painted while `.scrolling` is set, which PaneTerminal
    toggles on scroll with an ~800ms idle timeout. */
-.term-body .xterm-viewport { background-color: transparent; }
-.term-body .xterm-viewport::-webkit-scrollbar { width: 10px; }
-.term-body .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
-.term-body .xterm-viewport::-webkit-scrollbar-thumb {
+.term-host .xterm-viewport { background-color: transparent; }
+.term-host .xterm-viewport::-webkit-scrollbar { width: 10px; }
+.term-host .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.term-host .xterm-viewport::-webkit-scrollbar-thumb {
   background: transparent;
   border: 2px solid transparent;
   border-radius: 6px;
   background-clip: content-box;
 }
-.term-body.scrolling .xterm-viewport::-webkit-scrollbar-thumb {
+.term-host.scrolling .xterm-viewport::-webkit-scrollbar-thumb {
   background: var(--hairline-strong);
   background-clip: content-box;
 }
