@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { sortPendingFirst } from "../../lib/filter";
 import {
@@ -680,15 +680,16 @@ function Detail({
   );
 }
 
-/** Stub sidebar — sections fill in in follow-up commits within PR 3. */
+/** Pane sidebar: Linked / Notes / Activity. Mounted only for agent panes
+ *  and only when the user hasn't dismissed the toggle. */
 function DetailSidebar({ window: w }: { window: Window }) {
   return (
     <aside className="sb-side" aria-label="Pane sidebar">
       <DetailSidebarSection title="Linked">
-        <p className="sb-side-stub">PR + Linear cards land next.</p>
+        <LinkedSection window={w} />
       </DetailSidebarSection>
       <DetailSidebarSection title="Notes">
-        <p className="sb-side-stub">Per-pane notes land next.</p>
+        <NotesSection window={w} />
       </DetailSidebarSection>
       <DetailSidebarSection title="Activity">
         {w.status === "waiting" && (
@@ -696,9 +697,99 @@ function DetailSidebar({ window: w }: { window: Window }) {
             Needs your input.
           </div>
         )}
-        <p className="sb-side-stub">Activity feed lands next.</p>
+        <p className="sb-side-stub">
+          Per-pane activity feed (commits, CI events) lands in a follow-up.
+        </p>
       </DetailSidebarSection>
     </aside>
+  );
+}
+
+/** Linked: PR + Linear cards. The PR card is hydrated from the existing
+ *  `pr`, `prUrl`, `branch`, and `ci` fields on the Window — same data the
+ *  branch/PR chip uses, just laid out as a tappable card with the CI rollup
+ *  surfaced. Linear linking is a no-op CTA until a backend ships. */
+function LinkedSection({ window: w }: { window: Window }) {
+  return (
+    <div className="sb-side-linked">
+      {w.pr && w.prUrl ? (
+        <a
+          className={`sb-side-pr-card${w.ci ? ` ci-${w.ci}` : ""}`}
+          href={w.prUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={w.branch ? `${w.branch} → PR #${w.pr}` : `PR #${w.pr}`}
+        >
+          {w.ci && <span className={`ci-dot ci-${w.ci}`} aria-hidden="true" />}
+          <span className="sb-side-pr-num">#{w.pr}</span>
+          {w.branch && <span className="sb-side-pr-branch">{w.branch}</span>}
+        </a>
+      ) : w.branch ? (
+        <div className="sb-side-pr-card no-pr" title="Branch with no open PR">
+          <Icon name="git-branch" size={11} />
+          <span className="sb-side-pr-branch">{w.branch}</span>
+          <span className="sb-side-pr-empty">(no PR)</span>
+        </div>
+      ) : (
+        <button type="button" className="sb-side-link-empty" disabled>
+          <Icon name="plus" size={11} />
+          <span>Link a PR…</span>
+        </button>
+      )}
+      <button
+        type="button"
+        className="sb-side-link-empty"
+        disabled
+        title="Linear linking coming in a future release"
+      >
+        <Icon name="plus" size={11} />
+        <span>Link a Linear issue…</span>
+      </button>
+    </div>
+  );
+}
+
+/** Notes: per-pane localStorage with a 300 ms debounce on writes so a flurry
+ *  of keystrokes doesn't thrash the store. The textarea owns its own
+ *  controlled value, hydrated lazily from storage on mount, so parent
+ *  re-renders (every /api/state poll) never re-mount it and the user
+ *  doesn't lose cursor position. */
+function NotesSection({ window: w }: { window: Window }) {
+  const storageKey = `switchboard:pane-notes:${w.paneId}`;
+  const [text, setText] = useState<string>(() => {
+    if (typeof localStorage === "undefined") return "";
+    try {
+      return localStorage.getItem(storageKey) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const writeTimer = useRef<number | null>(null);
+  useEffect(() => {
+    if (writeTimer.current !== null) {
+      window.clearTimeout(writeTimer.current);
+    }
+    writeTimer.current = window.setTimeout(() => {
+      try {
+        if (text) localStorage.setItem(storageKey, text);
+        else localStorage.removeItem(storageKey);
+      } catch {
+        /* storage unavailable */
+      }
+    }, 300);
+    return () => {
+      if (writeTimer.current !== null) window.clearTimeout(writeTimer.current);
+    };
+  }, [text, storageKey]);
+  return (
+    <textarea
+      className="sb-side-notes"
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      placeholder="Notes for this pane…"
+      rows={6}
+      aria-label={`Notes for ${w.session}:${w.name}`}
+    />
   );
 }
 

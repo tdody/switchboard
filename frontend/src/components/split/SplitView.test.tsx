@@ -275,6 +275,96 @@ describe("SplitView (THI-246 PR 3 — detail header)", () => {
     expect(container.querySelector(".sb-side-toggle")).toBeNull();
   });
 
+  it("Linked section renders a PR card when the pane has pr + prUrl", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            kind: "agent",
+            branch: "feat/x",
+            pr: 42,
+            prUrl: "https://github.com/o/r/pull/42",
+            ci: "failing",
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    const card = container.querySelector<HTMLAnchorElement>(".sb-side-pr-card")!;
+    expect(card.getAttribute("href")).toBe("https://github.com/o/r/pull/42");
+    expect(card.className).toContain("ci-failing");
+    expect(card.textContent).toContain("#42");
+    expect(card.textContent).toContain("feat/x");
+  });
+
+  it("Linked section falls back to a branch chip when there's no PR", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            kind: "agent",
+            branch: "feat/x",
+            pr: null,
+            prUrl: null,
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(container.querySelector(".sb-side-pr-card.no-pr")).not.toBeNull();
+    expect(container.querySelector(".sb-side-pr-card.no-pr")!.textContent).toContain(
+      "feat/x",
+    );
+    expect(container.querySelector("a.sb-side-pr-card")).toBeNull();
+  });
+
+  it("Notes section persists the textarea value to per-pane localStorage", async () => {
+    vi.useFakeTimers();
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({ paneId: "%a", session: "alpha", kind: "agent" }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    const ta = container.querySelector<HTMLTextAreaElement>(".sb-side-notes")!;
+    fireEvent.change(ta, { target: { value: "remember to fix the flake" } });
+    // Storage write is debounced 300 ms — advance time and verify.
+    vi.advanceTimersByTime(350);
+    expect(localStorage.getItem("switchboard:pane-notes:%a")).toBe(
+      "remember to fix the flake",
+    );
+    vi.useRealTimers();
+  });
+
+  it("Notes section hydrates from localStorage on mount", () => {
+    localStorage.setItem("switchboard:pane-notes:%a", "earlier thought");
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({ paneId: "%a", session: "alpha", kind: "agent" }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(
+      container.querySelector<HTMLTextAreaElement>(".sb-side-notes")!.value,
+    ).toBe("earlier thought");
+  });
+
   it("Activity section surfaces a need-human banner when the agent is waiting", () => {
     updateSettings({ selectedPaneId: "%a" });
     const { container } = render(
