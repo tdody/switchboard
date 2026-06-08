@@ -3076,6 +3076,29 @@ input, textarea, select { font: inherit; color: inherit; }
   font-weight: 600;
 }
 .sb-rail-hd .grow { flex: 1; }
+/* The collapse / expand toggle in the rail header. Reuses the .btn-ghost
+ * idiom from the Subhead for visual continuity but stays tiny since the
+ * rail header is dense. */
+.sb-rail-collapse {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex: none;
+}
+.sb-rail-collapse:hover {
+  background: var(--panel);
+  color: var(--text);
+}
+.sb-rail-collapse:focus-visible {
+  outline: 2px solid var(--accent-edge);
+  outline-offset: 1px;
+}
 .sb-rail-body {
   overflow-y: auto;
   padding: 6px 0 16px;
@@ -3086,6 +3109,43 @@ input, textarea, select { font: inherit; color: inherit; }
   padding: 20px 14px;
   color: var(--text-dim);
   font-size: 11.5px;
+}
+/* Collapsed dot-strip variant: a 44px-wide column of status dots. The body
+ * centers each row; the header drops its label so only the expand button
+ * stays. The rail container itself sets overflow to hidden so a narrow
+ * stretch of dots scrolls cleanly without showing scrollbars at this width. */
+.sb-rail.is-collapsed .sb-rail-hd {
+  justify-content: center;
+  padding: 9px 4px;
+}
+.sb-rail.is-collapsed .sb-rail-body {
+  padding: 6px 0 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.sb-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  flex: none;
+}
+.sb-dot.tone-amber { background: var(--tone-amber); }
+.sb-dot.tone-cyan { background: var(--tone-cyan); }
+.sb-dot.tone-green { background: var(--tone-green); }
+.sb-dot.tone-red { background: var(--tone-red); }
+.sb-dot.tone-gray { background: var(--tone-gray); }
+.sb-dot.tone-lilac { background: var(--tone-lilac); }
+.sb-dot.sel {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.sb-dot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .sb-group { display: flex; flex-direction: column; }
@@ -3125,6 +3185,36 @@ input, textarea, select { font: inherit; color: inherit; }
   font-weight: 600;
   color: var(--text);
 }
+/* Drag-to-reorder visuals. The dragged row dims so the user can see where
+ * it'll land; drop-before / drop-after paint a 2px accent line above or
+ * below the hovered group to mark the insertion point. The pseudo-elements
+ * use absolute positioning so they don't shift sibling layout while the
+ * user is dragging. */
+.sb-row.sb-row-head[draggable="true"] {
+  cursor: grab;
+}
+.sb-row.sb-row-head[draggable="true"]:active {
+  cursor: grabbing;
+}
+.sb-row.sb-row-head.is-dragging {
+  opacity: 0.4;
+}
+.sb-row.sb-row-head.drop-before,
+.sb-row.sb-row-head.drop-after {
+  position: relative;
+}
+.sb-row.sb-row-head.drop-before::before,
+.sb-row.sb-row-head.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.sb-row.sb-row-head.drop-before::before { top: -1px; }
+.sb-row.sb-row-head.drop-after::after { bottom: -1px; }
 .sb-row.pane {
   padding-left: 22px;
   color: var(--text);
@@ -3141,17 +3231,61 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--accent);
   flex: none;
 }
+/* "+ New tab" affordance — same row metrics as a pane row but reads as an
+ * action: dim text + accent on hover, plus icon instead of a kind glyph. */
+.sb-row.sb-newtab {
+  color: var(--text-dim);
+}
+.sb-row.sb-newtab:hover {
+  color: var(--accent);
+}
+.sb-row.sb-newtab:hover .ic {
+  color: var(--accent);
+}
+/* Small `session:` chip on rail rows in repos mode — lets the user see which
+ * tmux session a pane belongs to when the rail is keyed off repo, since the
+ * extra hierarchy level the spec originally proposed was collapsed. */
+.sb-row .sb-row-session {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--panel);
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+  flex: none;
+  max-width: 12ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ── divider ───────────────────────────────────────────────────────────── */
 .sb-divider {
   position: relative;
   z-index: 5;
+  cursor: col-resize;
+  /* The 7px gutter from the grid template gives the user a comfortable hit
+   * target without a visible band. The thin hairline lives in ::after. */
+  touch-action: none;
 }
 .sb-divider::after {
   content: "";
   position: absolute;
   inset: 0 3px;
   background: var(--hairline);
+}
+.sb-divider:hover::after,
+.sb-divider:focus-visible::after,
+.sb-divider.is-dragging::after {
+  background: var(--accent-edge);
+}
+.sb-divider:focus-visible {
+  outline: none;
+}
+/* While the user is dragging, keep the col-resize cursor across the whole
+ * viewport so it doesn't flicker when the pointer briefly leaves the gutter. */
+.sb-divider.is-dragging {
+  cursor: col-resize;
 }
 
 /* ── detail pane ───────────────────────────────────────────────────────── */
