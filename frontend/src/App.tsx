@@ -1009,6 +1009,7 @@ export function App() {
             sessions={orderedSessions}
             onFocus={handleFocus}
             onNewWindow={setNewWindowSession}
+            onToast={messageToast}
           />
         ) : settings.layout === "list" ? (
           <ListView

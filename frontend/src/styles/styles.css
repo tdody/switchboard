@@ -3333,6 +3333,24 @@ input, textarea, select { font: inherit; color: inherit; }
 }
 .sb-pane-hd .pname { font-weight: 600; }
 .sb-pane-hd .grow { flex: 1; }
+/* Inline connection pill — dim by default, amber while reconnecting, red
+ * when the pane's gone. Sized so it doesn't push the status pill off the
+ * row on narrow rails. */
+.sb-pane-conn {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  white-space: nowrap;
+}
+.sb-pane-conn.reconnecting,
+.sb-pane-conn.connecting { color: var(--tone-amber); }
+.sb-pane-conn.disconnected,
+.sb-pane-conn.gone { color: var(--tone-red); }
 /* Pending-input action hint — matches TerminalModal's `.term-action`
  * treatment so the same agent question reads the same in both surfaces. */
 .sb-pane-action {

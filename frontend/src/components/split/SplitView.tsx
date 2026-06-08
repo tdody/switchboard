@@ -11,6 +11,7 @@ import { STATUS_META } from "../../lib/status";
 import type { Session, Window } from "../../types";
 import { Chip } from "../Chip";
 import { Icon } from "../Icon";
+import { PaneTerminal, type Connection } from "../PaneTerminal";
 import { StatusPill } from "../StatusPill";
 
 /** Rail width bounds — clamps the divider drag and any settings hydration. */
@@ -88,6 +89,10 @@ interface Props {
    *  Wired by App.tsx → setNewWindowSession. When omitted (legacy callers,
    *  tests), the "+ New tab" rows are hidden. */
   onNewWindow?: (sessionId: string) => void;
+  /** Optional: surface PaneTerminal events (copy notifications, IDE failures,
+   *  image-paste errors) to the App-level toaster. When omitted, the
+   *  in-detail xterm renders without toast feedback. Tests pass undefined. */
+  onToast?: (msg: string) => void;
 }
 
 /** THI-246 PR 2 — Split view rail features (in progress).
@@ -108,7 +113,13 @@ interface Props {
  *  swap restores the last viewed pane. Rail width persists in
  *  `settings.splitRailWidth` (used by the divider in PR 2).
  */
-export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
+export function SplitView({
+  windows,
+  sessions,
+  onFocus,
+  onNewWindow,
+  onToast,
+}: Props) {
   const groupingMode = useSetting("groupingMode");
   const selectedPaneId = useSetting("selectedPaneId");
   const persistedRailWidth = useSetting("splitRailWidth");
@@ -381,12 +392,17 @@ export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
       />
       <section className="sb-detail" role="main" aria-label="Detail pane">
         {selected ? (
-          <DetailPlaceholder window={selected} onFocus={onFocus} />
+          <Detail
+            window={selected}
+            onFocus={onFocus}
+            onToast={onToast}
+          />
         ) : (
           <div className="sb-detail-empty">
             <p>Select a pane from the rail to see its live terminal.</p>
             <p className="sb-detail-empty-sub">
-              Inline xterm lands in a follow-up PR.
+              The rest of the dashboard's chrome stays where it is — Kanban,
+              Grid, List still open the modal on click.
             </p>
           </div>
         )}
@@ -602,23 +618,42 @@ function DotRow({
   );
 }
 
-function DetailPlaceholder({
+/** The detail pane's content: header + inline xterm + connection chip.
+ *
+ *  PaneTerminal is keyed on `paneId` so changing the selected pane tears
+ *  down the previous xterm + WebSocket and remounts a fresh one. As long as
+ *  the same pane stays selected — even across `windows[]` re-renders from
+ *  every /api/state poll — the key is stable and PaneTerminal reuses its
+ *  existing terminal + connection.
+ *
+ *  Toast handling is optional; older callers / tests don't supply it and
+ *  pass-throughs become no-ops. */
+function Detail({
   window: w,
   onFocus,
+  onToast,
 }: {
   window: Window;
   onFocus: (w: Window) => void;
+  onToast?: (msg: string) => void;
 }) {
+  const [conn, setConn] = useState<Connection>("connecting");
+  const handleToast = onToast ?? (() => {});
   return (
     <>
-      <DetailHeader window={w} onFocus={onFocus} />
-      <div className="sb-detail-stub">
-        <p>Inline terminal coming in a follow-up PR.</p>
-        <p className="sb-detail-stub-sub">
-          For now, use the Focus-in-tmux button above or switch to
-          Kanban/List/Grid to open the existing terminal modal.
-        </p>
-      </div>
+      <DetailHeader window={w} onFocus={onFocus} conn={conn} />
+      <PaneTerminal
+        key={w.paneId}
+        window={w}
+        onEscape={() => {
+          /* No-op for the inline detail. The terminal already swallowed Esc
+           * via xterm's customKeyEventHandler; the parent wants to keep the
+           * pane focused. Future work: clear the selectedPaneId so the rail
+           * returns to the empty hint. */
+        }}
+        onToast={handleToast}
+        onConnectionChange={(state) => setConn(state)}
+      />
     </>
   );
 }
@@ -626,13 +661,16 @@ function DetailPlaceholder({
 /** Pixel-stable wrapping chip header for the Split detail pane. Mirrors
  *  TerminalModal's chip layout (branch/PR + spinner + StatusPill + action)
  *  so the at-a-glance signal is the same whether the user is in modal or
- *  inline mode. */
+ *  inline mode. Connection state surfaces as a dim trailing pill so the
+ *  user can tell a stalled stream from a healthy one without a modal footer. */
 function DetailHeader({
   window: w,
   onFocus,
+  conn,
 }: {
   window: Window;
   onFocus: (w: Window) => void;
+  conn?: Connection;
 }) {
   const agent = w.agent;
   return (
@@ -687,6 +725,14 @@ function DetailHeader({
         </Chip>
       )}
       <span className="grow" />
+      {/* Connection state — dim pill so it doesn't compete with the status
+          pill. The xterm itself surfaces [reconnecting…] inline, so this is
+          a redundant safety net rather than a primary signal. */}
+      {conn && conn !== "live" && (
+        <span className={`sb-pane-conn ${conn}`} title={`WebSocket: ${conn}`}>
+          {conn}
+        </span>
+      )}
       <StatusPill status={w.status} />
       {/* Pending-input hint, same shape TerminalModal's header uses. Lets
           the user see what to answer from the detail header without
