@@ -3327,7 +3327,23 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--text-mute);
   white-space: nowrap;
 }
+.sb-pane-hd .meta .sep {
+  color: var(--text-dim);
+  margin: 0 2px;
+}
+.sb-pane-hd .pname { font-weight: 600; }
 .sb-pane-hd .grow { flex: 1; }
+/* Pending-input action hint — matches TerminalModal's `.term-action`
+ * treatment so the same agent question reads the same in both surfaces. */
+.sb-pane-action {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--tone-amber);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* PR 1 placeholders — replaced by inline xterm in PR 3. */
 .sb-detail-empty,

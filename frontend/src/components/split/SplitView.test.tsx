@@ -111,6 +111,118 @@ describe("SplitView (THI-246 PR 1)", () => {
   });
 });
 
+describe("SplitView (THI-246 PR 3 — detail header)", () => {
+  it("renders the branch/PR chip when the selected pane has them", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            name: "claude",
+            kind: "agent",
+            branch: "feat/x",
+            pr: 42,
+            prUrl: "https://github.com/o/r/pull/42",
+            ci: "passing",
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    const chip = container.querySelector(".sb-pane-hd .branch-pr");
+    expect(chip).not.toBeNull();
+    expect(chip!.className).toContain("ci-passing");
+    expect(chip!.textContent).toContain("feat/x");
+    expect(chip!.textContent).toContain("#42");
+    expect(chip!.querySelector("a.pr-link")!.getAttribute("href")).toBe(
+      "https://github.com/o/r/pull/42",
+    );
+  });
+
+  it("surfaces ctx% only when the agent reports it", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const withCtx = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            kind: "agent",
+            agent: {
+              branch: null,
+              spinner: null,
+              duration: null,
+              recap: null,
+              action: null,
+              contextPct: 73,
+            },
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(
+      withCtx.container.querySelector(".sb-pane-hd .ctx")!.textContent,
+    ).toContain("ctx 73%");
+    cleanup();
+
+    const withoutCtx = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            kind: "agent",
+            agent: {
+              branch: null,
+              spinner: null,
+              duration: null,
+              recap: null,
+              action: null,
+            },
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(withoutCtx.container.querySelector(".sb-pane-hd .ctx")).toBeNull();
+  });
+
+  it("shows the pending-input action hint when an agent is waiting", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            kind: "agent",
+            status: "waiting",
+            pendingInput: true,
+            agent: {
+              branch: null,
+              spinner: null,
+              duration: null,
+              recap: null,
+              action: "Run pytest?",
+            },
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(container.querySelector(".sb-pane-action")!.textContent).toBe(
+      "Run pytest?",
+    );
+  });
+});
+
 describe("SplitView (THI-246 PR 2 — repos mode)", () => {
   it("groups rail rows by repo when groupingMode=repos", () => {
     updateSettings({ groupingMode: "repos" });

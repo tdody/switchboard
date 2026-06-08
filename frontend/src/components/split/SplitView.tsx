@@ -9,6 +9,7 @@ import {
 import { updateSettings, useSetting } from "../../lib/settings";
 import { STATUS_META } from "../../lib/status";
 import type { Session, Window } from "../../types";
+import { Chip } from "../Chip";
 import { Icon } from "../Icon";
 import { StatusPill } from "../StatusPill";
 
@@ -610,28 +611,7 @@ function DetailPlaceholder({
 }) {
   return (
     <>
-      <header className="sb-pane-hd">
-        <span className="pid">
-          <span className="ic">
-            <Icon name={w.kind === "agent" ? "agent" : "shell"} size={13} />
-          </span>
-          {w.name}
-        </span>
-        <span className="meta">
-          {w.session}:{w.index}
-        </span>
-        {w.branch && <span className="meta">{w.branch}</span>}
-        <span className="grow" />
-        <StatusPill status={w.status} />
-        <button
-          className="btn btn-icon btn-ghost"
-          onClick={() => onFocus(w)}
-          title="Focus this window in tmux"
-          aria-label="Focus in tmux"
-        >
-          <Icon name="focus" />
-        </button>
-      </header>
+      <DetailHeader window={w} onFocus={onFocus} />
       <div className="sb-detail-stub">
         <p>Inline terminal coming in a follow-up PR.</p>
         <p className="sb-detail-stub-sub">
@@ -640,5 +620,90 @@ function DetailPlaceholder({
         </p>
       </div>
     </>
+  );
+}
+
+/** Pixel-stable wrapping chip header for the Split detail pane. Mirrors
+ *  TerminalModal's chip layout (branch/PR + spinner + StatusPill + action)
+ *  so the at-a-glance signal is the same whether the user is in modal or
+ *  inline mode. */
+function DetailHeader({
+  window: w,
+  onFocus,
+}: {
+  window: Window;
+  onFocus: (w: Window) => void;
+}) {
+  const agent = w.agent;
+  return (
+    <header className="sb-pane-hd">
+      <span className="pid">
+        <span className={`ic ${w.kind === "agent" ? "agent" : ""}`}>
+          <Icon name={w.kind === "agent" ? "agent" : "shell"} size={13} />
+        </span>
+        <b className="pname">{w.name}</b>
+      </span>
+      <span className="meta sess" title={`session ${w.session}, window ${w.index}`}>
+        {w.session}
+        <span className="sep">›</span>:{w.index}
+      </span>
+      {(w.branch || w.pr) && (
+        <Chip
+          className={`branch-pr ${w.ci ? `ci-${w.ci}` : ""}`}
+          title={w.branch || `PR #${w.pr}`}
+        >
+          {w.ci && <span className={`ci-dot ci-${w.ci}`} aria-hidden="true" />}
+          {w.branch && <Icon name="git-branch" size={10} />}
+          {w.branch && <span>{w.branch}</span>}
+          {w.branch && w.pr && <span className="pr-sep">›</span>}
+          {w.pr && w.prUrl ? (
+            <a
+              className="pr-num pr-link"
+              href={w.prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Open PR #${w.pr} on GitHub`}
+            >
+              #{w.pr}
+            </a>
+          ) : (
+            w.pr && <span className="pr-num">#{w.pr}</span>
+          )}
+        </Chip>
+      )}
+      {agent?.spinner && (
+        <Chip className="spinner" title="agent activity">
+          <span className="spin" />
+          <span>{agent.spinner}</span>
+          {agent.duration && <span className="dur">{agent.duration}</span>}
+        </Chip>
+      )}
+      {/* Ctx% chip — only when the parser surfaced it. Same field the Kanban
+          card shows; placed last in the metadata strip so it sits beside the
+          status pill. */}
+      {agent?.contextPct !== undefined && (
+        <Chip className="ctx" title={`Claude context: ${agent.contextPct}% used`}>
+          <span>ctx {agent.contextPct}%</span>
+        </Chip>
+      )}
+      <span className="grow" />
+      <StatusPill status={w.status} />
+      {/* Pending-input hint, same shape TerminalModal's header uses. Lets
+          the user see what to answer from the detail header without
+          scrolling the terminal. */}
+      {w.pendingInput && agent?.action && (
+        <span className="sb-pane-action" title={agent.action}>
+          {agent.action}
+        </span>
+      )}
+      <button
+        className="btn btn-icon btn-ghost"
+        onClick={() => onFocus(w)}
+        title="Focus this window in tmux"
+        aria-label="Focus in tmux"
+      >
+        <Icon name="focus" />
+      </button>
+    </header>
   );
 }
