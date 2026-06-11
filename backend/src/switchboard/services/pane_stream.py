@@ -172,7 +172,10 @@ class PaneStreamer:
 
     async def run(self) -> None:
         # 1. Initial snapshot via capture-pane (pipe-pane only streams NEW output).
-        snapshot = tmux.capture_pane(self.session, self.index, lines=500) or []
+        # join_wrapped so soft-wrapped lines reach xterm whole and re-wrap
+        # there with isWrapped set — the file-path linkifier needs that to
+        # make wrapped paths clickable (THI-253).
+        snapshot = tmux.capture_pane(self.session, self.index, lines=500, join_wrapped=True) or []
         if snapshot:
             try:
                 await self.ws.send_text("\r\n".join(snapshot) + "\r\n")

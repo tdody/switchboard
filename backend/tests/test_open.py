@@ -344,3 +344,19 @@ def test_open_falls_back_to_settings_ide_cmd_when_param_absent(
     r = client.post("/api/open?session=dev&index=0&path=x.py", headers=_csrf(client))
     assert r.status_code == 200
     assert captured["args"][0] == "code"  # settings.ide_cmd default
+
+
+def test_api_pane_requests_joined_wrapped_lines(monkeypatch) -> None:
+    """THI-253: GET /api/pane feeds the snapshot-mode terminal paint, so it
+    must also capture with join_wrapped=True."""
+    from switchboard.routers import pane as pane_router
+
+    recorded: list[dict] = []
+
+    def fake_capture(session: str, index: int, **kwargs):
+        recorded.append(kwargs)
+        return ["x"]
+
+    monkeypatch.setattr(pane_router.tmux, "capture_pane", fake_capture)
+    assert pane_router.get_pane("s", 0, lines=5) == {"lines": ["x"]}
+    assert recorded[0].get("join_wrapped") is True

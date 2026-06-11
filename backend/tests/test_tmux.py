@@ -587,3 +587,32 @@ def test_collect_state_recaptures_pane_after_ttl_expiry(monkeypatch) -> None:
     tmux.collect_state()
 
     assert pane.capture_calls == 2
+
+
+# THI-253: snapshot captures must be able to join soft-wrapped lines (`-J`)
+# so xterm re-wraps them itself and marks `isWrapped` — the frontend's
+# wrapped-path linkifier keys on that flag.
+class _FlagRecordingPane:
+    def __init__(self) -> None:
+        self.cmd_args: list[tuple[str, ...]] = []
+
+    def cmd(self, *args: str):
+        self.cmd_args.append(args)
+        return SimpleNamespace(stdout=["line"])
+
+
+def test_capture_pane_passes_join_wrapped_flag(monkeypatch) -> None:
+    pane = _FlagRecordingPane()
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: pane)
+    out = tmux.capture_pane("s", 0, lines=100, join_wrapped=True)
+    assert out == ["line"]
+    assert "-J" in pane.cmd_args[0]
+
+
+def test_capture_pane_omits_join_flag_by_default(monkeypatch) -> None:
+    """Parser-facing callers (prompt poll, rename, search) need screen rows
+    exactly as displayed — joining must stay opt-in."""
+    pane = _FlagRecordingPane()
+    monkeypatch.setattr(tmux, "get_pane", lambda s, i: pane)
+    tmux.capture_pane("s", 0, lines=100)
+    assert "-J" not in pane.cmd_args[0]
