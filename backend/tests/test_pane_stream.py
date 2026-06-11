@@ -262,3 +262,40 @@ def test_run_snapshot_requests_joined_wrapped_lines(monkeypatch) -> None:
         assert ws.sent == ["snapshot line\r\n"]
 
     asyncio.run(_run())
+
+
+def test_run_closes_fifo_read_end_on_cancel(monkeypatch) -> None:
+    """THI-254: the fifo read-end is owned by the connect_read_pipe transport;
+    cancelling the streamer (WS disconnect) must close it, else every pane
+    WebSocket leaks one fd until the worker starves at macOS's 256 soft limit."""
+    import contextlib
+    from types import SimpleNamespace
+
+    async def _run() -> None:
+        captured: list = []
+        real_fdopen = os.fdopen
+
+        def spying_fdopen(fd: int, *args, **kwargs):
+            obj = real_fdopen(fd, *args, **kwargs)
+            captured.append(obj)
+            return obj
+
+        monkeypatch.setattr(pane_stream.tmux, "capture_pane", lambda *a, **k: [])
+        monkeypatch.setattr(
+            pane_stream.tmux, "get_server", lambda: SimpleNamespace(cmd=lambda *a: None)
+        )
+        monkeypatch.setattr(pane_stream.tmux, "pane_kind", lambda s, i: "shell")
+        monkeypatch.setattr(pane_stream.os, "fdopen", spying_fdopen)
+
+        streamer = PaneStreamer(session="s", index=0, ws=_FakeWS())
+        task = asyncio.create_task(streamer.run())
+        await asyncio.sleep(0.3)  # reach the fifo read loop
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        await asyncio.sleep(0.05)  # let transport-close callbacks run
+
+        assert captured, "streamer never opened the fifo read end"
+        assert captured[0].closed, "fifo read-end fd leaked after cancel"
+
+    asyncio.run(_run())
