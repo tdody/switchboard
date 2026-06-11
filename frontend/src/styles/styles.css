@@ -1746,9 +1746,16 @@ input, textarea, select { font: inherit; color: inherit; }
 .term-spacer { flex: 1; }
 .term-actions { display: flex; gap: 4px; align-items: center; }
 .term-body {
-  /* THI-150: theme-aware. Previously `#050608` + a hardcoded `#d6d9e0`
-     text color — both bled around the xterm viewport (the 100px bottom
-     padding shows through) and looked wrong wrapping a light theme. */
+  /* Padded wrapper around the xterm host. The 6px gutter is visual only —
+   * xterm.js measures `.term-host`'s clientHeight, which excludes this
+   * padding, so fit() never over-counts rows and the bottom cell stays
+   * inside the box. Pre-refactor (PR 3): the padding sat directly on
+   * `.term-body` as the xterm host, which made clientHeight include the
+   * gutter and clipped the last row at tall modal heights.
+   *
+   * THI-150: theme-aware background. Pre-fix this was `#050608` + a
+   * hardcoded text color — both bled around the xterm viewport and looked
+   * wrong wrapping a light theme. */
   background:
     radial-gradient(900px 360px at 80% 0%, color-mix(in oklch, var(--accent) 12%, transparent), transparent 70%),
     var(--panel);
@@ -1756,27 +1763,33 @@ input, textarea, select { font: inherit; color: inherit; }
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.55;
-  padding: 16px 22px 100px;
+  padding: 6px;
   /* xterm.js owns scrolling via its own .xterm-viewport — the host element
      must not also be a scroll container, or fit()'s sub-pixel rounding spawns
-     a spurious second scrollbar. (Most of this rule is dead styling from the
-     pre-xterm line renderer; full cleanup tracked in THI-103.) */
+     a spurious second scrollbar. */
   overflow: hidden;
   position: relative;
+  display: flex;
+  min-height: 0;
+}
+.term-host {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 /* Auto-hiding terminal scrollbar — the gutter is always reserved (no reflow),
-   but the thumb is only painted while `.scrolling` is set, which TerminalModal
+   but the thumb is only painted while `.scrolling` is set, which PaneTerminal
    toggles on scroll with an ~800ms idle timeout. */
-.term-body .xterm-viewport { background-color: transparent; }
-.term-body .xterm-viewport::-webkit-scrollbar { width: 10px; }
-.term-body .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
-.term-body .xterm-viewport::-webkit-scrollbar-thumb {
+.term-host .xterm-viewport { background-color: transparent; }
+.term-host .xterm-viewport::-webkit-scrollbar { width: 10px; }
+.term-host .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.term-host .xterm-viewport::-webkit-scrollbar-thumb {
   background: transparent;
   border: 2px solid transparent;
   border-radius: 6px;
   background-clip: content-box;
 }
-.term-body.scrolling .xterm-viewport::-webkit-scrollbar-thumb {
+.term-host.scrolling .xterm-viewport::-webkit-scrollbar-thumb {
   background: var(--hairline-strong);
   background-clip: content-box;
 }
@@ -3327,11 +3340,179 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--text-mute);
   white-space: nowrap;
 }
+.sb-pane-hd .meta .sep {
+  color: var(--text-dim);
+  margin: 0 2px;
+}
+.sb-pane-hd .pname { font-weight: 600; }
 .sb-pane-hd .grow { flex: 1; }
+/* Inline connection pill — dim by default, amber while reconnecting, red
+ * when the pane's gone. Sized so it doesn't push the status pill off the
+ * row on narrow rails. */
+.sb-pane-conn {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  white-space: nowrap;
+}
+.sb-pane-conn.reconnecting,
+.sb-pane-conn.connecting { color: var(--tone-amber); }
+.sb-pane-conn.disconnected,
+.sb-pane-conn.gone { color: var(--tone-red); }
+/* Pending-input action hint — matches TerminalModal's `.term-action`
+ * treatment so the same agent question reads the same in both surfaces. */
+.sb-pane-action {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--tone-amber);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-/* PR 1 placeholders — replaced by inline xterm in PR 3. */
-.sb-detail-empty,
-.sb-detail-stub {
+/* Detail body — flexes between the inline xterm (left) and the optional
+ * sidebar (right, 256px). The sb-body wrapper exists because PaneTerminal
+ * renders just `.term-body` + the prompt overlay, and we need a grid
+ * row to host both the terminal and the sidebar side-by-side. */
+.sb-detail .sb-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.sb-detail .sb-body > .term-body {
+  flex: 1;
+  min-width: 0;
+}
+.sb-side {
+  width: 256px;
+  flex: none;
+  border-left: 1px solid var(--hairline);
+  background: var(--bg-elev);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.sb-side-sec + .sb-side-sec {
+  border-top: 1px solid var(--hairline);
+}
+.sb-side-sec-hd {
+  padding: 9px 14px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+.sb-side-sec-body {
+  padding: 4px 14px 14px;
+  font-size: 12px;
+  color: var(--text-mute);
+}
+.sb-side-stub {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  margin: 0;
+}
+/* Linked section: PR card + Linear placeholder. Cards are compact,
+ * tappable rows so a quick glance shows the PR number + CI state without
+ * needing the full Window card chrome. */
+.sb-side-linked {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sb-side-pr-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-decoration: none;
+}
+.sb-side-pr-card:hover {
+  background: var(--panel-2);
+  border-color: var(--hairline-strong);
+}
+.sb-side-pr-card.ci-passing { border-color: var(--tone-green); }
+.sb-side-pr-card.ci-failing { border-color: var(--tone-red); }
+.sb-side-pr-card.ci-running { border-color: var(--tone-amber); }
+.sb-side-pr-card.no-pr {
+  color: var(--text-mute);
+  cursor: default;
+}
+.sb-side-pr-num { font-weight: 600; color: var(--accent); }
+.sb-side-pr-branch {
+  color: var(--text-mute);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 14ch;
+}
+.sb-side-pr-empty { color: var(--text-dim); font-size: 11px; }
+.sb-side-link-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: not-allowed;
+}
+/* Notes textarea — full-width, mono, scrollable. Resize handle stays off
+ * since the sidebar's own scrollbar handles overflow. */
+.sb-side-notes {
+  width: 100%;
+  min-height: 100px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+}
+.sb-side-notes:focus {
+  border-color: var(--accent-edge);
+  outline: none;
+}
+/* "Needs your input" banner — amber background, pinned at the top of the
+ * Activity section when the pane is waiting. */
+.sb-side-need-human {
+  background: color-mix(in oklab, var(--tone-amber) 18%, transparent);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+/* Sidebar toggle in the detail header. Same shape as the focus-in-tmux
+ * button; aria-pressed drives the active tint. */
+.sb-side-toggle.is-open {
+  color: var(--accent);
+}
+
+/* Existing empty-state hint — kept; the stub state is gone now that the
+ * inline xterm ships. */
+.sb-detail-empty {
   flex: 1;
   display: grid;
   place-items: center;
@@ -3341,8 +3522,7 @@ input, textarea, select { font: inherit; color: inherit; }
   font-size: 13px;
   background: #050608;
 }
-.sb-detail-empty-sub,
-.sb-detail-stub-sub {
+.sb-detail-empty-sub {
   margin-top: 8px;
   color: var(--text-dim);
   font-size: 11.5px;

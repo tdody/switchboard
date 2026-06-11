@@ -1,5 +1,51 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// xterm.js touches DOM APIs that happy-dom doesn't ship (createRange,
+// ResizeObserver hooks via the fit addon, `self` in the addons' UMD
+// wrappers). Mock the xterm modules at file load so PaneTerminal — which
+// SplitView's Detail now mounts inline — doesn't crash the suite. Same
+// vi.hoisted pattern TerminalModal.test.tsx uses, deliberately a minimal
+// stub since these tests exercise the surrounding chrome rather than
+// the terminal itself.
+const { MockTerminal } = vi.hoisted(() => {
+  class MockTerminal {
+    cols = 80;
+    rows = 24;
+    options: Record<string, unknown> = {};
+    writeln() {}
+    write() {}
+    clear() {}
+    dispose() {}
+    open() {}
+    focus() {}
+    loadAddon() {}
+    attachCustomKeyEventHandler() {}
+    onData() {
+      return { dispose() {} };
+    }
+    registerLinkProvider() {
+      return { dispose() {} };
+    }
+    getSelection() {
+      return "";
+    }
+  }
+  return { MockTerminal };
+});
+
+vi.mock("xterm", () => ({ Terminal: MockTerminal }));
+vi.mock("xterm-addon-fit", () => ({
+  FitAddon: class {
+    fit() {}
+  },
+}));
+vi.mock("xterm-addon-web-links", () => ({
+  WebLinksAddon: class {
+    constructor(_handler?: unknown) {}
+  },
+}));
+vi.mock("xterm/css/xterm.css", () => ({}));
 
 import { SplitView } from "./SplitView";
 import { DEFAULT_SETTINGS, updateSettings } from "../../lib/settings";
@@ -108,6 +154,263 @@ describe("SplitView (THI-246 PR 1)", () => {
       )!,
     );
     expect(onFocus).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("SplitView (THI-246 PR 3 — detail header)", () => {
+  it("renders the branch/PR chip when the selected pane has them", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            name: "claude",
+            kind: "agent",
+            branch: "feat/x",
+            pr: 42,
+            prUrl: "https://github.com/o/r/pull/42",
+            ci: "passing",
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    const chip = container.querySelector(".sb-pane-hd .branch-pr");
+    expect(chip).not.toBeNull();
+    expect(chip!.className).toContain("ci-passing");
+    expect(chip!.textContent).toContain("feat/x");
+    expect(chip!.textContent).toContain("#42");
+    expect(chip!.querySelector("a.pr-link")!.getAttribute("href")).toBe(
+      "https://github.com/o/r/pull/42",
+    );
+  });
+
+  it("surfaces ctx% only when the agent reports it", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const withCtx = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            kind: "agent",
+            agent: {
+              branch: null,
+              spinner: null,
+              duration: null,
+              recap: null,
+              action: null,
+              contextPct: 73,
+            },
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(
+      withCtx.container.querySelector(".sb-pane-hd .ctx")!.textContent,
+    ).toContain("ctx 73%");
+    cleanup();
+
+    const withoutCtx = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            kind: "agent",
+            agent: {
+              branch: null,
+              spinner: null,
+              duration: null,
+              recap: null,
+              action: null,
+            },
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(withoutCtx.container.querySelector(".sb-pane-hd .ctx")).toBeNull();
+  });
+
+  it("renders the sidebar by default for an agent pane; toggle hides it", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({ paneId: "%a", session: "alpha", kind: "agent" }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(container.querySelector(".sb-side")).not.toBeNull();
+    const toggle = container.querySelector<HTMLButtonElement>(".sb-side-toggle")!;
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(toggle);
+    expect(container.querySelector(".sb-side")).toBeNull();
+    expect(
+      JSON.parse(localStorage.getItem("switchboard:settings")!).splitDetailSidebar,
+    ).toBe(false);
+  });
+
+  it("hides the sidebar (and its toggle) for non-agent panes", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({ paneId: "%a", session: "alpha", kind: "shell" }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(container.querySelector(".sb-side")).toBeNull();
+    expect(container.querySelector(".sb-side-toggle")).toBeNull();
+  });
+
+  it("Linked section renders a PR card when the pane has pr + prUrl", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            kind: "agent",
+            branch: "feat/x",
+            pr: 42,
+            prUrl: "https://github.com/o/r/pull/42",
+            ci: "failing",
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    const card = container.querySelector<HTMLAnchorElement>(".sb-side-pr-card")!;
+    expect(card.getAttribute("href")).toBe("https://github.com/o/r/pull/42");
+    expect(card.className).toContain("ci-failing");
+    expect(card.textContent).toContain("#42");
+    expect(card.textContent).toContain("feat/x");
+  });
+
+  it("Linked section falls back to a branch chip when there's no PR", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            kind: "agent",
+            branch: "feat/x",
+            pr: null,
+            prUrl: null,
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(container.querySelector(".sb-side-pr-card.no-pr")).not.toBeNull();
+    expect(container.querySelector(".sb-side-pr-card.no-pr")!.textContent).toContain(
+      "feat/x",
+    );
+    expect(container.querySelector("a.sb-side-pr-card")).toBeNull();
+  });
+
+  it("Notes section persists the textarea value to per-pane localStorage", async () => {
+    vi.useFakeTimers();
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({ paneId: "%a", session: "alpha", kind: "agent" }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    const ta = container.querySelector<HTMLTextAreaElement>(".sb-side-notes")!;
+    fireEvent.change(ta, { target: { value: "remember to fix the flake" } });
+    // Storage write is debounced 300 ms — advance time and verify.
+    vi.advanceTimersByTime(350);
+    expect(localStorage.getItem("switchboard:pane-notes:%a")).toBe(
+      "remember to fix the flake",
+    );
+    vi.useRealTimers();
+  });
+
+  it("Notes section hydrates from localStorage on mount", () => {
+    localStorage.setItem("switchboard:pane-notes:%a", "earlier thought");
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({ paneId: "%a", session: "alpha", kind: "agent" }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(
+      container.querySelector<HTMLTextAreaElement>(".sb-side-notes")!.value,
+    ).toBe("earlier thought");
+  });
+
+  it("Activity section surfaces a need-human banner when the agent is waiting", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            kind: "agent",
+            status: "waiting",
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(container.querySelector(".sb-side-need-human")).not.toBeNull();
+  });
+
+  it("shows the pending-input action hint when an agent is waiting", () => {
+    updateSettings({ selectedPaneId: "%a" });
+    const { container } = render(
+      <SplitView
+        windows={[
+          mkWindow({
+            paneId: "%a",
+            session: "alpha",
+            kind: "agent",
+            status: "waiting",
+            pendingInput: true,
+            agent: {
+              branch: null,
+              spinner: null,
+              duration: null,
+              recap: null,
+              action: "Run pytest?",
+            },
+          }),
+        ]}
+        sessions={[mkSession({ id: "alpha" })]}
+        onFocus={noop}
+      />,
+    );
+    expect(container.querySelector(".sb-pane-action")!.textContent).toBe(
+      "Run pytest?",
+    );
   });
 });
 

@@ -172,7 +172,10 @@ class PaneStreamer:
 
     async def run(self) -> None:
         # 1. Initial snapshot via capture-pane (pipe-pane only streams NEW output).
-        snapshot = tmux.capture_pane(self.session, self.index, lines=500) or []
+        # join_wrapped so soft-wrapped lines reach xterm whole and re-wrap
+        # there with isWrapped set — the file-path linkifier needs that to
+        # make wrapped paths clickable (THI-253).
+        snapshot = tmux.capture_pane(self.session, self.index, lines=500, join_wrapped=True) or []
         if snapshot:
             try:
                 await self.ws.send_text("\r\n".join(snapshot) + "\r\n")
@@ -204,6 +207,8 @@ class PaneStreamer:
             return
 
         fd = -1
+        file_obj = None
+        transport: asyncio.ReadTransport | None = None
         pipe_active = False
         prompt_task: asyncio.Task[None] | None = None
         try:
@@ -232,7 +237,9 @@ class PaneStreamer:
             # connect_read_pipe takes ownership of the fd via the file object.
             file_obj = os.fdopen(fd, "rb", buffering=0)
             fd = -1  # ownership transferred
-            await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), file_obj)
+            transport, _ = await loop.connect_read_pipe(
+                lambda: asyncio.StreamReaderProtocol(reader), file_obj
+            )
 
             # Buffer for partial `ESC k …` sequences that span FIFO reads.
             title_pending = b""
@@ -261,8 +268,18 @@ class PaneStreamer:
             if pipe_active:
                 with contextlib.suppress(Exception):
                     srv.cmd("pipe-pane", "-t", target)  # ty: ignore
-            # Close fd if we still own it.
-            if fd >= 0:
+            # Release the fifo read end. The transport owns the file object
+            # (which owns the fd) once connect_read_pipe succeeds; before
+            # that, whichever of file_obj/fd we still hold. Leaking this fd
+            # starved the worker at macOS's 256 soft limit — one fd per pane
+            # WS open, ~230 opens to a dead server (THI-254).
+            if transport is not None:
+                with contextlib.suppress(Exception):
+                    transport.close()
+            elif file_obj is not None:
+                with contextlib.suppress(Exception):
+                    file_obj.close()
+            elif fd >= 0:
                 with contextlib.suppress(OSError):
                     os.close(fd)
             with contextlib.suppress(OSError):

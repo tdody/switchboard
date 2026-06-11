@@ -493,8 +493,11 @@ describe("TerminalModal — select-to-copy (THI-146)", () => {
     const term = mockTerminals.at(-1)!;
     term.getSelection = () => "hello world";
 
-    const body = container.querySelector(".term-body") as HTMLElement;
-    fireEvent.mouseUp(body);
+    // PR 3 refactor: xterm now mounts inside .term-host (a child of
+    // .term-body). The mouseup listener moved with the host so mouseups in
+    // the visual gutter don't fire select-to-copy.
+    const host = container.querySelector(".term-host") as HTMLElement;
+    fireEvent.mouseUp(host);
 
     expect(writeText).toHaveBeenCalledWith("hello world");
     // The toast runs through the resolved-clipboard then() — let it settle.
@@ -517,8 +520,11 @@ describe("TerminalModal — select-to-copy (THI-146)", () => {
     // Default getSelection() returns "" — no override here. A click without
     // a drag-select should never invoke the clipboard or toast a spurious
     // "Copied 0 chars" message.
-    const body = container.querySelector(".term-body") as HTMLElement;
-    fireEvent.mouseUp(body);
+    // PR 3 refactor: xterm now mounts inside .term-host (a child of
+    // .term-body). The mouseup listener moved with the host so mouseups in
+    // the visual gutter don't fire select-to-copy.
+    const host = container.querySelector(".term-host") as HTMLElement;
+    fireEvent.mouseUp(host);
 
     expect(writeText).not.toHaveBeenCalled();
     expect(onToast).not.toHaveBeenCalled();
@@ -541,8 +547,11 @@ describe("TerminalModal — select-to-copy (THI-146)", () => {
     const term = mockTerminals.at(-1)!;
     term.getSelection = () => "secret";
 
-    const body = container.querySelector(".term-body") as HTMLElement;
-    fireEvent.mouseUp(body);
+    // PR 3 refactor: xterm now mounts inside .term-host (a child of
+    // .term-body). The mouseup listener moved with the host so mouseups in
+    // the visual gutter don't fire select-to-copy.
+    const host = container.querySelector(".term-host") as HTMLElement;
+    fireEvent.mouseUp(host);
     await Promise.resolve();
     await Promise.resolve();
 

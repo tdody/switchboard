@@ -372,20 +372,32 @@ def pane_kind(session: str, index: int) -> Kind | None:
     return _infer_kind(win.active_pane.pane_current_command or "", win.window_name or "")
 
 
-def capture_pane(session: str, index: int, lines: int = 200) -> list[str] | None:
+def capture_pane(
+    session: str, index: int, lines: int = 200, *, join_wrapped: bool = False
+) -> list[str] | None:
     """Capture recent scrollback *with* ANSI escapes (`-e`).
 
     Used by `GET /api/pane` and by pane_stream for the WebSocket's initial
     paint — both need color so the terminal modal isn't monochrome until new
     output streams in. `collect_state` keeps a plain (escape-free) capture for
     the parser + card preview.
+
+    `join_wrapped` adds `-J`: tmux re-joins soft-wrapped lines so they reach
+    xterm as single logical lines, letting xterm wrap them itself and mark
+    `isWrapped` — which the frontend's file-path linkifier needs to make
+    wrapped paths clickable (THI-253). Parser-facing callers (prompt poll,
+    rename, search) must NOT set it: they expect screen rows as displayed,
+    and `-J` also preserves trailing spaces.
     """
     pane = get_pane(session, index)
     if pane is None:
         return None
     try:
         # libtmux's Pane.capture_pane() can't pass -e; call tmux directly.
-        out = pane.cmd("capture-pane", "-p", "-e", "-S", f"-{lines}")
+        args = ["capture-pane", "-p", "-e"]
+        if join_wrapped:
+            args.append("-J")
+        out = pane.cmd(*args, "-S", f"-{lines}")
         return list(out.stdout or [])
     except Exception:  # noqa: BLE001
         return None

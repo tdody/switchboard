@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { sortPendingFirst } from "../../lib/filter";
 import {
@@ -9,7 +9,9 @@ import {
 import { updateSettings, useSetting } from "../../lib/settings";
 import { STATUS_META } from "../../lib/status";
 import type { Session, Window } from "../../types";
+import { Chip } from "../Chip";
 import { Icon } from "../Icon";
+import { PaneTerminal, type Connection } from "../PaneTerminal";
 import { StatusPill } from "../StatusPill";
 
 /** Rail width bounds — clamps the divider drag and any settings hydration. */
@@ -87,6 +89,10 @@ interface Props {
    *  Wired by App.tsx → setNewWindowSession. When omitted (legacy callers,
    *  tests), the "+ New tab" rows are hidden. */
   onNewWindow?: (sessionId: string) => void;
+  /** Optional: surface PaneTerminal events (copy notifications, IDE failures,
+   *  image-paste errors) to the App-level toaster. When omitted, the
+   *  in-detail xterm renders without toast feedback. Tests pass undefined. */
+  onToast?: (msg: string) => void;
 }
 
 /** THI-246 PR 2 — Split view rail features (in progress).
@@ -107,7 +113,13 @@ interface Props {
  *  swap restores the last viewed pane. Rail width persists in
  *  `settings.splitRailWidth` (used by the divider in PR 2).
  */
-export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
+export function SplitView({
+  windows,
+  sessions,
+  onFocus,
+  onNewWindow,
+  onToast,
+}: Props) {
   const groupingMode = useSetting("groupingMode");
   const selectedPaneId = useSetting("selectedPaneId");
   const persistedRailWidth = useSetting("splitRailWidth");
@@ -380,12 +392,17 @@ export function SplitView({ windows, sessions, onFocus, onNewWindow }: Props) {
       />
       <section className="sb-detail" role="main" aria-label="Detail pane">
         {selected ? (
-          <DetailPlaceholder window={selected} onFocus={onFocus} />
+          <Detail
+            window={selected}
+            onFocus={onFocus}
+            onToast={onToast}
+          />
         ) : (
           <div className="sb-detail-empty">
             <p>Select a pane from the rail to see its live terminal.</p>
             <p className="sb-detail-empty-sub">
-              Inline xterm lands in a follow-up PR.
+              The rest of the dashboard's chrome stays where it is — Kanban,
+              Grid, List still open the modal on click.
             </p>
           </div>
         )}
@@ -601,44 +618,306 @@ function DotRow({
   );
 }
 
-function DetailPlaceholder({
+/** The detail pane's content: header + inline xterm + optional sidebar.
+ *
+ *  PaneTerminal is keyed on `paneId` so changing the selected pane tears
+ *  down the previous xterm + WebSocket and remounts a fresh one. As long as
+ *  the same pane stays selected — even across `windows[]` re-renders from
+ *  every /api/state poll — the key is stable and PaneTerminal reuses its
+ *  existing terminal + connection.
+ *
+ *  Sidebar (Linked / Notes / Activity) is gated to agent panes — shell
+ *  panes don't have a meaningful Linked/Notes/Activity story. The toggle
+ *  is hidden when the gate excludes the pane.
+ *
+ *  Toast handling is optional; older callers / tests don't supply it and
+ *  pass-throughs become no-ops. */
+function Detail({
   window: w,
   onFocus,
+  onToast,
 }: {
   window: Window;
   onFocus: (w: Window) => void;
+  onToast?: (msg: string) => void;
 }) {
+  const [conn, setConn] = useState<Connection>("connecting");
+  const sidebarPref = useSetting("splitDetailSidebar");
+  const handleToast = onToast ?? (() => {});
+  const isAgent = w.kind === "agent";
+  // Sidebar visible iff: pane is an agent AND the user hasn't dismissed it.
+  // Shell panes don't render the toggle at all, so their effective state is
+  // always "no sidebar" regardless of the persisted preference.
+  const sidebarOpen = isAgent && sidebarPref;
   return (
     <>
-      <header className="sb-pane-hd">
-        <span className="pid">
-          <span className="ic">
-            <Icon name={w.kind === "agent" ? "agent" : "shell"} size={13} />
-          </span>
-          {w.name}
-        </span>
-        <span className="meta">
-          {w.session}:{w.index}
-        </span>
-        {w.branch && <span className="meta">{w.branch}</span>}
-        <span className="grow" />
-        <StatusPill status={w.status} />
-        <button
-          className="btn btn-icon btn-ghost"
-          onClick={() => onFocus(w)}
-          title="Focus this window in tmux"
-          aria-label="Focus in tmux"
-        >
-          <Icon name="focus" />
-        </button>
-      </header>
-      <div className="sb-detail-stub">
-        <p>Inline terminal coming in a follow-up PR.</p>
-        <p className="sb-detail-stub-sub">
-          For now, use the Focus-in-tmux button above or switch to
-          Kanban/List/Grid to open the existing terminal modal.
-        </p>
+      <DetailHeader
+        window={w}
+        onFocus={onFocus}
+        conn={conn}
+        sidebarToggleable={isAgent}
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() =>
+          updateSettings({ splitDetailSidebar: !sidebarPref })
+        }
+      />
+      <div className={`sb-body${sidebarOpen ? " has-sidebar" : ""}`}>
+        <PaneTerminal
+          key={w.paneId}
+          window={w}
+          onEscape={() => {
+            /* No-op for the inline detail. The terminal already swallowed Esc
+             * via xterm's customKeyEventHandler; the parent wants to keep the
+             * pane focused. Future work: clear the selectedPaneId so the rail
+             * returns to the empty hint. */
+          }}
+          onToast={handleToast}
+          onConnectionChange={(state) => setConn(state)}
+        />
+        {sidebarOpen && <DetailSidebar window={w} />}
       </div>
     </>
+  );
+}
+
+/** Pane sidebar: Linked / Notes / Activity. Mounted only for agent panes
+ *  and only when the user hasn't dismissed the toggle. */
+function DetailSidebar({ window: w }: { window: Window }) {
+  return (
+    <aside className="sb-side" aria-label="Pane sidebar">
+      <DetailSidebarSection title="Linked">
+        <LinkedSection window={w} />
+      </DetailSidebarSection>
+      <DetailSidebarSection title="Notes">
+        <NotesSection window={w} />
+      </DetailSidebarSection>
+      <DetailSidebarSection title="Activity">
+        {w.status === "waiting" && (
+          <div className="sb-side-need-human" role="alert">
+            Needs your input.
+          </div>
+        )}
+        <p className="sb-side-stub">
+          Per-pane activity feed (commits, CI events) lands in a follow-up.
+        </p>
+      </DetailSidebarSection>
+    </aside>
+  );
+}
+
+/** Linked: PR + Linear cards. The PR card is hydrated from the existing
+ *  `pr`, `prUrl`, `branch`, and `ci` fields on the Window — same data the
+ *  branch/PR chip uses, just laid out as a tappable card with the CI rollup
+ *  surfaced. Linear linking is a no-op CTA until a backend ships. */
+function LinkedSection({ window: w }: { window: Window }) {
+  return (
+    <div className="sb-side-linked">
+      {w.pr && w.prUrl ? (
+        <a
+          className={`sb-side-pr-card${w.ci ? ` ci-${w.ci}` : ""}`}
+          href={w.prUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={w.branch ? `${w.branch} → PR #${w.pr}` : `PR #${w.pr}`}
+        >
+          {w.ci && <span className={`ci-dot ci-${w.ci}`} aria-hidden="true" />}
+          <span className="sb-side-pr-num">#{w.pr}</span>
+          {w.branch && <span className="sb-side-pr-branch">{w.branch}</span>}
+        </a>
+      ) : w.branch ? (
+        <div className="sb-side-pr-card no-pr" title="Branch with no open PR">
+          <Icon name="git-branch" size={11} />
+          <span className="sb-side-pr-branch">{w.branch}</span>
+          <span className="sb-side-pr-empty">(no PR)</span>
+        </div>
+      ) : (
+        <button type="button" className="sb-side-link-empty" disabled>
+          <Icon name="plus" size={11} />
+          <span>Link a PR…</span>
+        </button>
+      )}
+      <button
+        type="button"
+        className="sb-side-link-empty"
+        disabled
+        title="Linear linking coming in a future release"
+      >
+        <Icon name="plus" size={11} />
+        <span>Link a Linear issue…</span>
+      </button>
+    </div>
+  );
+}
+
+/** Notes: per-pane localStorage with a 300 ms debounce on writes so a flurry
+ *  of keystrokes doesn't thrash the store. The textarea owns its own
+ *  controlled value, hydrated lazily from storage on mount, so parent
+ *  re-renders (every /api/state poll) never re-mount it and the user
+ *  doesn't lose cursor position. */
+function NotesSection({ window: w }: { window: Window }) {
+  const storageKey = `switchboard:pane-notes:${w.paneId}`;
+  const [text, setText] = useState<string>(() => {
+    if (typeof localStorage === "undefined") return "";
+    try {
+      return localStorage.getItem(storageKey) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const writeTimer = useRef<number | null>(null);
+  useEffect(() => {
+    if (writeTimer.current !== null) {
+      window.clearTimeout(writeTimer.current);
+    }
+    writeTimer.current = window.setTimeout(() => {
+      try {
+        if (text) localStorage.setItem(storageKey, text);
+        else localStorage.removeItem(storageKey);
+      } catch {
+        /* storage unavailable */
+      }
+    }, 300);
+    return () => {
+      if (writeTimer.current !== null) window.clearTimeout(writeTimer.current);
+    };
+  }, [text, storageKey]);
+  return (
+    <textarea
+      className="sb-side-notes"
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      placeholder="Notes for this pane…"
+      rows={6}
+      aria-label={`Notes for ${w.session}:${w.name}`}
+    />
+  );
+}
+
+function DetailSidebarSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="sb-side-sec">
+      <header className="sb-side-sec-hd">{title}</header>
+      <div className="sb-side-sec-body">{children}</div>
+    </section>
+  );
+}
+
+/** Pixel-stable wrapping chip header for the Split detail pane. Mirrors
+ *  TerminalModal's chip layout (branch/PR + spinner + StatusPill + action)
+ *  so the at-a-glance signal is the same whether the user is in modal or
+ *  inline mode. Connection state surfaces as a dim trailing pill so the
+ *  user can tell a stalled stream from a healthy one without a modal footer. */
+function DetailHeader({
+  window: w,
+  onFocus,
+  conn,
+  sidebarToggleable,
+  sidebarOpen,
+  onToggleSidebar,
+}: {
+  window: Window;
+  onFocus: (w: Window) => void;
+  conn?: Connection;
+  /** When false, the sidebar toggle button is hidden (shell panes). */
+  sidebarToggleable?: boolean;
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
+}) {
+  const agent = w.agent;
+  return (
+    <header className="sb-pane-hd">
+      <span className="pid">
+        <span className={`ic ${w.kind === "agent" ? "agent" : ""}`}>
+          <Icon name={w.kind === "agent" ? "agent" : "shell"} size={13} />
+        </span>
+        <b className="pname">{w.name}</b>
+      </span>
+      <span className="meta sess" title={`session ${w.session}, window ${w.index}`}>
+        {w.session}
+        <span className="sep">›</span>:{w.index}
+      </span>
+      {(w.branch || w.pr) && (
+        <Chip
+          className={`branch-pr ${w.ci ? `ci-${w.ci}` : ""}`}
+          title={w.branch || `PR #${w.pr}`}
+        >
+          {w.ci && <span className={`ci-dot ci-${w.ci}`} aria-hidden="true" />}
+          {w.branch && <Icon name="git-branch" size={10} />}
+          {w.branch && <span>{w.branch}</span>}
+          {w.branch && w.pr && <span className="pr-sep">›</span>}
+          {w.pr && w.prUrl ? (
+            <a
+              className="pr-num pr-link"
+              href={w.prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`Open PR #${w.pr} on GitHub`}
+            >
+              #{w.pr}
+            </a>
+          ) : (
+            w.pr && <span className="pr-num">#{w.pr}</span>
+          )}
+        </Chip>
+      )}
+      {agent?.spinner && (
+        <Chip className="spinner" title="agent activity">
+          <span className="spin" />
+          <span>{agent.spinner}</span>
+          {agent.duration && <span className="dur">{agent.duration}</span>}
+        </Chip>
+      )}
+      {/* Ctx% chip — only when the parser surfaced it. Same field the Kanban
+          card shows; placed last in the metadata strip so it sits beside the
+          status pill. */}
+      {agent?.contextPct !== undefined && (
+        <Chip className="ctx" title={`Claude context: ${agent.contextPct}% used`}>
+          <span>ctx {agent.contextPct}%</span>
+        </Chip>
+      )}
+      <span className="grow" />
+      {/* Connection state — dim pill so it doesn't compete with the status
+          pill. The xterm itself surfaces [reconnecting…] inline, so this is
+          a redundant safety net rather than a primary signal. */}
+      {conn && conn !== "live" && (
+        <span className={`sb-pane-conn ${conn}`} title={`WebSocket: ${conn}`}>
+          {conn}
+        </span>
+      )}
+      <StatusPill status={w.status} />
+      {/* Pending-input hint, same shape TerminalModal's header uses. Lets
+          the user see what to answer from the detail header without
+          scrolling the terminal. */}
+      {w.pendingInput && agent?.action && (
+        <span className="sb-pane-action" title={agent.action}>
+          {agent.action}
+        </span>
+      )}
+      {sidebarToggleable && onToggleSidebar && (
+        <button
+          className={`btn btn-icon btn-ghost sb-side-toggle${sidebarOpen ? " is-open" : ""}`}
+          onClick={onToggleSidebar}
+          aria-pressed={sidebarOpen}
+          aria-label={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+          title={sidebarOpen ? "Hide sidebar" : "Show sidebar"}
+        >
+          <Icon name="docs" />
+        </button>
+      )}
+      <button
+        className="btn btn-icon btn-ghost"
+        onClick={() => onFocus(w)}
+        title="Focus this window in tmux"
+        aria-label="Focus in tmux"
+      >
+        <Icon name="focus" />
+      </button>
+    </header>
   );
 }
