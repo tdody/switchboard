@@ -22,7 +22,7 @@ import os
 import stat
 import tempfile
 import uuid
-from typing import TYPE_CHECKING
+from typing import IO, TYPE_CHECKING
 
 from switchboard.services import claude_parser, tmux
 
@@ -206,6 +206,8 @@ class PaneStreamer:
         fd = -1
         pipe_active = False
         prompt_task: asyncio.Task[None] | None = None
+        file_obj: IO[bytes] | None = None
+        transport: asyncio.ReadTransport | None = None
         try:
             # Open the read end non-blocking so we don't deadlock waiting for a writer.
             fd = os.open(fifo_path, os.O_RDONLY | os.O_NONBLOCK)
@@ -232,7 +234,9 @@ class PaneStreamer:
             # connect_read_pipe takes ownership of the fd via the file object.
             file_obj = os.fdopen(fd, "rb", buffering=0)
             fd = -1  # ownership transferred
-            await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), file_obj)
+            transport, _ = await loop.connect_read_pipe(
+                lambda: asyncio.StreamReaderProtocol(reader), file_obj
+            )
 
             # Buffer for partial `ESC k …` sequences that span FIFO reads.
             title_pending = b""
@@ -261,8 +265,19 @@ class PaneStreamer:
             if pipe_active:
                 with contextlib.suppress(Exception):
                     srv.cmd("pipe-pane", "-t", target)  # ty: ignore
-            # Close fd if we still own it.
-            if fd >= 0:
+            # Release the FIFO read side. Once connect_read_pipe succeeds the fd
+            # is owned by the asyncio transport, which only self-closes on EOF —
+            # and on a WS disconnect the tmux `cat` writer is still alive, so no
+            # EOF arrives. We MUST close the transport (or, if we never got that
+            # far, the file object / bare fd) or the read fd leaks one-per-stream
+            # (the `.fifo` is unlinked below but the fd stays open). transport
+            # close also deregisters the loop reader.
+            if transport is not None:
+                transport.close()
+            elif file_obj is not None:
+                with contextlib.suppress(OSError):
+                    file_obj.close()
+            elif fd >= 0:
                 with contextlib.suppress(OSError):
                     os.close(fd)
             with contextlib.suppress(OSError):
