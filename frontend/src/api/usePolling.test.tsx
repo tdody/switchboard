@@ -110,4 +110,49 @@ describe("usePolling", () => {
       get: () => "visible",
     });
   });
+
+  // --- adaptive back-off: `degraded` reflects slow / outpaced backend ---
+
+  it("flags the backend degraded when response latency is high", async () => {
+    // fn resolves after 900 ms of (fake) time; the interval (2 s) is longer so
+    // the fetch completes and its latency is measured.
+    const slowFn = () =>
+      new Promise<string>((res) => {
+        window.setTimeout(() => res("ok"), 900);
+      });
+    const { result } = renderHook(() => usePolling(slowFn, 2000));
+    await tick(900);
+    expect(result.current.degraded).toBe(true);
+  });
+
+  it("stays not degraded when responses are fast", async () => {
+    const fastFn = () =>
+      new Promise<string>((res) => {
+        window.setTimeout(() => res("ok"), 20);
+      });
+    const { result } = renderHook(() => usePolling(fastFn, 1000));
+    await tick(20);
+    await tick(1000);
+    await tick(20);
+    expect(result.current.degraded).toBe(false);
+  });
+
+  it("flags degraded when polls are repeatedly superseded (backend outpaced)", async () => {
+    // fn never resolves on its own; it rejects AbortError when its signal
+    // fires — i.e. when the next tick aborts it before it completed.
+    const fn = vi.fn((signal: AbortSignal) => {
+      return new Promise<string>((_res, rej) => {
+        signal.addEventListener("abort", () =>
+          rej(new DOMException("aborted", "AbortError")),
+        );
+      });
+    });
+    const { result } = renderHook(() => usePolling(fn, 100));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await tick(100); // tick 2 aborts tick 1's fetch → supersede #1
+    await tick(100); // tick 3 aborts tick 2's fetch → supersede #2 → degraded
+    expect(result.current.degraded).toBe(true);
+  });
 });

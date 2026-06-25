@@ -135,7 +135,7 @@ export function App() {
   // exactly when the user has switched away and needs to be told (THI-78).
   // Browser throttles background timers (~1Hz, dropping to ~1/min after a few
   // minutes hidden), which bounds the bandwidth cost.
-  const { data: state, consecutiveErrors, refresh } = usePolling(
+  const { data: state, consecutiveErrors, refresh, degraded: backendDegraded } = usePolling(
     fetchState,
     pollIntervalMs,
     settings.notifyBrowser,
@@ -587,9 +587,13 @@ export function App() {
       settings.pollIntervalMs,
       MODAL_OPEN_POLL_MS,
       inputActive,
+      // Adaptive back-off: when /api/state is slow (e.g. the host is swapping),
+      // usePolling flags `backendDegraded` and the cadence is floored so we
+      // stop piling requests onto a struggling backend.
+      backendDegraded,
     );
     setPollIntervalMs((prev) => (prev === next ? prev : next));
-  }, [openId, windows, settings.pollIntervalMs, inputActive]);
+  }, [openId, windows, settings.pollIntervalMs, inputActive, backendDegraded]);
 
   // Apply persisted appearance settings to <html>. The theme/density/
   // reduced-motion CSS ships in styles.css; accent is written as CSS vars.

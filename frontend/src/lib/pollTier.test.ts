@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { ACTIVE_POLL_MS, INPUT_ACTIVE_MIN_MS, pickPollInterval } from "./pollTier";
+import {
+  ACTIVE_POLL_MS,
+  DEGRADED_POLL_MS,
+  INPUT_ACTIVE_MIN_MS,
+  nextDegraded,
+  pickPollInterval,
+  updateLatencyEwma,
+} from "./pollTier";
 import type { Status, Window } from "../types";
 
 const MODAL_OPEN_POLL_MS = 100;
@@ -161,5 +168,69 @@ describe("pickPollInterval", () => {
     expect(
       pickPollInterval(true, [], 3000, MODAL_OPEN_POLL_MS),
     ).toBe(MODAL_OPEN_POLL_MS);
+  });
+
+  // --- adaptive back-off (degraded backend) ---
+  it("floors the interval at DEGRADED_POLL_MS when degraded, overriding modal + input", () => {
+    expect(pickPollInterval(true, [], 3000, 500, false, true)).toBe(DEGRADED_POLL_MS);
+    expect(pickPollInterval(true, [], 3000, 500, true, true)).toBe(DEGRADED_POLL_MS);
+    expect(
+      pickPollInterval(false, [makeWindow("running")], 3000, 500, false, true),
+    ).toBe(DEGRADED_POLL_MS);
+  });
+
+  it("never lowers an interval that is already slower than the back-off floor", () => {
+    // Idle tier with a high configured cadence → 2× = 20 000 ms > 5 000 ms floor.
+    expect(
+      pickPollInterval(false, [makeWindow("idle")], 10000, 500, false, true),
+    ).toBe(20000);
+  });
+
+  it("is a no-op when not degraded (default arg keeps existing call sites)", () => {
+    expect(pickPollInterval(true, [], 3000, 500, false, false)).toBe(500);
+    expect(pickPollInterval(true, [], 3000, 500)).toBe(500);
+  });
+});
+
+describe("updateLatencyEwma", () => {
+  it("seeds with the first sample", () => {
+    expect(updateLatencyEwma(null, 120)).toBe(120);
+  });
+
+  it("smooths toward newer samples", () => {
+    const e1 = updateLatencyEwma(null, 1000);
+    const e2 = updateLatencyEwma(e1, 0); // 0.4*0 + 0.6*1000
+    expect(e2).toBeCloseTo(600, 5);
+  });
+});
+
+describe("nextDegraded (hysteresis + supersede escalation)", () => {
+  it("enters degraded when smoothed latency exceeds the high threshold", () => {
+    expect(nextDegraded(false, 900, 0)).toBe(true);
+  });
+
+  it("enters degraded after repeated supersedes even when latency reads low", () => {
+    // Polling faster than the backend can answer: fetches are aborted before
+    // completing, so latency samples are sparse — the supersede count is the
+    // signal that we're outpacing the backend.
+    expect(nextDegraded(false, 50, 2)).toBe(true);
+  });
+
+  it("stays not-degraded for fast responses with no supersedes", () => {
+    expect(nextDegraded(false, 200, 0)).toBe(false);
+  });
+
+  it("stays degraded in the hysteresis band (between exit and enter)", () => {
+    expect(nextDegraded(true, 500, 0)).toBe(true);
+  });
+
+  it("exits degraded only when latency is clearly low AND not superseding", () => {
+    expect(nextDegraded(true, 100, 0)).toBe(false);
+    expect(nextDegraded(true, 100, 1)).toBe(true); // still superseding → stay
+  });
+
+  it("treats a null (no-sample-yet) latency as no change to the current state", () => {
+    expect(nextDegraded(false, null, 0)).toBe(false);
+    expect(nextDegraded(true, null, 0)).toBe(true);
   });
 });
