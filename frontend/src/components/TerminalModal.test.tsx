@@ -99,6 +99,13 @@ const win = {
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
+  // Mirror the real WebSocket readyState constants so the component's
+  // `ws.readyState === WebSocket.CONNECTING` / `WebSocket.OPEN` checks resolve
+  // against the stubbed global instead of `undefined`.
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
   readyState = 0; // CONNECTING
   binaryType = "arraybuffer";
   onopen: ((e: unknown) => void) | null = null;
@@ -290,6 +297,42 @@ describe("TerminalModal — reconnect", () => {
 
     unmount();
     expect(clearSpy).toHaveBeenCalledWith(backoffTimerId);
+  });
+});
+
+describe("TerminalModal — WebSocket teardown (no 'closed before established')", () => {
+  it("defers closing a still-connecting socket until it opens, instead of closing it mid-handshake", () => {
+    const { unmount } = render(
+      <TerminalModal window={win} onClose={() => {}} onToast={() => {}} />,
+    );
+    const ws = FakeWebSocket.instances[0];
+    expect(ws.readyState).toBe(0); // CONNECTING — handshake never completed
+
+    unmount();
+
+    // Closing a socket mid-handshake is exactly what makes the browser log
+    // "WebSocket is closed before the connection is established". The cleanup
+    // must NOT close a CONNECTING socket directly...
+    expect(ws.closed).toBe(false);
+    // ...and must detach handlers so a late frame can't touch the disposed term.
+    expect(ws.onmessage).toBeNull();
+    expect(ws.onclose).toBeNull();
+    // The close is deferred to onopen; once the handshake finishes it closes.
+    ws.readyState = 1; // OPEN
+    ws.onopen?.({});
+    expect(ws.closed).toBe(true);
+  });
+
+  it("closes an already-open socket immediately on unmount", () => {
+    const { unmount } = render(
+      <TerminalModal window={win} onClose={() => {}} onToast={() => {}} />,
+    );
+    const ws = FakeWebSocket.instances[0];
+    act(() => {
+      ws.open(); // readyState → OPEN
+    });
+    unmount();
+    expect(ws.closed).toBe(true);
   });
 });
 
