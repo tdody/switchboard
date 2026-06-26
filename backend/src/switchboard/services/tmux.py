@@ -16,7 +16,9 @@ import subprocess
 import threading
 import time
 import uuid
+from collections.abc import Iterable
 from concurrent.futures import Future
+from typing import NamedTuple
 
 import libtmux
 
@@ -170,115 +172,211 @@ def _simple_status(cmd: str, capture: list[str]) -> Status:
     return "idle" if shell_like else "running"
 
 
+# Field separator for the batched list-panes / list-clients format strings.
+# ASCII Unit Separator (0x1f) never appears in session/window names, commands,
+# or paths, so it splits cleanly where `|`/`\t` could collide with a value.
+_PANE_FIELD_SEP = "\x1f"
+
+# One row per ACTIVE pane (`-f '#{pane_active}'`), carrying its session +
+# window + pane metadata. Replaces libtmux's per-window/per-pane property
+# access, which forks a separate `tmux` subprocess for each `s.windows`,
+# `w.active_pane`, `pane.pane_current_command`, … lookup (~150 ms/window).
+_PANE_FMT = _PANE_FIELD_SEP.join(
+    (
+        "#{session_name}",
+        "#{session_attached}",
+        "#{session_created}",
+        "#{window_index}",
+        "#{window_name}",
+        "#{window_activity}",
+        "#{pane_id}",
+        "#{pane_current_command}",
+        "#{pane_current_path}",
+    )
+)
+
+_CLIENT_FMT = _PANE_FIELD_SEP.join(
+    ("#{client_session}", "#{client_tty}", "#{client_termname}", "#{client_activity}")
+)
+
+
+class _PaneRow(NamedTuple):
+    session: str
+    session_attached: str
+    session_created: str
+    window_index: str
+    window_name: str
+    window_activity: str
+    pane_id: str
+    cmd: str
+    cwd: str
+
+
+def _parse_pane_rows(lines: Iterable[str]) -> list[_PaneRow]:
+    """Parse `tmux list-panes -F` output (one delimited row per active pane).
+    Blank or short (truncated/malformed) rows are skipped defensively so a
+    racing pane teardown can't crash the whole scan."""
+    rows: list[_PaneRow] = []
+    for line in lines:
+        if not line:
+            continue
+        parts = line.split(_PANE_FIELD_SEP)
+        if len(parts) < 9:
+            continue
+        rows.append(_PaneRow(*parts[:9]))
+    return rows
+
+
+def _parse_clients_grouped(lines: Iterable[str]) -> dict[str, list[Client]]:
+    """Parse `tmux list-clients -F` output into {session_name: [Client, …]}."""
+    by_session: dict[str, list[Client]] = {}
+    for line in lines:
+        if not line:
+            continue
+        parts = line.split(_PANE_FIELD_SEP)
+        if len(parts) < 4:
+            continue
+        session, tty, term, since = parts[:4]
+        by_session.setdefault(session, []).append(
+            Client(tty=tty, term=term, since=_to_int(since) * 1000)
+        )
+    return by_session
+
+
+def _cmd_lines(srv: libtmux.Server, *args: str) -> list[str]:
+    """Run a tmux command via libtmux's `Server.cmd` and return stdout lines,
+    swallowing errors to an empty list (a racing kill mid-scan shouldn't 500
+    the whole /api/state poll)."""
+    try:
+        # No type-ignore needed: ty can't analyze the `*args` unpack, so it
+        # raises no false positive (unlike the literal-arg srv.cmd sites).
+        out = srv.cmd(*args)
+    except Exception:  # noqa: BLE001 — libtmux can raise its own errors
+        return []
+    return list(out.stdout or [])
+
+
+def _capture_pane_target_cached(srv: libtmux.Server, target: str, pane_id: str) -> list[str]:
+    """Capture a pane's visible buffer by `session:window` target, cached by
+    pane_id (THI-181 TTL). Mirrors `_capture_pane_cached` but sources content
+    via a direct `capture-pane` command instead of a libtmux pane object."""
+    if not pane_id:
+        return _cmd_lines(srv, "capture-pane", "-p", "-t", target)
+    now = time.monotonic()
+    with _capture_cache_lock:
+        entry = _capture_cache.get(pane_id)
+        if entry is not None and now - entry[0] < _CAPTURE_CACHE_TTL_S:
+            return entry[1]
+    capture = _cmd_lines(srv, "capture-pane", "-p", "-t", target)
+    with _capture_cache_lock:
+        _capture_cache[pane_id] = (now, capture)
+    return capture
+
+
 def collect_state() -> StateResponse:
     srv = get_server()
     if srv is None:
         return StateResponse(sessions=[], windows=[], server_running=False)
 
+    # Two batched tmux calls replace libtmux's per-session/per-window/per-pane
+    # property fan-out (which forked one subprocess per access — ~150 ms per
+    # window under modal-open polling, the dominant /api/state cost).
+    pane_rows = _parse_pane_rows(
+        _cmd_lines(srv, "list-panes", "-a", "-f", "#{pane_active}", "-F", _PANE_FMT)
+    )
+    clients_by_session = _parse_clients_grouped(_cmd_lines(srv, "list-clients", "-F", _CLIENT_FMT))
+
     sessions: list[Session] = []
     windows: list[Window] = []
+    seen_sessions: set[str] = set()
 
-    for s in srv.sessions:
-        name = s.session_name or ""
+    for row in pane_rows:
+        name = row.session
         # Hide internal scrape sessions from the dashboard (THI-110 commit 3).
         # `sb-usage-<uuid8>` sessions are created/killed by claude_usage's
-        # /usage scrape every ~5 min. The scrape lifecycle is tiny but
-        # racy with /api/state polls: if `s.windows` is queried after the
-        # scrape's `tmux kill-session`, libtmux raises LibTmuxException.
-        # Filtering here also keeps these sessions out of the kanban UI,
-        # which is the right answer regardless of the race.
+        # /usage scrape every ~5 min; they're internal and must never render.
         if name.startswith("sb-usage-"):
             continue
-        clients = _list_clients(srv, name)
-        sessions.append(
-            Session(
-                id=name,
-                name=name,
-                attached=_truthy(s.session_attached) or bool(clients),
-                created=_to_int(s.session_created) * 1000,
-                clients=clients,
-            )
-        )
 
-        # Defense-in-depth: even after the `sb-usage-` filter, ANY session
-        # can vanish between `srv.sessions` and `s.windows` (the user runs
-        # `tmux kill-session` from a shell). Per-session libtmux failures
-        # used to crash the whole /api/state call with a 500; now they
-        # demote to a skipped session card and the dashboard keeps polling.
-        try:
-            session_windows = list(s.windows)
-        except Exception:  # noqa: BLE001 — libtmux can raise its own errors here
-            log.warning("collect_state: failed to list windows for session %r", name)
-            continue
-
-        for w in session_windows:
-            pane = w.active_pane
-            if pane is None:
-                continue
-            # THI-181: routed through a short-TTL per-pane cache so back-to-back
-            # /api/state polls under modal-open cadence don't fan out into one
-            # capture-pane subprocess per window per tick.
-            capture = _capture_pane_cached(pane)
-
-            cmd = pane.pane_current_command or ""
-            cwd = pane.pane_current_path or ""
-            kind = _infer_kind(cmd, w.window_name or "")
-
-            if kind == "agent":
-                status, pending, agent = claude_parser.parse_pane(capture, cwd)
-            else:
-                status = _simple_status(cmd, capture)
-                pending = False
-                agent = None
-
-            # Surface the cwd's git branch on every pane, not just agent ones,
-            # so shell tiles get a branch chip too. For agent panes, parse_pane
-            # has already populated `agent.branch` via the same `_git_branch`
-            # helper — the call below hits the 2 s cache (THI-126), so the
-            # subprocess cost is the same as before.
-            branch = claude_parser._git_branch(cwd) if cwd else None
-            # PR / CI rollup is keyed by (cwd, branch) and 60 s-cached, so the
-            # same lookup serves every pane on that branch — agent or shell.
-            # Shell tiles on a branch with an open PR get the same CI-tinted
-            # chip the kanban agent card shows. `pr_url` lights up the chip
-            # as a link (THI-146 PR 2).
-            pr, ci, pr_url = claude_parser._gh_pr(cwd, branch) if branch else (None, None, None)
-            # Repo URL is computed independently of PR existence so the in-pane
-            # `PR #N` linkifier still has a base URL on branches with no open
-            # PR. Pure local git, cached 5 min.
-            repo_url = claude_parser._git_repo_url(cwd) if cwd else None
-            # THI-243: repo toplevel + display label, used by the grouping-mode
-            # toggle to bucket panes in the discovery view. Cached 60 s — long
-            # enough to absorb noise, short enough that a freshly-opened pane
-            # in a new repo appears quickly.
-            repo_key = claude_parser._git_repo_root(cwd) if cwd else None
-            repo_label = os.path.basename(repo_key.rstrip("/")) if repo_key else None
-
-            idx = _to_int(w.window_index)
-            windows.append(
-                Window(
-                    id=f"{name}:{idx}",
-                    pane_id=pane.pane_id or "",
-                    session=name,
-                    index=idx,
-                    name=w.window_name or "",
-                    kind=kind,
-                    status=status,
-                    last_activity=_to_int(getattr(w, "window_activity", None)) * 1000,
-                    cmd=cmd,
-                    cwd=cwd,
-                    pending_input=pending,
-                    branch=branch,
-                    pr=pr,
-                    pr_url=pr_url,
-                    ci=ci,
-                    repo_url=repo_url,
-                    repo_key=repo_key,
-                    repo_label=repo_label,
-                    agent=agent,
-                    preview=capture[-8:] if capture else [],
+        # Emit the Session card once, on first sight of any of its panes (every
+        # session has ≥1 active pane, so this covers them all).
+        if name not in seen_sessions:
+            seen_sessions.add(name)
+            clients = clients_by_session.get(name, [])
+            sessions.append(
+                Session(
+                    id=name,
+                    name=name,
+                    attached=_truthy(row.session_attached) or bool(clients),
+                    created=_to_int(row.session_created) * 1000,
+                    clients=clients,
                 )
             )
+
+        target = f"{name}:{row.window_index}"
+        # THI-181: short-TTL per-pane capture cache so back-to-back /api/state
+        # polls under modal-open cadence don't re-fire a capture-pane per tick.
+        capture = _capture_pane_target_cached(srv, target, row.pane_id)
+
+        cmd = row.cmd
+        cwd = row.cwd
+        kind = _infer_kind(cmd, row.window_name)
+
+        if kind == "agent":
+            status, pending, agent = claude_parser.parse_pane(capture, cwd)
+        else:
+            status = _simple_status(cmd, capture)
+            pending = False
+            agent = None
+
+        # Surface the cwd's git branch on every pane, not just agent ones,
+        # so shell tiles get a branch chip too. For agent panes, parse_pane
+        # has already populated `agent.branch` via the same `_git_branch`
+        # helper — the call below hits the 2 s cache (THI-126), so the
+        # subprocess cost is the same as before.
+        branch = claude_parser._git_branch(cwd) if cwd else None
+        # PR / CI rollup is keyed by (cwd, branch) and 60 s-cached, so the
+        # same lookup serves every pane on that branch — agent or shell.
+        # Shell tiles on a branch with an open PR get the same CI-tinted
+        # chip the kanban agent card shows. `pr_url` lights up the chip
+        # as a link (THI-146 PR 2).
+        pr, ci, pr_url = claude_parser._gh_pr(cwd, branch) if branch else (None, None, None)
+        # Repo URL is computed independently of PR existence so the in-pane
+        # `PR #N` linkifier still has a base URL on branches with no open
+        # PR. Pure local git, cached 5 min.
+        repo_url = claude_parser._git_repo_url(cwd) if cwd else None
+        # THI-243: repo toplevel + display label, used by the grouping-mode
+        # toggle to bucket panes in the discovery view. Cached 60 s — long
+        # enough to absorb noise, short enough that a freshly-opened pane
+        # in a new repo appears quickly.
+        repo_key = claude_parser._git_repo_root(cwd) if cwd else None
+        repo_label = os.path.basename(repo_key.rstrip("/")) if repo_key else None
+
+        idx = _to_int(row.window_index)
+        windows.append(
+            Window(
+                id=f"{name}:{idx}",
+                pane_id=row.pane_id or "",
+                session=name,
+                index=idx,
+                name=row.window_name or "",
+                kind=kind,
+                status=status,
+                last_activity=_to_int(row.window_activity) * 1000,
+                cmd=cmd,
+                cwd=cwd,
+                pending_input=pending,
+                branch=branch,
+                pr=pr,
+                pr_url=pr_url,
+                ci=ci,
+                repo_url=repo_url,
+                repo_key=repo_key,
+                repo_label=repo_label,
+                agent=agent,
+                preview=capture[-8:] if capture else [],
+            )
+        )
 
     return StateResponse(sessions=sessions, windows=windows, server_running=True)
 
