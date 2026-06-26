@@ -39,7 +39,11 @@ jobs:
         run: uv run ruff check .
 
       - name: ty check
-        run: uvx ty check
+        # Pin the ty version: `uvx ty` (unpinned) pulls whatever is newest at
+        # run time, and newer ty releases flag pre-existing `# ty: ignore`
+        # directives as unused — turning CI red on unrelated PRs without any
+        # code change. Bump this deliberately.
+        run: uvx ty@0.0.35 check
 
       - name: pytest
         run: uv run pytest
