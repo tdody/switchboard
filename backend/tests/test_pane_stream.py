@@ -187,6 +187,80 @@ def test_install_fifo_cleanup_hook_is_idempotent(monkeypatch) -> None:
     assert pane_stream._atexit_hooked is True
 
 
+# --- FIFO read-fd release on disconnect (FD-leak regression) ----------------
+
+
+def _count_open_fds() -> int:
+    """Open file descriptors for this process. `/dev/fd` is present on both
+    macOS and Linux; listing it is symmetric across the before/after samples so
+    any transient fd the listing itself uses cancels out."""
+    return len(os.listdir("/dev/fd"))
+
+
+def test_run_releases_fifo_read_fd_on_ws_disconnect(monkeypatch, tmp_path) -> None:
+    """Regression: a pane stream torn down by a WebSocket disconnect must
+    release its FIFO read fd.
+
+    `run()` transfers the read fd into an asyncio read transport via
+    `connect_read_pipe` (and sets the bare `fd` to -1). Before the fix the
+    `finally` block only guarded the now-dead `fd` and never closed that
+    transport, so on disconnect — when the tmux `cat` writer is still alive and
+    no EOF arrives — the read fd leaked (one per connection; the `.fifo` is
+    unlinked but the fd stays open). This test models that exact path: the
+    FIFO writer is held open throughout, so the read fd can only be released by
+    an explicit transport close in teardown.
+    """
+    monkeypatch.setattr(pane_stream, "_FIFO_DIR", str(tmp_path))
+
+    writer = {"fd": None}
+
+    class _FakeSrv:
+        def cmd(self, *args: object) -> None:
+            # `pipe-pane -O -t TARGET 'cat > <fifo>'` installs the writer.
+            # Emulate tmux's `cat` by opening the FIFO write side and KEEPING it
+            # open (no EOF), then priming one chunk so the read loop advances.
+            # The toggle-off form (`pipe-pane -t TARGET`) is intentionally a
+            # no-op: we keep the writer alive to model the no-EOF disconnect.
+            if len(args) >= 5 and args[0] == "pipe-pane":
+                path = str(args[-1]).split("> ", 1)[1].strip()
+                writer["fd"] = os.open(path, os.O_WRONLY)
+                os.write(writer["fd"], b"hello world\r\n")
+
+    class _DisconnectWS:
+        async def send_text(self, text: str) -> None:  # snapshot is empty; unused
+            raise AssertionError("snapshot should be empty in this test")
+
+        async def send_bytes(self, data: bytes) -> None:
+            raise ConnectionError("client disconnected")
+
+    monkeypatch.setattr(pane_stream.tmux, "capture_pane", lambda *a, **k: [])
+    monkeypatch.setattr(pane_stream.tmux, "pane_kind", lambda *a, **k: "shell")
+    monkeypatch.setattr(pane_stream.tmux, "get_server", lambda: _FakeSrv())
+
+    async def _run() -> None:
+        before = _count_open_fds()
+        streamer = PaneStreamer(session="s", index=0, ws=_DisconnectWS())
+        await streamer.run()
+        # `transport.close()` removes the loop reader synchronously but closes
+        # the pipe fd via a scheduled callback — drain a few loop iterations so
+        # that runs. (With the bug present nothing is scheduled, so draining
+        # frees nothing and the assertion still fails.)
+        for _ in range(3):
+            await asyncio.sleep(0)
+        # Release the writer we held open to model the live tmux `cat`, so the
+        # only fd that could survive teardown is a leaked read fd. No `await`
+        # between here and the measurement, so the buggy path can't sneak in a
+        # late EOF-driven close.
+        if writer["fd"] is not None:
+            os.close(writer["fd"])
+        after = _count_open_fds()
+        assert after == before, f"leaked {after - before} fd(s) on disconnect"
+        # The FIFO file itself must also be unlinked (already handled today).
+        assert not list(tmp_path.glob("sb-pane-*.fifo"))
+
+    asyncio.run(_run())
+
+
 # ---------------------------------------------------------------------------
 # Screen/tmux title-set stripping (`ESC k … ESC \`)
 # ---------------------------------------------------------------------------
