@@ -508,10 +508,28 @@ export function TerminalModal({ window: win, onClose, onToast, onKill }: Props) 
       window.clearTimeout(scrollbarTimer);
       dataSub?.dispose();
       if (ws) {
-        try {
-          ws.close();
-        } catch {
-          /* already closed */
+        // Bind a non-null local so the deferred onopen closure below keeps the
+        // narrowing (the outer `ws` is a reassignable let).
+        const sock = ws;
+        // Detach handlers first so a late open/message/close can't write to the
+        // disposed terminal or kick off reconnect logic after teardown.
+        sock.onmessage = null;
+        sock.onerror = null;
+        sock.onclose = null;
+        if (sock.readyState === WebSocket.CONNECTING) {
+          // Closing a socket mid-handshake makes the browser log "WebSocket is
+          // closed before the connection is established". Defer the close to
+          // onopen so it closes cleanly once connected. React StrictMode's
+          // mount→unmount→mount churn hits this on every modal open in dev; a
+          // genuine fast close (dismiss before connect) can too.
+          sock.onopen = () => sock.close();
+        } else {
+          sock.onopen = null;
+          try {
+            sock.close();
+          } catch {
+            /* already closed */
+          }
         }
       }
       wsRef.current = null;
