@@ -670,7 +670,7 @@ def new_window(session: str, name: str, *, cwd: str | None = None) -> int | None
         if cwd:
             args.extend(["-c", cwd])
         args.extend(["-P", "-F", "#{window_index}"])
-        result = srv.cmd(*args)  # ty: ignore
+        result = srv.cmd(*args)
         if result.stderr and any(result.stderr):
             return None
         out = [line for line in (result.stdout or []) if line.strip()]
