@@ -130,7 +130,7 @@ if [[ -d backend && $run_backend -eq 1 ]]; then
   echo "backend:"
   run_step backend "ruff format --check" uv run ruff format --check .
   run_step backend "ruff check" uv run ruff check .
-  run_step backend "ty check" uvx ty check
+  run_step backend "ty check" uvx ty@0.0.35 check  # pinned — see ci.yml
   run_step backend "pytest" uv run pytest -q
 elif [[ -d backend ]]; then
   printf "backend:  ${DIM}skipped — no backend/ changes${RST}\n"

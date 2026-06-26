@@ -417,6 +417,72 @@ def test_rename_session_false_without_server(monkeypatch) -> None:
     assert tmux.rename_session("dev", "feat") is False
 
 
+# --- batched list-panes / list-clients parsers (perf: one subprocess instead
+# of libtmux's per-window/per-pane fan-out) ----------------------------------
+
+
+def test_parse_pane_rows_parses_delimited_fields() -> None:
+    sep = tmux._PANE_FIELD_SEP
+    lines = [
+        sep.join(["main", "1", "1700000000", "0", "shell", "1700000100", "%1", "zsh", "/home/u"]),
+        sep.join(
+            ["main", "1", "1700000000", "2", "claude-x", "1700000200", "%4", "claude", "/home/u/p"]
+        ),
+    ]
+    rows = tmux._parse_pane_rows(lines)
+    assert len(rows) == 2
+    assert rows[0].session == "main"
+    assert rows[0].session_attached == "1"
+    assert rows[0].session_created == "1700000000"
+    assert rows[0].window_index == "0"
+    assert rows[0].window_name == "shell"
+    assert rows[0].window_activity == "1700000100"
+    assert rows[0].pane_id == "%1"
+    assert rows[0].cmd == "zsh"
+    assert rows[0].cwd == "/home/u"
+    assert rows[1].window_name == "claude-x"
+    assert rows[1].cmd == "claude"
+    assert rows[1].cwd == "/home/u/p"
+
+
+def test_parse_pane_rows_skips_blank_and_malformed_lines() -> None:
+    sep = tmux._PANE_FIELD_SEP
+    rows = tmux._parse_pane_rows(["", sep.join(["too", "few", "fields"])])
+    assert rows == []
+
+
+def test_parse_pane_rows_preserves_spaces_in_names_and_paths() -> None:
+    sep = tmux._PANE_FIELD_SEP
+    line = sep.join(
+        ["my sess", "0", "1", "0", "win name", "1", "%9", "zsh", "/home/My Documents/x"]
+    )
+    rows = tmux._parse_pane_rows([line])
+    assert rows[0].session == "my sess"
+    assert rows[0].window_name == "win name"
+    assert rows[0].cwd == "/home/My Documents/x"
+
+
+def test_parse_clients_grouped_by_session() -> None:
+    sep = tmux._PANE_FIELD_SEP
+    lines = [
+        sep.join(["main", "/dev/ttys001", "xterm", "1700000000"]),
+        sep.join(["main", "/dev/ttys002", "screen", "1700000050"]),
+        sep.join(["work", "/dev/ttys003", "xterm-256color", "1700000099"]),
+    ]
+    by_session = tmux._parse_clients_grouped(lines)
+    assert set(by_session) == {"main", "work"}
+    assert len(by_session["main"]) == 2
+    assert by_session["main"][0].tty == "/dev/ttys001"
+    assert by_session["main"][0].term == "xterm"
+    assert by_session["main"][0].since == 1700000000 * 1000  # epoch s → ms
+    assert by_session["work"][0].tty == "/dev/ttys003"
+
+
+def test_parse_clients_grouped_skips_malformed() -> None:
+    sep = tmux._PANE_FIELD_SEP
+    assert tmux._parse_clients_grouped(["", sep.join(["main", "/dev/ttys001"])]) == {}
+
+
 # --- collect_state: filter `sb-usage-*` + race-tolerate per-session failures
 # (THI-110 commit 3 follow-up). The /usage scrape creates `sb-usage-<uuid8>`
 # headless tmux sessions; if /api/state polls between the scrape's
@@ -426,158 +492,167 @@ def test_rename_session_false_without_server(monkeypatch) -> None:
 # than crashing the whole state poll.
 
 
-def _fake_session(name: str, *, windows_raises: bool = False):
-    """Build a minimal stand-in for a libtmux Session that doesn't need a
-    live tmux server. `windows_raises=True` simulates the race where the
-    session disappeared between srv.sessions and s.windows."""
-
-    class _Win:
-        window_index = "0"
-        window_name = "shell"
-        window_activity = 0
-        active_pane = None  # collect_state's `if pane is None: continue` skips
-
-    class _S:
-        session_name = name
-        session_attached = "0"
-        session_created = "0"
-
-        @property
-        def windows(self):
-            if windows_raises:
-                from libtmux import exc
-
-                raise exc.LibTmuxException("session not found")
-            return [_Win()]
-
-    return _S()
+def _pane_line(
+    session: str,
+    index: str,
+    name: str = "shell",
+    pane_id: str = "%1",
+    cmd: str = "zsh",
+    cwd: str = "",
+    attached: str = "0",
+    created: str = "0",
+    activity: str = "0",
+) -> str:
+    """Build one `tmux list-panes -F` row in collect_state's batched format."""
+    sep = tmux._PANE_FIELD_SEP
+    return sep.join([session, attached, created, index, name, activity, pane_id, cmd, cwd])
 
 
-def _fake_server(sessions):
-    """Wraps a sessions list in a libtmux-shaped object. The list_clients
-    call inside collect_state hits `srv.cmd`; stub it to return empty."""
+class _FakeCmdServer:
+    """Stand-in for a libtmux Server that answers the batched `cmd(...)` calls
+    collect_state now makes (list-panes / list-clients / capture-pane) from
+    canned output, and counts capture-pane invocations for the cache tests."""
 
-    def cmd(*_args, **_kwargs):
+    def __init__(
+        self,
+        *,
+        panes: list[str] | None = None,
+        clients: list[str] | None = None,
+        capture: list[str] | None = None,
+        raise_on: str | None = None,
+    ) -> None:
+        self._panes = panes or []
+        self._clients = clients or []
+        self._capture = capture or []
+        self._raise_on = raise_on
+        self.capture_calls = 0
+
+    def cmd(self, *args, **_kwargs):
+        sub = args[0] if args else ""
+        if sub == self._raise_on:
+            raise RuntimeError("racing tmux command failed")
+        if sub == "list-panes":
+            return SimpleNamespace(stdout=list(self._panes), stderr=[])
+        if sub == "list-clients":
+            return SimpleNamespace(stdout=list(self._clients), stderr=[])
+        if sub == "capture-pane":
+            self.capture_calls += 1
+            return SimpleNamespace(stdout=list(self._capture), stderr=[])
         return SimpleNamespace(stdout=[], stderr=[])
-
-    return SimpleNamespace(sessions=sessions, cmd=cmd)
 
 
 def test_collect_state_skips_sb_usage_sessions(monkeypatch) -> None:
     """`sb-usage-<uuid8>` sessions are internal — must never appear in the
-    state response."""
-    srv = _fake_server(
-        [
-            _fake_session("main"),
-            _fake_session("sb-usage-deadbeef"),
-            _fake_session("agents"),
+    state response (neither as a session card nor as windows)."""
+    srv = _FakeCmdServer(
+        panes=[
+            _pane_line("main", "0", pane_id="%1"),
+            _pane_line("sb-usage-deadbeef", "0", pane_id="%2"),
+            _pane_line("agents", "0", pane_id="%3"),
         ]
     )
     monkeypatch.setattr(tmux, "get_server", lambda: srv)
+    tmux.reset_capture_cache()
     state = tmux.collect_state()
     names = [s.name for s in state.sessions]
     assert names == ["main", "agents"]
-    # And no windows from those sessions either (defense-in-depth).
     assert all(w.session != "sb-usage-deadbeef" for w in state.windows)
 
 
-def test_collect_state_tolerates_per_session_libtmux_error(monkeypatch) -> None:
-    """A session that vanishes between `srv.sessions` and `s.windows`
-    (the user runs `tmux kill-session` from a shell) must NOT 500 the
-    /api/state endpoint — the racing session is silently dropped and
-    the other sessions continue to render."""
-    srv = _fake_server(
-        [
-            _fake_session("main"),
-            _fake_session("vanishing", windows_raises=True),
-            _fake_session("agents"),
+def test_collect_state_emits_one_session_card_per_session(monkeypatch) -> None:
+    """A session with multiple windows yields one Session card (deduped on
+    first sighting of any of its panes) plus one Window per active pane."""
+    srv = _FakeCmdServer(
+        panes=[
+            _pane_line("main", "0", pane_id="%1"),
+            _pane_line("main", "1", pane_id="%2"),
+            _pane_line("work", "0", pane_id="%3"),
         ]
     )
     monkeypatch.setattr(tmux, "get_server", lambda: srv)
-    # Must not raise — the bad session is skipped, others render.
+    tmux.reset_capture_cache()
     state = tmux.collect_state()
-    # `vanishing` was already appended to `sessions` before the windows
-    # query failed (that ordering matches the existing collect_state
-    # loop); the windows from `vanishing` are just absent.
-    assert "vanishing" in [s.name for s in state.sessions]
-    assert all(w.session != "vanishing" for w in state.windows)
+    assert [s.name for s in state.sessions] == ["main", "work"]
+    assert sorted((w.session, w.index) for w in state.windows) == [
+        ("main", 0),
+        ("main", 1),
+        ("work", 0),
+    ]
+
+
+def test_collect_state_tolerates_a_failing_list_panes_call(monkeypatch) -> None:
+    """A racing tmux teardown that makes `list-panes` error must NOT 500 the
+    /api/state poll — collect_state degrades to an empty (but server-running)
+    state instead of raising."""
+    srv = _FakeCmdServer(raise_on="list-panes")
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+    tmux.reset_capture_cache()
+    state = tmux.collect_state()  # must not raise
+    assert state.server_running is True
+    assert state.windows == []
+
+
+def test_collect_state_skips_malformed_pane_rows(monkeypatch) -> None:
+    """A truncated row (pane vanished mid-format) is skipped; valid rows on
+    either side still render."""
+    sep = tmux._PANE_FIELD_SEP
+    srv = _FakeCmdServer(
+        panes=[
+            _pane_line("main", "0", pane_id="%1"),
+            sep.join(["broken", "only", "three"]),  # short → skipped
+            _pane_line("agents", "0", pane_id="%3"),
+        ]
+    )
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+    tmux.reset_capture_cache()
+    state = tmux.collect_state()
+    assert [s.name for s in state.sessions] == ["main", "agents"]
+
+
+def test_collect_state_populates_session_clients(monkeypatch) -> None:
+    """Clients come from one batched list-clients call, grouped onto their
+    session, and a session with a client reads as attached."""
+    srv = _FakeCmdServer(
+        panes=[_pane_line("main", "0", pane_id="%1", attached="0")],
+        clients=[tmux._PANE_FIELD_SEP.join(["main", "/dev/ttys001", "xterm", "1700000000"])],
+    )
+    monkeypatch.setattr(tmux, "get_server", lambda: srv)
+    tmux.reset_capture_cache()
+    state = tmux.collect_state()
+    sess = state.sessions[0]
+    assert sess.attached is True  # has a client even though session_attached="0"
+    assert len(sess.clients) == 1
+    assert sess.clients[0].tty == "/dev/ttys001"
 
 
 # ---------------------------------------------------------------------------
-# THI-181: cache pane.capture_pane() under modal-open polling
+# THI-181: cache capture-pane under modal-open polling
 # ---------------------------------------------------------------------------
-
-
-def _capturing_session(pane_id: str, capture_value: list[str]):
-    """A fake libtmux session whose single window has a pane that records
-    every capture_pane() invocation. Used to assert the THI-181 cache."""
-
-    class _Pane:
-        def __init__(self) -> None:
-            self.pane_id = pane_id
-            self.pane_current_command = "zsh"
-            self.pane_current_path = ""
-            self.capture_calls = 0
-
-        def capture_pane(self):
-            self.capture_calls += 1
-            return list(capture_value)
-
-    pane = _Pane()
-
-    class _Win:
-        window_index = "0"
-        window_name = "shell"
-        window_activity = 0
-        active_pane = pane
-
-    win = _Win()
-
-    class _S:
-        session_name = "main"
-        session_attached = "0"
-        session_created = "0"
-
-        @property
-        def windows(self) -> list[object]:
-            return [win]
-
-    return _S(), pane
-
-
-def _stub_git_and_gh(monkeypatch) -> None:
-    monkeypatch.setattr(tmux.claude_parser, "_git_branch", lambda cwd: None)
-    monkeypatch.setattr(tmux.claude_parser, "_gh_pr", lambda cwd, branch: (None, None, None))
-    monkeypatch.setattr(tmux.claude_parser, "_git_repo_url", lambda cwd: None)
 
 
 def test_collect_state_caches_pane_capture_within_ttl(monkeypatch) -> None:
     """Two collect_state() calls inside the cache window must fire only one
-    pane.capture_pane() subprocess (THI-181). MODAL_OPEN_POLL_MS=500ms on the
+    capture-pane subprocess (THI-181). MODAL_OPEN_POLL_MS=500ms on the
     frontend, so a cache TTL near that range halves capture-pane load while
     a modal is open without staling preview meaningfully."""
-    session, pane = _capturing_session("%17", ["a", "b"])
-    srv = _fake_server([session])
+    srv = _FakeCmdServer(panes=[_pane_line("main", "0", pane_id="%17")], capture=["a", "b"])
     monkeypatch.setattr(tmux, "get_server", lambda: srv)
-    _stub_git_and_gh(monkeypatch)
     tmux.reset_capture_cache()  # isolate from prior tests
 
     tmux.collect_state()
     tmux.collect_state()
 
-    assert pane.capture_calls == 1
+    assert srv.capture_calls == 1
 
 
 def test_collect_state_recaptures_pane_after_ttl_expiry(monkeypatch) -> None:
     """When the cache entry is older than the TTL, the next collect_state()
-    must re-run pane.capture_pane(). Otherwise stale captures would persist
-    forever after the pane changed."""
+    must re-run capture-pane. Otherwise stale captures would persist forever
+    after the pane changed."""
     import time as _time
 
-    session, pane = _capturing_session("%17", ["a"])
-    srv = _fake_server([session])
+    srv = _FakeCmdServer(panes=[_pane_line("main", "0", pane_id="%17")], capture=["a"])
     monkeypatch.setattr(tmux, "get_server", lambda: srv)
-    _stub_git_and_gh(monkeypatch)
     # Tiny TTL so the test doesn't have to actually sleep half a second.
     monkeypatch.setattr(tmux, "_CAPTURE_CACHE_TTL_S", 0.01)
     tmux.reset_capture_cache()
@@ -586,4 +661,4 @@ def test_collect_state_recaptures_pane_after_ttl_expiry(monkeypatch) -> None:
     _time.sleep(0.03)
     tmux.collect_state()
 
-    assert pane.capture_calls == 2
+    assert srv.capture_calls == 2
